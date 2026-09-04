@@ -114,7 +114,7 @@ frontend/src/
 
 ```
 
-````markdown
+```markdown
 ## Running the Frontend
 
 ### Requirements
@@ -124,11 +124,9 @@ frontend/src/
 
 ### Install
 
-````bash
 cd frontend
 npm install
 
-```markdown
 ## Current Frontend Features
 
 - Responsive operations dashboard
@@ -146,5 +144,8 @@ npm install
 - Accessible form error relationships
 - Reduced-motion support
 - Unit and component tests
-````
-````
+```
+
+```
+
+```
