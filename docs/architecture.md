@@ -6,7 +6,8 @@ OpsFlow is currently in its initial repository setup phase.
 
 ## Target Architecture
 
-A distributed cloud-native platform consisting of:
+The application will evolve into a distributed cloud-native platform
+consisting of:
 
 - React and TypeScript SPA
 - Python FastAPI services
