@@ -1,6 +1,10 @@
-export type ServiceStatus = "Healthy" | "Degraded" | "Critical";
+export const SERVICE_STATUSES = ["Healthy", "Degraded", "Critical"] as const;
 
-export type ServiceFilterStatus = "All" | ServiceStatus;
+export type ServiceStatus = (typeof SERVICE_STATUSES)[number];
+
+export const SERVICE_FILTER_STATUSES = ["All", ...SERVICE_STATUSES] as const;
+
+export type ServiceFilterStatus = (typeof SERVICE_FILTER_STATUSES)[number];
 
 export type AccentTone = "primary" | "success" | "warning" | "danger";
 
@@ -21,6 +25,14 @@ export interface Service {
   latencyMs: number;
 }
 
+export interface ServiceDetails extends Service {
+  description: string;
+  region: string;
+  version: string;
+  lastDeployedAt: string;
+  dependencies: string[];
+}
+
 export type AsyncState<T> =
   | {
       status: "loading";
@@ -37,3 +49,13 @@ export type AsyncState<T> =
       data: null;
       error: string;
     };
+
+export function isServiceFilterStatus(
+  value: string | null,
+): value is ServiceFilterStatus {
+  if (value === null) {
+    return false;
+  }
+
+  return (SERVICE_FILTER_STATUSES as readonly string[]).includes(value);
+}

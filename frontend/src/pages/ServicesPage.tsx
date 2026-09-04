@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router";
 
 import EmptyState from "../components/ui/EmptyState";
 import ErrorState from "../components/ui/ErrorState";
@@ -8,80 +8,72 @@ import PageHeader from "../components/PageHeader";
 import ServiceFilters from "../components/ServiceFilters";
 import ServiceTable from "../components/ServiceTable";
 
-import { getServices } from "../services/serviceClient";
+import { useServices } from "../hooks/useServices";
 
-import type {
-  AsyncState,
-  Service,
-  ServiceFilterStatus,
-} from "../types/dashboard";
+import { isServiceFilterStatus } from "../types/dashboard";
 
-const initialRequestState: AsyncState<Service[]> = {
-  status: "loading",
-  data: null,
-  error: null,
-};
+import type { ServiceFilterStatus } from "../types/dashboard";
 
 export default function ServicesPage() {
-  const [requestState, setRequestState] =
-    useState<AsyncState<Service[]>>(initialRequestState);
+  const { requestState, retry } = useServices();
 
-  const [searchTerm, setSearchTerm] = useState("");
+  const [searchParams, setSearchParams] = useSearchParams();
 
-  const [statusFilter, setStatusFilter] = useState<ServiceFilterStatus>("All");
+  const searchTerm = searchParams.get("q") ?? "";
 
-  const [reloadKey, setReloadKey] = useState(0);
+  const statusParameter = searchParams.get("status");
 
-  useEffect(() => {
-    let ignore = false;
+  const statusFilter: ServiceFilterStatus = isServiceFilterStatus(
+    statusParameter,
+  )
+    ? statusParameter
+    : "All";
 
-    async function loadServices() {
-      setRequestState({
-        status: "loading",
-        data: null,
-        error: null,
-      });
+  function handleSearchTermChange(value: string) {
+    setSearchParams(
+      (currentParams) => {
+        const nextParams = new URLSearchParams(currentParams);
 
-      try {
-        const serviceData = await getServices();
-
-        if (!ignore) {
-          setRequestState({
-            status: "success",
-            data: serviceData,
-            error: null,
-          });
+        if (value.trim()) {
+          nextParams.set("q", value);
+        } else {
+          nextParams.delete("q");
         }
-      } catch (error) {
-        if (!ignore) {
-          const message =
-            error instanceof Error
-              ? error.message
-              : "An unexpected error occurred.";
 
-          setRequestState({
-            status: "error",
-            data: null,
-            error: message,
-          });
-        }
-      }
-    }
-
-    void loadServices();
-
-    return () => {
-      ignore = true;
-    };
-  }, [reloadKey]);
-
-  function handleResetFilters() {
-    setSearchTerm("");
-    setStatusFilter("All");
+        return nextParams;
+      },
+      {
+        replace: true,
+      },
+    );
   }
 
-  function handleRetry() {
-    setReloadKey((currentValue) => currentValue + 1);
+  function handleStatusChange(status: ServiceFilterStatus) {
+    setSearchParams(
+      (currentParams) => {
+        const nextParams = new URLSearchParams(currentParams);
+
+        if (status === "All") {
+          nextParams.delete("status");
+        } else {
+          nextParams.set("status", status);
+        }
+
+        return nextParams;
+      },
+      {
+        replace: true,
+      },
+    );
+  }
+
+  function handleResetFilters() {
+    setSearchParams(
+      {},
+      {
+        replace: true,
+      },
+    );
   }
 
   if (requestState.status === "loading") {
@@ -107,7 +99,7 @@ export default function ServicesPage() {
           description="Review the current health and performance of OpsFlow services."
         />
 
-        <ErrorState message={requestState.error} onRetry={handleRetry} />
+        <ErrorState message={requestState.error} onRetry={retry} />
       </>
     );
   }
@@ -126,7 +118,7 @@ export default function ServicesPage() {
   });
 
   return (
-    <section aria-labelledby="services-heading">
+    <section>
       <PageHeader
         eyebrow="Platform health"
         title="Services"
@@ -137,15 +129,15 @@ export default function ServicesPage() {
         searchTerm={searchTerm}
         status={statusFilter}
         resultCount={filteredServices.length}
-        onSearchTermChange={setSearchTerm}
-        onStatusChange={setStatusFilter}
+        onSearchTermChange={handleSearchTermChange}
+        onStatusChange={handleStatusChange}
         onReset={handleResetFilters}
       />
 
       {filteredServices.length === 0 ? (
         <EmptyState
           title="No services found"
-          description="No services match the current search and status filters."
+          description="No services match the current filters."
           actionLabel="Clear filters"
           onAction={handleResetFilters}
         />

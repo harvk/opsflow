@@ -1,5 +1,7 @@
 import type { Service } from "../types/dashboard";
 
+import { Link } from "react-router";
+
 import StatusBadge from "./StatusBadge";
 
 interface ServiceTableProps {
@@ -32,7 +34,14 @@ export default function ServiceTable({ services }: ServiceTableProps) {
           <tbody>
             {services.map((service) => (
               <tr key={service.id}>
-                <th scope="row">{service.name}</th>
+                <th scope="row">
+                  <Link
+                    to={`/services/${service.id}`}
+                    className="fw-semibold text-decoration-none"
+                  >
+                    {service.name}
+                  </Link>
+                </th>
 
                 <td>{service.owner}</td>
 

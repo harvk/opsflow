@@ -1,4 +1,4 @@
-import type { Metric, Service } from "../types/dashboard";
+import type { Metric, ServiceDetails } from "../types/dashboard";
 
 export const dashboardMetrics: Metric[] = [
   {
@@ -31,7 +31,7 @@ export const dashboardMetrics: Metric[] = [
   },
 ];
 
-export const services: Service[] = [
+export const services: ServiceDetails[] = [
   {
     id: "order-api",
     name: "Order API",
@@ -39,6 +39,12 @@ export const services: Service[] = [
     status: "Healthy",
     uptime: "99.99%",
     latencyMs: 118,
+    description:
+      "Processes order creation, validation, and fulfillment workflow requests.",
+    region: "us-east-1",
+    version: "2.8.1",
+    lastDeployedAt: "2026-09-04T13:42:00Z",
+    dependencies: ["Inventory Sync", "Payment Webhook"],
   },
   {
     id: "inventory-sync",
@@ -47,6 +53,12 @@ export const services: Service[] = [
     status: "Degraded",
     uptime: "99.82%",
     latencyMs: 284,
+    description:
+      "Synchronizes warehouse inventory quantities and allocation state across fulfillment systems.",
+    region: "us-east-1",
+    version: "4.3.0",
+    lastDeployedAt: "2026-09-03T21:15:00Z",
+    dependencies: ["Order API"],
   },
   {
     id: "notification-worker",
@@ -55,6 +67,12 @@ export const services: Service[] = [
     status: "Healthy",
     uptime: "99.97%",
     latencyMs: 146,
+    description:
+      "Processes asynchronous customer and operational notification jobs.",
+    region: "us-east-1",
+    version: "1.9.4",
+    lastDeployedAt: "2026-09-04T08:05:00Z",
+    dependencies: [],
   },
   {
     id: "payment-webhook",
@@ -63,5 +81,11 @@ export const services: Service[] = [
     status: "Critical",
     uptime: "98.91%",
     latencyMs: 621,
+    description:
+      "Receives and processes asynchronous payment-provider transaction events.",
+    region: "us-east-1",
+    version: "3.1.7",
+    lastDeployedAt: "2026-09-02T18:30:00Z",
+    dependencies: ["Order API"],
   },
 ];
