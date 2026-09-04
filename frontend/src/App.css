@@ -1,0 +1,488 @@
+.counter {
+  font-size: 16px;
+  padding: 5px 10px;
+  border-radius: 5px;
+  color: var(--accent);
+  background: var(--accent-bg);
+  border: 2px solid transparent;
+  transition: border-color 0.3s;
+  margin-bottom: 24px;
+
+  &:hover {
+    border-color: var(--accent-border);
+  }
+  &:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+.hero {
+  position: relative;
+
+  .base,
+  .framework,
+  .vite {
+    inset-inline: 0;
+    margin: 0 auto;
+  }
+
+  .base {
+    width: 170px;
+    position: relative;
+    z-index: 0;
+  }
+
+  .framework,
+  .vite {
+    position: absolute;
+  }
+
+  .framework {
+    z-index: 1;
+    top: 34px;
+    height: 28px;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(44deg) rotateY(39deg)
+      scale(1.4);
+  }
+
+  .vite {
+    z-index: 0;
+    top: 107px;
+    height: 26px;
+    width: auto;
+    transform: perspective(2000px) rotateZ(300deg) rotateX(40deg) rotateY(39deg)
+      scale(0.8);
+  }
+}
+
+#center {
+  display: flex;
+  flex-direction: column;
+  gap: 25px;
+  place-content: center;
+  place-items: center;
+  flex-grow: 1;
+
+  @media (max-width: 1024px) {
+    padding: 32px 20px 24px;
+    gap: 18px;
+  }
+}
+
+#next-steps {
+  display: flex;
+  border-top: 1px solid var(--border);
+  text-align: left;
+
+  & > div {
+    flex: 1 1 0;
+    padding: 32px;
+    @media (max-width: 1024px) {
+      padding: 24px 20px;
+    }
+  }
+
+  .icon {
+    margin-bottom: 16px;
+    width: 22px;
+    height: 22px;
+  }
+
+  @media (max-width: 1024px) {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+#docs {
+  border-right: 1px solid var(--border);
+
+  @media (max-width: 1024px) {
+    border-right: none;
+    border-bottom: 1px solid var(--border);
+  }
+}
+
+#next-steps ul {
+  list-style: none;
+  padding: 0;
+  display: flex;
+  gap: 8px;
+  margin: 32px 0 0;
+
+  .logo {
+    height: 18px;
+  }
+
+  a {
+    color: var(--text-h);
+    font-size: 16px;
+    border-radius: 6px;
+    background: var(--social-bg);
+    display: flex;
+    padding: 6px 12px;
+    align-items: center;
+    gap: 8px;
+    text-decoration: none;
+    transition: box-shadow 0.3s;
+
+    &:hover {
+      box-shadow: var(--shadow);
+    }
+    .button-icon {
+      height: 18px;
+      width: 18px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    margin-top: 20px;
+    flex-wrap: wrap;
+    justify-content: center;
+
+    li {
+      flex: 1 1 calc(50% - 8px);
+    }
+
+    a {
+      width: 100%;
+      justify-content: center;
+      box-sizing: border-box;
+    }
+  }
+}
+
+#spacer {
+  height: 88px;
+  border-top: 1px solid var(--border);
+  @media (max-width: 1024px) {
+    height: 48px;
+  }
+}
+
+.ticks {
+  position: relative;
+  width: 100%;
+
+  &::before,
+  &::after {
+    content: "";
+    position: absolute;
+    top: -4.5px;
+    border: 5px solid transparent;
+  }
+
+  &::before {
+    left: 0;
+    border-left-color: var(--border);
+  }
+  &::after {
+    right: 0;
+    border-right-color: var(--border);
+  }
+}
+
+/* ------------------------------
+   Branding and navigation
+------------------------------ */
+
+.ops-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  color: var(--ops-text);
+}
+
+.ops-brand:hover {
+  color: var(--ops-text);
+}
+
+/* ------------------------------
+   Shared async/empty states
+------------------------------ */
+
+.ops-state-card {
+  padding: 2rem;
+
+  background: var(--ops-surface);
+
+  border: 1px solid var(--ops-border);
+  border-radius: 1rem;
+
+  box-shadow: 0 0.25rem 1rem rgba(16, 24, 40, 0.05);
+}
+
+.ops-empty-icon {
+  display: grid;
+  place-items: center;
+
+  width: 3rem;
+  height: 3rem;
+
+  border-radius: 50%;
+
+  background: #eef2ff;
+  color: var(--ops-brand);
+
+  font-weight: 700;
+}
+
+/* ------------------------------
+   Tables
+------------------------------ */
+
+.table > :not(caption) > * > * {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.table tbody tr:last-child > * {
+  border-bottom-width: 0;
+}
+
+/* ------------------------------
+   Focus
+------------------------------ */
+
+#main-content:focus {
+  outline: none;
+}
+
+/* ------------------------------
+   Small-screen navigation
+------------------------------ */
+
+@media (max-width: 575.98px) {
+  .app-nav {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-nav .btn {
+    width: 100%;
+  }
+}
+
+/* ------------------------------
+   Application shell
+------------------------------ */
+
+.ops-app-shell {
+  min-height: 100vh;
+}
+
+.ops-app-shell__content {
+  min-width: 0;
+  min-height: 100vh;
+}
+
+.ops-main-content {
+  min-height: 100vh;
+}
+
+/* ------------------------------
+   Sidebar
+------------------------------ */
+
+.ops-sidebar {
+  position: fixed;
+  inset: 0 auto 0 0;
+
+  z-index: 1050;
+
+  display: flex;
+  flex-direction: column;
+
+  width: min(18rem, 85vw);
+  min-height: 100vh;
+
+  padding: 1.25rem;
+
+  background: var(--ops-surface);
+
+  border-right: 1px solid var(--ops-border);
+
+  transform: translateX(-100%);
+}
+
+.ops-sidebar--open {
+  transform: translateX(0);
+}
+
+.ops-sidebar__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  margin-bottom: 2rem;
+}
+
+.ops-sidebar__nav {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.ops-sidebar-link {
+  display: flex;
+  align-items: center;
+
+  padding: 0.75rem 0.9rem;
+
+  color: var(--ops-muted);
+
+  text-decoration: none;
+
+  border-radius: 0.65rem;
+}
+
+.ops-sidebar-link:hover {
+  background: #f2f4f7;
+
+  color: var(--ops-text);
+}
+
+.ops-sidebar-link--active {
+  background: #eef2ff;
+
+  color: var(--ops-brand);
+
+  font-weight: 600;
+}
+
+.ops-sidebar__footer {
+  margin-top: auto;
+
+  padding-top: 1rem;
+
+  border-top: 1px solid var(--ops-border);
+}
+
+.ops-sidebar-backdrop {
+  position: fixed;
+  inset: 0;
+
+  z-index: 1040;
+
+  padding: 0;
+
+  background: rgba(16, 24, 40, 0.45);
+
+  border: 0;
+}
+
+/* ------------------------------
+   Mobile application header
+------------------------------ */
+
+.ops-mobile-header {
+  position: sticky;
+  top: 0;
+
+  z-index: 1030;
+
+  background: rgba(255, 255, 255, 0.96);
+
+  border-bottom: 1px solid var(--ops-border);
+}
+
+/* ------------------------------
+   Desktop shell
+------------------------------ */
+
+@media (min-width: 992px) {
+  .ops-app-shell {
+    display: grid;
+
+    grid-template-columns: 17rem minmax(0, 1fr);
+  }
+
+  .ops-sidebar {
+    position: sticky;
+    top: 0;
+
+    z-index: 1;
+
+    width: auto;
+    height: 100vh;
+
+    transform: none;
+  }
+
+  .ops-main-content {
+    min-height: 100vh;
+  }
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .ops-sidebar {
+    transition: transform 180ms ease;
+  }
+
+  .ops-sidebar-link {
+    transition:
+      background-color 140ms ease,
+      color 140ms ease;
+  }
+}
+
+/* ------------------------------
+   Activity feed
+------------------------------ */
+
+.ops-activity-list {
+  display: grid;
+  gap: 0;
+
+  margin: 0;
+  padding: 0;
+
+  list-style: none;
+}
+
+.ops-activity-item {
+  position: relative;
+
+  padding: 0 0 1.5rem 1.5rem;
+}
+
+.ops-activity-item:not(:last-child)::before {
+  content: "";
+
+  position: absolute;
+
+  top: 0.75rem;
+  bottom: -0.25rem;
+  left: 0.3rem;
+
+  width: 1px;
+
+  background: var(--ops-border);
+}
+
+.ops-activity-item::after {
+  content: "";
+
+  position: absolute;
+
+  top: 0.4rem;
+  left: 0;
+
+  width: 0.65rem;
+  height: 0.65rem;
+
+  background: var(--ops-brand);
+
+  border-radius: 50%;
+}
+
+.ops-activity-item:last-child {
+  padding-bottom: 0;
+}
+
+.ops-sidebar-link:focus-visible {
+  outline: 3px solid var(--ops-focus);
+
+  outline-offset: 2px;
+}
