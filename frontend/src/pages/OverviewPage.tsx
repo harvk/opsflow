@@ -1,5 +1,12 @@
 import MetricCard from "../components/MetricCard";
-import { dashboardMetrics } from "../data/dashboardData";
+import RecentActivity from "../components/RecentActivity";
+import ServiceHealthSummary from "../components/ServiceHealthSummary";
+
+import {
+  dashboardMetrics,
+  recentActivity,
+  services,
+} from "../data/dashboardData";
 
 export default function OverviewPage() {
   return (
@@ -19,17 +26,29 @@ export default function OverviewPage() {
         </p>
       </div>
 
+      <section className="mb-4" aria-label="Key performance indicators">
+        <div className="row g-4">
+          {dashboardMetrics.map((metric) => (
+            <div className="col-12 col-sm-6 col-xl-3" key={metric.id}>
+              <MetricCard
+                label={metric.label}
+                value={metric.value}
+                supportingText={metric.supportingText}
+                accent={metric.accent}
+              />
+            </div>
+          ))}
+        </div>
+      </section>
+
       <div className="row g-4">
-        {dashboardMetrics.map((metric) => (
-          <div className="col-12 col-sm-6 col-xl-3" key={metric.id}>
-            <MetricCard
-              label={metric.label}
-              value={metric.value}
-              supportingText={metric.supportingText}
-              accent={metric.accent}
-            />
-          </div>
-        ))}
+        <div className="col-12 col-xl-8">
+          <RecentActivity activities={recentActivity} />
+        </div>
+
+        <div className="col-12 col-xl-4">
+          <ServiceHealthSummary services={services} />
+        </div>
       </div>
     </section>
   );

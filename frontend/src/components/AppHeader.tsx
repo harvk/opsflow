@@ -1,39 +1,33 @@
-import { NavLink } from "react-router";
+interface AppHeaderProps {
+  isNavigationOpen: boolean;
+  onToggleNavigation: () => void;
+}
 
-export default function AppHeader() {
+export default function AppHeader({
+  isNavigationOpen,
+  onToggleNavigation,
+}: AppHeaderProps) {
   return (
-    <header className="ops-header">
-      <div className="container py-3">
-        <div className="d-flex flex-column flex-lg-row align-items-lg-center justify-content-between gap-3">
-          <NavLink to="/" className="ops-brand text-decoration-none">
-            <span className="ops-brand-mark" aria-hidden="true">
-              O
-            </span>
+    <header className="ops-mobile-header d-lg-none">
+      <div className="container-fluid d-flex align-items-center justify-content-between py-3">
+        <div className="d-flex align-items-center gap-2">
+          <span className="ops-brand-mark" aria-hidden="true">
+            O
+          </span>
 
-            <span className="fw-bold fs-4">OpsFlow</span>
-          </NavLink>
-
-          <nav className="app-nav d-flex gap-2" aria-label="Primary navigation">
-            <NavLink
-              to="/"
-              end
-              className={({ isActive }) =>
-                isActive ? "btn btn-primary" : "btn btn-outline-secondary"
-              }
-            >
-              Overview
-            </NavLink>
-
-            <NavLink
-              to="/services"
-              className={({ isActive }) =>
-                isActive ? "btn btn-primary" : "btn btn-outline-secondary"
-              }
-            >
-              Services
-            </NavLink>
-          </nav>
+          <span className="fw-bold fs-5">OpsFlow</span>
         </div>
+
+        <button
+          type="button"
+          className="btn btn-outline-secondary"
+          aria-controls="primary-navigation"
+          aria-expanded={isNavigationOpen}
+          aria-label="Toggle navigation"
+          onClick={onToggleNavigation}
+        >
+          Menu
+        </button>
       </div>
     </header>
   );

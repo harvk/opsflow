@@ -8,6 +8,23 @@ export type ServiceFilterStatus = (typeof SERVICE_FILTER_STATUSES)[number];
 
 export type AccentTone = "primary" | "success" | "warning" | "danger";
 
+export const ACTIVITY_KINDS = [
+  "deployment",
+  "incident",
+  "recovery",
+  "order",
+] as const;
+
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
+
+export interface ActivityItem {
+  id: string;
+  kind: ActivityKind;
+  title: string;
+  description: string;
+  occurredAt: string;
+}
+
 export interface Metric {
   id: string;
   label: string;

@@ -48,3 +48,19 @@ describe("ServicesPage", () => {
     expect(screen.queryByText("Payment Webhook")).not.toBeInTheDocument();
   });
 });
+
+it("renders an error when service loading fails", async () => {
+  mockedGetServices.mockRejectedValueOnce(
+    new Error("Unable to load services."),
+  );
+
+  render(
+    <MemoryRouter>
+      <ServicesPage />
+    </MemoryRouter>,
+  );
+
+  expect(await screen.findByText(/something went wrong/i)).toBeInTheDocument();
+
+  expect(screen.getByText(/unable to load services/i)).toBeInTheDocument();
+});

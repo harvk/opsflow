@@ -1,4 +1,4 @@
-import type { Metric, ServiceDetails } from "../types/dashboard";
+import type { ActivityItem, Metric, ServiceDetails } from "../types/dashboard";
 
 export const dashboardMetrics: Metric[] = [
   {
@@ -87,5 +87,38 @@ export const services: ServiceDetails[] = [
     version: "3.1.7",
     lastDeployedAt: "2026-09-02T18:30:00Z",
     dependencies: ["Order API"],
+  },
+];
+
+export const recentActivity: ActivityItem[] = [
+  {
+    id: "activity-1",
+    kind: "incident",
+    title: "Payment Webhook entered critical state",
+    description:
+      "Latency exceeded the operational threshold for five consecutive minutes.",
+    occurredAt: "2026-09-04T16:12:00Z",
+  },
+  {
+    id: "activity-2",
+    kind: "deployment",
+    title: "Order API v2.8.1 deployed",
+    description: "Production deployment completed successfully in us-east-1.",
+    occurredAt: "2026-09-04T13:42:00Z",
+  },
+  {
+    id: "activity-3",
+    kind: "recovery",
+    title: "Inventory Sync latency recovering",
+    description: "Average latency returned below 300 milliseconds.",
+    occurredAt: "2026-09-04T12:28:00Z",
+  },
+  {
+    id: "activity-4",
+    kind: "order",
+    title: "Order volume increased",
+    description:
+      "Active order volume is 8.4% higher than the previous operating period.",
+    occurredAt: "2026-09-04T10:15:00Z",
   },
 ];
