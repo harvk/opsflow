@@ -1,0 +1,183 @@
+:root {
+  --ops-background: #f4f7fb;
+  --ops-surface: #ffffff;
+  --ops-text: #182230;
+  --ops-muted: #667085;
+  --ops-border: #e4e7ec;
+  --ops-brand: #3157d5;
+  --ops-focus: #155eef;
+}
+
+html {
+  min-width: 320px;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+
+  background: var(--ops-background);
+  color: var(--ops-text);
+
+  font-family:
+    Inter,
+    ui-sans-serif,
+    system-ui,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    sans-serif;
+}
+
+#root {
+  min-height: 100vh;
+}
+
+/* ------------------------------
+   Accessibility
+------------------------------ */
+
+.skip-link {
+  position: fixed;
+  top: 0.75rem;
+  left: 0.75rem;
+
+  z-index: 2000;
+
+  padding: 0.75rem 1rem;
+
+  background: var(--ops-text);
+  color: white;
+
+  border-radius: 0.5rem;
+
+  transform: translateY(-200%);
+}
+
+.skip-link:focus {
+  transform: translateY(0);
+}
+
+button:focus-visible,
+a:focus-visible {
+  outline: 3px solid var(--ops-focus);
+  outline-offset: 3px;
+}
+
+/* ------------------------------
+   Application header
+------------------------------ */
+
+.ops-header {
+  position: sticky;
+  top: 0;
+
+  z-index: 1020;
+
+  background: rgba(255, 255, 255, 0.96);
+  border-bottom: 1px solid var(--ops-border);
+}
+
+.ops-brand-mark {
+  display: inline-grid;
+  place-items: center;
+
+  width: 2.25rem;
+  height: 2.25rem;
+
+  background: var(--ops-brand);
+  color: white;
+
+  border-radius: 0.65rem;
+
+  font-weight: 700;
+}
+
+/* ------------------------------
+   Dashboard hero
+------------------------------ */
+
+.dashboard-hero {
+  overflow: hidden;
+
+  color: white;
+
+  background: linear-gradient(135deg, #172554 0%, #3157d5 65%, #4f74ea 100%);
+
+  border-radius: 1.5rem;
+
+  box-shadow: 0 1rem 2.5rem rgba(23, 37, 84, 0.14);
+}
+
+/* ------------------------------
+   Metric cards
+------------------------------ */
+
+.ops-stat-card {
+  border-left: 0.3rem solid transparent !important;
+
+  background: var(--ops-surface);
+}
+
+.ops-stat-card--primary {
+  border-left-color: #3157d5 !important;
+}
+
+.ops-stat-card--success {
+  border-left-color: #198754 !important;
+}
+
+.ops-stat-card--warning {
+  border-left-color: #ffc107 !important;
+}
+
+.ops-stat-card--danger {
+  border-left-color: #dc3545 !important;
+}
+
+/* ------------------------------
+   Motion
+------------------------------ */
+
+@media (prefers-reduced-motion: no-preference) {
+  .ops-stat-card {
+    transition:
+      transform 160ms ease,
+      box-shadow 160ms ease;
+  }
+
+  .ops-stat-card:hover {
+    transform: translateY(-3px);
+
+    box-shadow: 0 0.75rem 1.5rem rgba(16, 24, 40, 0.1) !important;
+  }
+
+  .skip-link {
+    transition: transform 160ms ease;
+  }
+}
+
+/* ------------------------------
+   Custom responsive behavior
+------------------------------ */
+
+@media (max-width: 767.98px) {
+  .app-nav {
+    width: 100%;
+  }
+
+  .app-nav .btn {
+    flex: 1;
+  }
+
+  .dashboard-hero {
+    border-radius: 1rem;
+  }
+}
+
+@media (min-width: 992px) {
+  .dashboard-hero {
+    padding-right: 7rem !important;
+  }
+}
