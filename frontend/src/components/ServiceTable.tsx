@@ -1,4 +1,5 @@
 import type { Service } from "../types/dashboard";
+
 import StatusBadge from "./StatusBadge";
 
 interface ServiceTableProps {
@@ -17,9 +18,13 @@ export default function ServiceTable({ services }: ServiceTableProps) {
           <thead className="table-light">
             <tr>
               <th scope="col">Service</th>
+
               <th scope="col">Owner</th>
+
               <th scope="col">Status</th>
+
               <th scope="col">Uptime</th>
+
               <th scope="col">Latency</th>
             </tr>
           </thead>

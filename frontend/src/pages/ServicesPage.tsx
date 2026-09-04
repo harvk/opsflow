@@ -1,20 +1,20 @@
 import { useEffect, useState } from "react";
 
-import EmptyState from "./components/ui/EmptyState";
-import ErrorState from "./components/ui/ErrorState";
-import LoadingState from "./components/ui/LoadingState";
+import EmptyState from "../components/ui/EmptyState";
+import ErrorState from "../components/ui/ErrorState";
+import LoadingState from "../components/ui/LoadingState";
 
-import PageHeader from "./components/PageHeader";
-import ServiceFilters from "./components/ServiceFilters";
-import ServiceTable from "./components/ServiceTable";
+import PageHeader from "../components/PageHeader";
+import ServiceFilters from "../components/ServiceFilters";
+import ServiceTable from "../components/ServiceTable";
 
-import { getServices } from "./services/serviceClient";
+import { getServices } from "../services/serviceClient";
 
 import type {
   AsyncState,
   Service,
   ServiceFilterStatus,
-} from "./types/dashboard";
+} from "../types/dashboard";
 
 const initialRequestState: AsyncState<Service[]> = {
   status: "loading",

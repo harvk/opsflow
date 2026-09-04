@@ -167,7 +167,7 @@
 
   &::before,
   &::after {
-    content: '';
+    content: "";
     position: absolute;
     top: -4.5px;
     border: 5px solid transparent;
@@ -180,5 +180,87 @@
   &::after {
     right: 0;
     border-right-color: var(--border);
+  }
+}
+
+/* ------------------------------
+   Branding and navigation
+------------------------------ */
+
+.ops-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+
+  color: var(--ops-text);
+}
+
+.ops-brand:hover {
+  color: var(--ops-text);
+}
+
+/* ------------------------------
+   Shared async/empty states
+------------------------------ */
+
+.ops-state-card {
+  padding: 2rem;
+
+  background: var(--ops-surface);
+
+  border: 1px solid var(--ops-border);
+  border-radius: 1rem;
+
+  box-shadow: 0 0.25rem 1rem rgba(16, 24, 40, 0.05);
+}
+
+.ops-empty-icon {
+  display: grid;
+  place-items: center;
+
+  width: 3rem;
+  height: 3rem;
+
+  border-radius: 50%;
+
+  background: #eef2ff;
+  color: var(--ops-brand);
+
+  font-weight: 700;
+}
+
+/* ------------------------------
+   Tables
+------------------------------ */
+
+.table > :not(caption) > * > * {
+  padding-top: 1rem;
+  padding-bottom: 1rem;
+}
+
+.table tbody tr:last-child > * {
+  border-bottom-width: 0;
+}
+
+/* ------------------------------
+   Focus
+------------------------------ */
+
+#main-content:focus {
+  outline: none;
+}
+
+/* ------------------------------
+   Small-screen navigation
+------------------------------ */
+
+@media (max-width: 575.98px) {
+  .app-nav {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .app-nav .btn {
+    width: 100%;
   }
 }
