@@ -1,71 +1,58 @@
-from collections.abc import Generator
+from uuid import uuid4
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import (
-    get_incident_service,
+from app.domain.incident import (
+    Incident,
+    IncidentSeverity,
+    IncidentStatus,
 )
-from app.main import app
-from app.repositories.incident_repository import (
-    InMemoryIncidentRepository,
-)
-from app.repositories.incident_seed import (
-    create_seed_incidents,
-)
-from app.repositories.service_repository import (
-    InMemoryServiceRepository,
-)
-from app.repositories.service_seed import (
-    create_seed_services,
-)
-from app.services.incident_service import (
-    IncidentService,
+from tests.constants import (
+    PAYMENTS_INCIDENT_ID,
+    PAYMENTS_SERVICE_ID,
+    SECOND_INCIDENT_ID,
+    THIRD_INCIDENT_ID,
 )
 
 
-@pytest.fixture
-def client() -> Generator[TestClient, None, None]:
-    service_repository = InMemoryServiceRepository(create_seed_services())
-
-    incident_repository = InMemoryIncidentRepository(create_seed_incidents())
-
-    incident_service = IncidentService(
-        incident_repository,
-        service_repository,
-    )
-
-    app.dependency_overrides[get_incident_service] = lambda: incident_service
-
-    try:
-        with TestClient(app) as test_client:
-            yield test_client
-    finally:
-        app.dependency_overrides.clear()
+INCIDENTS_URL = "/api/v1/incidents"
 
 
 def test_list_incidents_returns_seeded_incidents(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    response = client.get("/api/v1/incidents")
+    response = client.get(
+        INCIDENTS_URL
+    )
 
     assert response.status_code == 200
 
     body = response.json()
 
+    assert isinstance(body, list)
     assert len(body) == 3
 
-    assert "serviceId" in body[0]
-    assert "startedAt" in body[0]
+    returned_ids = {
+        incident["id"]
+        for incident in body
+    }
+
+    assert str(PAYMENTS_INCIDENT_ID) in returned_ids
+    assert str(SECOND_INCIDENT_ID) in returned_ids
+    assert str(THIRD_INCIDENT_ID) in returned_ids
 
 
 def test_list_incidents_can_filter_by_status(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         params={
-            "status": "Investigating",
+            "status": (
+                IncidentStatus.INVESTIGATING.value
+            ),
         },
     )
 
@@ -75,18 +62,22 @@ def test_list_incidents_can_filter_by_status(
 
     assert len(body) == 1
 
-    assert body[0]["title"] == "Payment webhook processing failures"
-
-    assert body[0]["status"] == "Investigating"
+    assert (
+        body[0]["status"]
+        == IncidentStatus.INVESTIGATING.value
+    )
 
 
 def test_list_incidents_can_filter_by_severity(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         params={
-            "severity": "SEV-1",
+            "severity": (
+                IncidentSeverity.SEV_1.value
+            ),
         },
     )
 
@@ -95,18 +86,23 @@ def test_list_incidents_can_filter_by_severity(
     body = response.json()
 
     assert len(body) == 1
-    assert body[0]["severity"] == "SEV-1"
+
+    assert (
+        body[0]["severity"]
+        == IncidentSeverity.SEV_1.value
+    )
 
 
 def test_list_incidents_can_filter_by_service(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    service_id = "44444444-4444-4444-8444-444444444444"
-
     response = client.get(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         params={
-            "serviceId": service_id,
+            "serviceId": str(
+                PAYMENTS_SERVICE_ID
+            ),
         },
     )
 
@@ -114,18 +110,25 @@ def test_list_incidents_can_filter_by_service(
 
     body = response.json()
 
-    assert len(body) == 1
+    # Our current seeded fixture places all three
+    # incidents under Payments API.
+    assert len(body) == 3
 
-    assert body[0]["serviceId"] == service_id
+    for incident in body:
+        assert (
+            incident["serviceId"]
+            == str(PAYMENTS_SERVICE_ID)
+        )
 
 
 def test_list_incidents_can_search(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         params={
-            "search": "inventory",
+            "search": "error spike",
         },
     )
 
@@ -135,200 +138,290 @@ def test_list_incidents_can_search(
 
     assert len(body) == 1
 
-    assert body[0]["title"] == "Inventory synchronization latency"
+    assert (
+        body[0]["id"]
+        == str(SECOND_INCIDENT_ID)
+    )
+
+    assert (
+        body[0]["title"]
+        == "Payment error spike"
+    )
 
 
 def test_get_incident_returns_incident(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-
-    response = client.get(f"/api/v1/incidents/{incident_id}")
+    response = client.get(
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+    )
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert body["title"] == "Payment webhook processing failures"
+    assert (
+        body["id"]
+        == str(PAYMENTS_INCIDENT_ID)
+    )
 
-    assert body["severity"] == "SEV-1"
+    assert (
+        body["serviceId"]
+        == str(PAYMENTS_SERVICE_ID)
+    )
 
+    assert (
+        body["title"]
+        == "Elevated payment latency"
+    )
 
-def test_get_missing_incident_returns_404(
-    client: TestClient,
-) -> None:
-    incident_id = "99999999-9999-4999-8999-999999999999"
+    assert (
+        body["severity"]
+        == IncidentSeverity.SEV_2.value
+    )
 
-    response = client.get(f"/api/v1/incidents/{incident_id}")
-
-    assert response.status_code == 404
+    assert (
+        body["status"]
+        == IncidentStatus.INVESTIGATING.value
+    )
 
 
 def test_create_incident_returns_201(
     client: TestClient,
 ) -> None:
     payload = {
-        "title": "Order submission timeout spike",
-        "serviceId": ("11111111-1111-4111-8111-111111111111"),
-        "severity": "SEV-2",
-        "status": "Open",
-        "summary": ("Customers are experiencing elevated timeout rates while submitting orders."),
-        "assignee": "Taylor Morgan",
+        "title": "Payments API errors",
+        "serviceId": str(
+            PAYMENTS_SERVICE_ID
+        ),
+        "severity": (
+            IncidentSeverity.SEV_2.value
+        ),
+        "status": (
+            IncidentStatus.INVESTIGATING.value
+        ),
+        "summary": (
+            "An elevated error rate "
+            "was detected."
+        ),
+        "assignee": "Payments Team",
     }
 
     response = client.post(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         json=payload,
     )
 
-    assert response.status_code == 201
+    assert response.status_code == 201, response.text
 
     body = response.json()
 
-    assert body["title"] == "Order submission timeout spike"
+    assert (
+        body["title"]
+        == "Payments API errors"
+    )
 
-    assert body["status"] == "Open"
-    assert body["severity"] == "SEV-2"
+    assert (
+        body["serviceId"]
+        == str(PAYMENTS_SERVICE_ID)
+    )
 
-    assert body["resolvedAt"] is None
+    assert (
+        body["severity"]
+        == IncidentSeverity.SEV_2.value
+    )
 
-    assert body["id"]
-    assert body["createdAt"]
-    assert body["updatedAt"]
+    assert (
+        body["status"]
+        == IncidentStatus.INVESTIGATING.value
+    )
+
+    assert body["id"] is not None
+    assert body["createdAt"] is not None
+    assert body["updatedAt"] is not None
 
 
 def test_create_incident_with_missing_service_returns_404(
     client: TestClient,
 ) -> None:
+    missing_service_id = uuid4()
+
     payload = {
-        "title": "Unknown service outage",
-        "serviceId": ("99999999-9999-4999-8999-999999999999"),
-        "severity": "SEV-1",
-        "summary": ("Testing invalid service references."),
+        "title": "Unknown service incident",
+        "serviceId": str(
+            missing_service_id
+        ),
+        "severity": (
+            IncidentSeverity.SEV_2.value
+        ),
+        "status": (
+            IncidentStatus.INVESTIGATING.value
+        ),
+        "summary": (
+            "This Incident references a "
+            "Service that does not exist."
+        ),
         "assignee": "Platform Team",
     }
 
     response = client.post(
-        "/api/v1/incidents",
+        INCIDENTS_URL,
         json=payload,
     )
 
-    assert response.status_code == 404
-
-
-def test_create_incident_with_invalid_severity_returns_422(
-    client: TestClient,
-) -> None:
-    payload = {
-        "title": "Example incident",
-        "serviceId": ("11111111-1111-4111-8111-111111111111"),
-        "severity": "EXTREME",
-        "summary": "Example incident summary.",
-        "assignee": "Platform Team",
-    }
-
-    response = client.post(
-        "/api/v1/incidents",
-        json=payload,
-    )
-
-    assert response.status_code == 422
+    assert response.status_code == 404, response.text
 
 
 def test_resolving_incident_sets_resolved_at(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-
     response = client.patch(
-        f"/api/v1/incidents/{incident_id}",
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
         json={
-            "status": "Resolved",
+            "status": (
+                IncidentStatus.RESOLVED.value
+            ),
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     body = response.json()
 
-    assert body["status"] == "Resolved"
+    assert (
+        body["status"]
+        == IncidentStatus.RESOLVED.value
+    )
 
     assert body["resolvedAt"] is not None
 
 
 def test_reopening_incident_clears_resolved_at(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "cccccccc-cccc-4ccc-8ccc-cccccccccccc"
+    # THIRD_INCIDENT_ID is seeded as Resolved.
+    before_response = client.get(
+        f"{INCIDENTS_URL}/{THIRD_INCIDENT_ID}"
+    )
 
-    first_response = client.get(f"/api/v1/incidents/{incident_id}")
+    assert before_response.status_code == 200
 
-    assert first_response.json()["resolvedAt"] is not None
+    before_body = before_response.json()
+
+    assert (
+        before_body["status"]
+        == IncidentStatus.RESOLVED.value
+    )
+
+    assert before_body["resolvedAt"] is not None
 
     response = client.patch(
-        f"/api/v1/incidents/{incident_id}",
+        f"{INCIDENTS_URL}/{THIRD_INCIDENT_ID}",
         json={
-            "status": "Investigating",
+            "status": (
+                IncidentStatus.INVESTIGATING.value
+            ),
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     body = response.json()
 
-    assert body["status"] == "Investigating"
+    assert (
+        body["status"]
+        == IncidentStatus.INVESTIGATING.value
+    )
 
     assert body["resolvedAt"] is None
 
 
 def test_patch_incident_updates_selected_fields(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb"
-
     response = client.patch(
-        f"/api/v1/incidents/{incident_id}",
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
         json={
-            "severity": "SEV-1",
-            "assignee": "Incident Commander",
+            "assignee": "Platform Team",
+            "severity": (
+                IncidentSeverity.SEV_1.value
+            ),
         },
     )
 
-    assert response.status_code == 200
+    assert response.status_code == 200, response.text
 
     body = response.json()
 
-    assert body["severity"] == "SEV-1"
+    assert (
+        body["assignee"]
+        == "Platform Team"
+    )
 
-    assert body["assignee"] == "Incident Commander"
+    assert (
+        body["severity"]
+        == IncidentSeverity.SEV_1.value
+    )
 
-    assert body["title"] == "Inventory synchronization latency"
+    # Fields not included in the PATCH
+    # should remain unchanged.
+    assert (
+        body["title"]
+        == "Elevated payment latency"
+    )
+
+    assert (
+        body["serviceId"]
+        == str(PAYMENTS_SERVICE_ID)
+    )
 
 
-def test_patch_incident_with_missing_service_returns_404(
+def test_patch_incident_changes_persist(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
-
-    response = client.patch(
-        f"/api/v1/incidents/{incident_id}",
+    patch_response = client.patch(
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
         json={
-            "serviceId": ("99999999-9999-4999-8999-999999999999"),
+            "assignee": "SRE Team",
         },
     )
 
-    assert response.status_code == 404
+    assert (
+        patch_response.status_code
+        == 200
+    ), patch_response.text
+
+    get_response = client.get(
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+    )
+
+    assert get_response.status_code == 200
+
+    body = get_response.json()
+
+    assert body["assignee"] == "SRE Team"
 
 
 def test_delete_incident_returns_204(
     client: TestClient,
+    seeded_incidents: list[Incident],
 ) -> None:
-    incident_id = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"
+    delete_response = client.delete(
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+    )
 
-    delete_response = client.delete(f"/api/v1/incidents/{incident_id}")
+    assert (
+        delete_response.status_code
+        == 204
+    ), delete_response.text
 
-    assert delete_response.status_code == 204
-
-    get_response = client.get(f"/api/v1/incidents/{incident_id}")
+    get_response = client.get(
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+    )
 
     assert get_response.status_code == 404

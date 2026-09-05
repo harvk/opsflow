@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import datetime, timezone
 from uuid import UUID, uuid4
 
 from app.domain.incident import (
@@ -7,20 +7,20 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-from app.repositories.incident_repository import (
-    IncidentRepository,
-)
-from app.repositories.service_repository import (
-    ServiceRepository,
-)
+from app.repositories.incident_repository import IncidentRepository
+from app.repositories.service_repository import ServiceRepository
 from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
 )
-from app.services.exceptions import (
-    IncidentNotFoundError,
-    RelatedServiceNotFoundError,
-)
+
+
+class IncidentNotFoundError(Exception):
+    pass
+
+
+class IncidentServiceReferenceError(Exception):
+    pass
 
 
 class IncidentService:
@@ -32,45 +32,55 @@ class IncidentService:
         self._incident_repository = incident_repository
         self._service_repository = service_repository
 
-    def list_incidents(
-        self,
-        *,
-        search: str | None = None,
-        status: IncidentStatus | None = None,
-        severity: IncidentSeverity | None = None,
-        service_id: UUID | None = None,
-        offset: int = 0,
-        limit: int = 50,
+    def list(
+    self,
+    *,
+    search: str | None = None,
+    service_id: UUID | None = None,
+    severity: IncidentSeverity | None = None,
+    status: IncidentStatus | None = None,
+    offset: int = 0,
+    limit: int = 50,
     ) -> list[Incident]:
         return self._incident_repository.list(
             search=search,
-            status=status,
-            severity=severity,
             service_id=service_id,
+            severity=severity,
+            status=status,
             offset=offset,
             limit=limit,
         )
 
-    def get_incident(
+    def get_by_id(
         self,
         incident_id: UUID,
     ) -> Incident:
-        incident = self._incident_repository.get_by_id(incident_id)
+        incident = self._incident_repository.get_by_id(
+            incident_id
+        )
 
         if incident is None:
-            raise IncidentNotFoundError(f"Incident {incident_id} was not found.")
+            raise IncidentNotFoundError(
+                f"Incident {incident_id} was not found."
+            )
 
         return incident
 
-    def create_incident(
+    def create(
         self,
         payload: IncidentCreate,
     ) -> Incident:
-        self._validate_service_exists(payload.service_id)
+        self._ensure_service_exists(
+            payload.service_id
+        )
 
-        now = datetime.now(UTC)
+        now = datetime.now(timezone.utc)
 
-        resolved_at = now if payload.status == IncidentStatus.RESOLVED else None
+        resolved_at = (
+            now
+            if payload.status == IncidentStatus.RESOLVED
+            else None
+        )
 
         incident = Incident(
             id=uuid4(),
@@ -86,58 +96,106 @@ class IncidentService:
             updated_at=now,
         )
 
-        return self._incident_repository.create(incident)
+        return self._incident_repository.create(
+            incident
+        )
 
-    def update_incident(
+    def update(
         self,
         incident_id: UUID,
         payload: IncidentUpdate,
     ) -> Incident:
-        current_incident = self.get_incident(incident_id)
-
-        changes = payload.model_dump(
-            exclude_unset=True,
-            exclude_none=True,
+        existing = self.get_by_id(
+            incident_id
         )
 
-        new_service_id = changes.get("service_id")
+        if payload.service_id is not None:
+            self._ensure_service_exists(
+                payload.service_id
+            )
 
-        if new_service_id is not None:
-            self._validate_service_exists(new_service_id)
-
-        new_status = changes.get("status")
-
-        now = datetime.now(UTC)
-
-        if new_status == IncidentStatus.RESOLVED:
-            if current_incident.resolved_at is None:
-                changes["resolved_at"] = now
-
-        elif new_status is not None and current_incident.status == IncidentStatus.RESOLVED:
-            changes["resolved_at"] = None
-
-        changes["updated_at"] = now
-
-        updated_incident = replace(
-            current_incident,
-            **changes,
+        updated_status = (
+            payload.status
+            if payload.status is not None
+            else existing.status
         )
 
-        return self._incident_repository.update(updated_incident)
+        resolved_at = existing.resolved_at
 
-    def delete_incident(
+        if (
+            existing.status != IncidentStatus.RESOLVED
+            and updated_status == IncidentStatus.RESOLVED
+        ):
+            resolved_at = datetime.now(timezone.utc)
+
+        elif (
+            existing.status == IncidentStatus.RESOLVED
+            and updated_status != IncidentStatus.RESOLVED
+        ):
+            resolved_at = None
+
+        updated = replace(
+            existing,
+            title=(
+                payload.title
+                if payload.title is not None
+                else existing.title
+            ),
+            service_id=(
+                payload.service_id
+                if payload.service_id is not None
+                else existing.service_id
+            ),
+            severity=(
+                payload.severity
+                if payload.severity is not None
+                else existing.severity
+            ),
+            status=updated_status,
+            summary=(
+                payload.summary
+                if payload.summary is not None
+                else existing.summary
+            ),
+            assignee=(
+                payload.assignee
+                if payload.assignee is not None
+                else existing.assignee
+            ),
+            started_at=(
+                payload.started_at
+                if payload.started_at is not None
+                else existing.started_at
+            ),
+            resolved_at=resolved_at,
+            updated_at=datetime.now(timezone.utc),
+        )
+
+        return self._incident_repository.update(
+            updated
+        )
+
+    def delete(
         self,
         incident_id: UUID,
     ) -> None:
-        self.get_incident(incident_id)
+        self.get_by_id(
+            incident_id
+        )
 
-        self._incident_repository.delete(incident_id)
+        self._incident_repository.delete(
+            incident_id
+        )
 
-    def _validate_service_exists(
+    def _ensure_service_exists(
         self,
         service_id: UUID,
     ) -> None:
-        service = self._service_repository.get_by_id(service_id)
+        service = self._service_repository.get_by_id(
+            service_id
+        )
 
         if service is None:
-            raise RelatedServiceNotFoundError(f"Service {service_id} was not found.")
+            raise IncidentServiceReferenceError(
+                f"Service {service_id} does not exist."
+            )

@@ -8,15 +8,24 @@ from alembic import context
 from app.core.config import settings
 from app.db.base import Base
 from app.models.service import ServiceModel, ServiceDependencyModel
+from app.models.incident import IncidentModel
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.
 config = context.config
 
-config.set_main_option(
-    "sqlalchemy.url",
-    settings.database_url,
+configured_url = config.get_main_option(
+    "sqlalchemy.url"
 )
+
+if (
+    not configured_url
+    or configured_url.startswith("driver://")
+):
+    config.set_main_option(
+        "sqlalchemy.url",
+        settings.database_url,
+    )
 
 # Interpret the config file for Python logging.
 # This line sets up loggers basically.

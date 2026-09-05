@@ -7,7 +7,7 @@ from app.repositories.service_repository import ServiceRepository
 from app.schemas.service import ServiceCreate, ServiceUpdate
 from app.services.exceptions import (
     ServiceNameConflictError,
-    ServiceNotFoundError,
+    ServiceNotFoundError
 )
 
 
@@ -74,27 +74,43 @@ class ServiceService:
         service_id: UUID,
         payload: ServiceUpdate,
     ) -> Service:
-        current_service = self.get_service(service_id)
+        existing = self._repository.get_by_id(
+            service_id
+        )
+
+        if existing is None:
+            raise ServiceNotFoundError(
+                f"Service {service_id} was not found."
+            )
 
         changes = payload.model_dump(
             exclude_unset=True,
-            exclude_none=True,
         )
 
-        new_name = changes.get("name")
+        if "name" in changes:
+            existing_with_name = (
+                self._repository.get_by_name(
+                    changes["name"]
+                )
+            )
 
-        if new_name:
-            conflicting_service = self._repository.get_by_name(new_name)
+            if (
+                existing_with_name is not None
+                and existing_with_name.id != service_id
+            ):
+                raise ServiceNameConflictError(
+                    f'A service named "{changes["name"]}" '
+                    "already exists."
+                )
 
-            if conflicting_service is not None and conflicting_service.id != service_id:
-                raise ServiceNameConflictError(f"A service named '{new_name}' already exists.")
-
-        updated_service = replace(
-            current_service,
+        updated = replace(
+            existing,
             **changes,
         )
 
-        return self._repository.update(updated_service)
+        return self._repository.update(
+            updated
+        )
 
     def delete_service(
         self,

@@ -2,59 +2,41 @@ from datetime import datetime
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from pydantic.alias_generators import to_camel
 
 from app.domain.service import ServiceStatus
 
 
+def to_camel(value: str) -> str:
+    parts = value.split("_")
+
+    return parts[0] + "".join(
+        part.capitalize()
+        for part in parts[1:]
+    )
+
+
 class ServiceSchema(BaseModel):
-    model_config = ConfigDict(
+     model_config = ConfigDict(
         alias_generator=to_camel,
         populate_by_name=True,
-        from_attributes=True,
     )
 
 
 class ServiceCreate(ServiceSchema):
-    name: str = Field(min_length=2, max_length=100)
-    owner: str = Field(min_length=2, max_length=100)
-
-    status: ServiceStatus = ServiceStatus.HEALTHY
-
-    uptime: str = Field(
-        default="100.00%",
-        min_length=2,
-        max_length=10,
-    )
+    name: str
+    owner: str
+    status: ServiceStatus
+    uptime: str
 
     latency_ms: int = Field(
-        default=0,
         ge=0,
     )
 
-    description: str = Field(
-        default="",
-        max_length=1000,
-    )
-
-    region: str = Field(
-        default="us-east-1",
-        min_length=2,
-        max_length=50,
-    )
-
-    version: str = Field(
-        default="1.0.0",
-        min_length=1,
-        max_length=50,
-    )
-
-    last_deployed_at: datetime | None = None
-
-    dependencies: list[str] = Field(
-        default_factory=list,
-        max_length=50,
-    )
+    description: str
+    region: str
+    version: str
+    last_deployed_at: datetime
+    dependencies: list[str]
 
     @field_validator("name", "owner", "region", "version")
     @classmethod
@@ -68,54 +50,21 @@ class ServiceCreate(ServiceSchema):
 
 
 class ServiceUpdate(ServiceSchema):
-    name: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=100,
-    )
-
-    owner: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=100,
-    )
-
+    name: str | None = None
+    owner: str | None = None
     status: ServiceStatus | None = None
-
-    uptime: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=10,
-    )
+    uptime: str | None = None
 
     latency_ms: int | None = Field(
         default=None,
         ge=0,
     )
 
-    description: str | None = Field(
-        default=None,
-        max_length=1000,
-    )
-
-    region: str | None = Field(
-        default=None,
-        min_length=2,
-        max_length=50,
-    )
-
-    version: str | None = Field(
-        default=None,
-        min_length=1,
-        max_length=50,
-    )
-
+    description: str | None = None
+    region: str | None = None
+    version: str | None = None
     last_deployed_at: datetime | None = None
-
-    dependencies: list[str] | None = Field(
-        default=None,
-        max_length=50,
-    )
+    dependencies: list[str] | None = None
 
     @field_validator("name", "owner", "region", "version")
     @classmethod
@@ -146,3 +95,9 @@ class ServiceResponse(ServiceSchema):
     version: str
     last_deployed_at: datetime
     dependencies: list[str]
+
+    model_config = ConfigDict(
+        alias_generator=to_camel,
+        populate_by_name=True,
+        from_attributes=True,
+    )

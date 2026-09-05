@@ -1,38 +1,22 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import (
-    APIRouter,
-    Depends,
-    HTTPException,
-    Query,
-    Response,
-    status,
-)
+from fastapi import APIRouter, HTTPException, Query, status
 
-from app.api.dependencies import (
-    get_service_service,
-)
+from app.api.dependencies import ServiceServiceDependency
 from app.domain.service import ServiceStatus
 from app.schemas.service import (
     ServiceCreate,
     ServiceResponse,
     ServiceUpdate,
 )
-from app.services.exceptions import (
+from app.services.service_service import (
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.services.service_service import (
-    ServiceService,
-)
+
 
 router = APIRouter()
-
-ServiceServiceDependency = Annotated[
-    ServiceService,
-    Depends(get_service_service),
-]
 
 
 @router.get(
@@ -43,29 +27,48 @@ def list_services(
     service_service: ServiceServiceDependency,
     search: Annotated[
         str | None,
-        Query(max_length=100),
+        Query(
+            description=(
+                "Search services by name, owner, or description."
+            ),
+        ),
     ] = None,
-    status_filter: Annotated[
+    service_status: Annotated[
         ServiceStatus | None,
-        Query(alias="status"),
+        Query(
+            alias="status",
+            description="Filter services by status.",
+        ),
     ] = None,
     offset: Annotated[
         int,
-        Query(ge=0),
+        Query(
+            ge=0,
+            description="Number of services to skip.",
+        ),
     ] = 0,
     limit: Annotated[
         int,
-        Query(ge=1, le=100),
+        Query(
+            ge=1,
+            le=100,
+            description=(
+                "Maximum number of services to return."
+            ),
+        ),
     ] = 50,
 ) -> list[ServiceResponse]:
     services = service_service.list_services(
         search=search,
-        status=status_filter,
+        status=service_status,
         offset=offset,
         limit=limit,
     )
 
-    return [ServiceResponse.model_validate(service) for service in services]
+    return [
+        ServiceResponse.model_validate(service)
+        for service in services
+    ]
 
 
 @router.get(
@@ -77,14 +80,18 @@ def get_service(
     service_service: ServiceServiceDependency,
 ) -> ServiceResponse:
     try:
-        service = service_service.get_service(service_id)
+        service = service_service.get_service(
+            service_id
+        )
     except ServiceNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
 
-    return ServiceResponse.model_validate(service)
+    return ServiceResponse.model_validate(
+        service
+    )
 
 
 @router.post(
@@ -97,14 +104,18 @@ def create_service(
     service_service: ServiceServiceDependency,
 ) -> ServiceResponse:
     try:
-        service = service_service.create_service(payload)
+        service = service_service.create_service(
+            payload
+        )
     except ServiceNameConflictError as exc:
         raise HTTPException(
             status_code=status.HTTP_409_CONFLICT,
             detail=str(exc),
         ) from exc
 
-    return ServiceResponse.model_validate(service)
+    return ServiceResponse.model_validate(
+        service
+    )
 
 
 @router.patch(
@@ -132,7 +143,9 @@ def update_service(
             detail=str(exc),
         ) from exc
 
-    return ServiceResponse.model_validate(service)
+    return ServiceResponse.model_validate(
+        service
+    )
 
 
 @router.delete(
@@ -142,13 +155,13 @@ def update_service(
 def delete_service(
     service_id: UUID,
     service_service: ServiceServiceDependency,
-) -> Response:
+) -> None:
     try:
-        service_service.delete_service(service_id)
+        service_service.delete_service(
+            service_id
+        )
     except ServiceNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
         ) from exc
-
-    return Response(status_code=status.HTTP_204_NO_CONTENT)

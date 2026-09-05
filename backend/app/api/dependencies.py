@@ -1,20 +1,23 @@
-from functools import lru_cache
 from typing import Annotated
 
 from fastapi import Depends
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db_session
 
 from app.repositories.incident_repository import (
-    InMemoryIncidentRepository,
-)
-from app.repositories.incident_seed import (
-    create_seed_incidents,
+    IncidentRepository,
 )
 from app.repositories.service_repository import (
-    InMemoryServiceRepository,
+    ServiceRepository,
 )
-from app.repositories.service_seed import (
-    create_seed_services,
+from app.repositories.sqlalchemy_incident_repository import (
+    SqlAlchemyIncidentRepository,
 )
+from app.repositories.sqlalchemy_service_repository import (
+    SqlAlchemyServiceRepository,
+)
+
 from app.services.incident_service import (
     IncidentService,
 )
@@ -23,36 +26,73 @@ from app.services.service_service import (
 )
 
 
-@lru_cache
-def get_service_repository() -> InMemoryServiceRepository:
-    return InMemoryServiceRepository(create_seed_services())
+DbSession = Annotated[
+    Session,
+    Depends(get_db_session),
+]
+
+
+# ---------------------------------------------------------
+# Service dependencies
+# ---------------------------------------------------------
+
+def get_service_repository(
+    session: DbSession,
+) -> ServiceRepository:
+    return SqlAlchemyServiceRepository(
+        session
+    )
+
+
+ServiceRepositoryDependency = Annotated[
+    ServiceRepository,
+    Depends(get_service_repository),
+]
 
 
 def get_service_service(
-    repository: Annotated[
-        InMemoryServiceRepository,
-        Depends(get_service_repository),
-    ],
+    repository: ServiceRepositoryDependency,
 ) -> ServiceService:
-    return ServiceService(repository)
+    return ServiceService(
+        repository
+    )
 
 
-@lru_cache
-def get_incident_repository() -> InMemoryIncidentRepository:
-    return InMemoryIncidentRepository(create_seed_incidents())
+ServiceServiceDependency = Annotated[
+    ServiceService,
+    Depends(get_service_service),
+]
+
+
+# ---------------------------------------------------------
+# Incident dependencies
+# ---------------------------------------------------------
+
+def get_incident_repository(
+    session: DbSession,
+) -> IncidentRepository:
+    return SqlAlchemyIncidentRepository(
+        session
+    )
+
+
+IncidentRepositoryDependency = Annotated[
+    IncidentRepository,
+    Depends(get_incident_repository),
+]
 
 
 def get_incident_service(
-    incident_repository: Annotated[
-        InMemoryIncidentRepository,
-        Depends(get_incident_repository),
-    ],
-    service_repository: Annotated[
-        InMemoryServiceRepository,
-        Depends(get_service_repository),
-    ],
+    incident_repository: IncidentRepositoryDependency,
+    service_repository: ServiceRepositoryDependency,
 ) -> IncidentService:
     return IncidentService(
-        incident_repository,
-        service_repository,
+        incident_repository=incident_repository,
+        service_repository=service_repository,
     )
+
+
+IncidentServiceDependency = Annotated[
+    IncidentService,
+    Depends(get_incident_service),
+]

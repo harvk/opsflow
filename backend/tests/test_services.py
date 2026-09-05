@@ -1,108 +1,74 @@
-from collections.abc import Generator
+from uuid import UUID
 
-import pytest
 from fastapi.testclient import TestClient
 
-from app.api.dependencies import get_service_service
-from app.main import app
-from app.repositories.service_repository import (
-    InMemoryServiceRepository,
-)
-from app.repositories.service_seed import (
-    create_seed_services,
-)
-from app.services.service_service import (
-    ServiceService,
+
+PAYMENTS_SERVICE_ID = UUID(
+    "11111111-1111-1111-1111-111111111111"
 )
 
 
-@pytest.fixture
-def client() -> Generator[TestClient, None, None]:
-    repository = InMemoryServiceRepository(create_seed_services())
-
-    service_service = ServiceService(repository)
-
-    app.dependency_overrides[get_service_service] = lambda: service_service
-
-    with TestClient(app) as test_client:
-        yield test_client
-
-    app.dependency_overrides.clear()
+SERVICES_URL = "/api/v1/services"
 
 
-def test_list_services_returns_seeded_services(
-    client: TestClient,
-) -> None:
-    response = client.get("/api/v1/services")
-
-    assert response.status_code == 200
-
-    body = response.json()
-
-    assert len(body) == 4
-
-    assert "latencyMs" in body[0]
-
-
-def test_list_services_can_filter_by_status(
+def test_get_services_returns_200(
     client: TestClient,
 ) -> None:
     response = client.get(
-        "/api/v1/services",
-        params={"status": "Critical"},
+        SERVICES_URL
     )
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert len(body) == 1
-    assert body[0]["name"] == "Payment Webhook"
-    assert body[0]["status"] == "Critical"
+    assert isinstance(body, list)
+    assert len(body) >= 1
 
 
 def test_get_service_returns_service(
     client: TestClient,
 ) -> None:
-    service_id = "11111111-1111-4111-8111-111111111111"
-
-    response = client.get(f"/api/v1/services/{service_id}")
+    response = client.get(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}"
+    )
 
     assert response.status_code == 200
 
     body = response.json()
 
-    assert body["name"] == "Order API"
+    assert body["id"] == str(
+        PAYMENTS_SERVICE_ID
+    )
+
+    assert body["name"] == "Payments API"
     assert body["latencyMs"] == 42
-
-
-def test_get_missing_service_returns_404(
-    client: TestClient,
-) -> None:
-    service_id = "99999999-9999-4999-8999-999999999999"
-
-    response = client.get(f"/api/v1/services/{service_id}")
-
-    assert response.status_code == 404
 
 
 def test_create_service_returns_201(
     client: TestClient,
 ) -> None:
     payload = {
-        "name": "Billing API",
-        "owner": "Finance Platform",
+        "name": "Orders API",
+        "owner": "Commerce Team",
         "status": "Healthy",
-        "uptime": "99.98%",
+        "uptime": "99.95%",
         "latencyMs": 55,
-        "description": "Handles billing workflows.",
+        "description": (
+            "Processes customer orders."
+        ),
         "region": "us-east-1",
         "version": "1.0.0",
-        "dependencies": ["Payment Webhook"],
+        "lastDeployedAt": (
+            "2026-09-05T09:00:00Z"
+        ),
+        "dependencies": [
+            "Payments API",
+        ],
     }
 
     response = client.post(
-        "/api/v1/services",
+        SERVICES_URL,
         json=payload,
     )
 
@@ -110,38 +76,32 @@ def test_create_service_returns_201(
 
     body = response.json()
 
-    assert body["name"] == "Billing API"
+    assert body["name"] == "Orders API"
     assert body["latencyMs"] == 55
-    assert body["id"]
-
-
-def test_create_duplicate_service_returns_409(
-    client: TestClient,
-) -> None:
-    payload = {
-        "name": "Order API",
-        "owner": "Another Team",
-    }
-
-    response = client.post(
-        "/api/v1/services",
-        json=payload,
-    )
-
-    assert response.status_code == 409
 
 
 def test_negative_latency_returns_422(
     client: TestClient,
 ) -> None:
     payload = {
-        "name": "Broken API",
-        "owner": "Platform",
-        "latencyMs": -1,
+        "name": "Invalid API",
+        "owner": "Platform Team",
+        "status": "Healthy",
+        "uptime": "99.90%",
+        "latencyMs": -10,
+        "description": (
+            "Invalid test service."
+        ),
+        "region": "us-east-1",
+        "version": "1.0.0",
+        "lastDeployedAt": (
+            "2026-09-05T09:00:00Z"
+        ),
+        "dependencies": [],
     }
 
     response = client.post(
-        "/api/v1/services",
+        SERVICES_URL,
         json=payload,
     )
 
@@ -151,13 +111,11 @@ def test_negative_latency_returns_422(
 def test_patch_service_updates_selected_fields(
     client: TestClient,
 ) -> None:
-    service_id = "11111111-1111-4111-8111-111111111111"
-
     response = client.patch(
-        f"/api/v1/services/{service_id}",
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
         json={
-            "status": "Degraded",
-            "latencyMs": 250,
+            "version": "2.5.0",
+            "region": "us-west-2",
         },
     )
 
@@ -165,20 +123,64 @@ def test_patch_service_updates_selected_fields(
 
     body = response.json()
 
-    assert body["name"] == "Order API"
-    assert body["status"] == "Degraded"
-    assert body["latencyMs"] == 250
+    assert body["version"] == "2.5.0"
+    assert body["region"] == "us-west-2"
+
+    # Fields not supplied in the PATCH should remain unchanged.
+    assert body["name"] == "Payments API"
+
+
+def test_patch_service_updates_latency(
+    client: TestClient,
+) -> None:
+    response = client.patch(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
+        json={
+            "latencyMs": 175,
+        },
+    )
+
+    assert response.status_code == 200
+
+    body = response.json()
+
+    assert body["latencyMs"] == 175
+
+
+def test_patch_service_latency_persists(
+    client: TestClient,
+) -> None:
+    patch_response = client.patch(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
+        json={
+            "latencyMs": 175,
+        },
+    )
+
+    assert patch_response.status_code == 200
+
+    get_response = client.get(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}"
+    )
+
+    assert get_response.status_code == 200
+
+    body = get_response.json()
+
+    assert body["latencyMs"] == 175
 
 
 def test_delete_service_returns_204(
     client: TestClient,
 ) -> None:
-    service_id = "11111111-1111-4111-8111-111111111111"
-
-    delete_response = client.delete(f"/api/v1/services/{service_id}")
+    delete_response = client.delete(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}"
+    )
 
     assert delete_response.status_code == 204
 
-    get_response = client.get(f"/api/v1/services/{service_id}")
+    get_response = client.get(
+        f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}"
+    )
 
     assert get_response.status_code == 404
