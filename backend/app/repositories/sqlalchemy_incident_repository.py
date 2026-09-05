@@ -128,6 +128,9 @@ class SqlAlchemyIncidentRepository:
         model.status = incident.status
         model.summary = incident.summary
         model.assignee = incident.assignee
+        model.source = incident.source
+        model.customer_impacting = incident.customer_impacting
+        model.acknowledged_at = incident.acknowledged_at
         model.started_at = incident.started_at
         model.resolved_at = incident.resolved_at
         model.created_at = incident.created_at
@@ -156,6 +159,32 @@ class SqlAlchemyIncidentRepository:
 
         self._session.flush()
 
+    def list_by_service(
+        self,
+        service_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[Incident]:
+        statement = (
+            select(IncidentModel)
+            .where(
+                IncidentModel.service_id == service_id
+            )
+            .order_by(
+                IncidentModel.created_at.desc()
+            )
+            .offset(offset)
+            .limit(limit)
+        )
+
+        models = self._session.scalars(statement).all()
+
+        return [
+            self._to_domain(model)
+            for model in models
+        ]
+    
     def _find_model(
         self,
         incident_id: UUID,
@@ -184,6 +213,9 @@ class SqlAlchemyIncidentRepository:
             status=incident.status,
             summary=incident.summary,
             assignee=incident.assignee,
+            source=incident.source,
+            customer_impacting=incident.customer_impacting,
+            acknowledged_at=incident.acknowledged_at,
             started_at=incident.started_at,
             resolved_at=incident.resolved_at,
             created_at=incident.created_at,
@@ -202,6 +234,9 @@ class SqlAlchemyIncidentRepository:
             status=model.status,
             summary=model.summary,
             assignee=model.assignee,
+            source=model.source,
+            customer_impacting=model.customer_impacting,
+            acknowledged_at=model.acknowledged_at,
             started_at=model.started_at,
             resolved_at=model.resolved_at,
             created_at=model.created_at,

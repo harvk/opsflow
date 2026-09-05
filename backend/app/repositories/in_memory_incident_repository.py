@@ -1,4 +1,3 @@
-from typing import Protocol
 from uuid import UUID
 
 from app.domain.incident import (
@@ -8,53 +7,6 @@ from app.domain.incident import (
 )
 
 
-class IncidentRepository(Protocol):
-    def list(
-        self,
-        *,
-        search: str | None = None,
-        service_id: UUID | None = None,
-        severity: IncidentSeverity | None = None,
-        status: IncidentStatus | None = None,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> list[Incident]:
-        ...
-
-    def get_by_id(
-        self,
-        incident_id: UUID,
-    ) -> Incident | None:
-        ...
-
-    def create(
-        self,
-        incident: Incident,
-    ) -> Incident:
-        ...
-
-    def update(
-        self,
-        incident: Incident,
-    ) -> Incident:
-        ...
-
-    def delete(
-        self,
-        incident_id: UUID,
-    ) -> None:
-        ...
-        
-    def list_by_service(
-        self,
-        service_id: UUID,
-        *,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> list[Incident]:
-        ...
-        
-        
 class InMemoryIncidentRepository:
     def __init__(self) -> None:
         self._incidents: dict[UUID, Incident] = {}
@@ -63,7 +15,6 @@ class InMemoryIncidentRepository:
         self,
         *,
         search: str | None = None,
-        service_id: UUID | None = None,
         severity: IncidentSeverity | None = None,
         status: IncidentStatus | None = None,
         offset: int = 0,
@@ -82,13 +33,6 @@ class InMemoryIncidentRepository:
                     or search_value in incident.summary.lower()
                     or search_value in incident.assignee.lower()
                 )
-            ]
-            
-        if service_id is not None:
-            incidents = [
-                incident
-                for incident in incidents
-                if incident.service_id == service_id
             ]
 
         if severity is not None:
@@ -146,18 +90,3 @@ class InMemoryIncidentRepository:
             incident_id,
             None,
         )
-        
-    def list_by_service(
-        self,
-        service_id: UUID,
-        *,
-        offset: int = 0,
-        limit: int = 50,
-    ) -> list[Incident]:
-        incidents = [
-            incident
-            for incident in self._incidents.values()
-            if incident.service_id == service_id
-        ]
-
-        return incidents[offset : offset + limit]

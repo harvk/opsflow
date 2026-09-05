@@ -28,6 +28,7 @@ def create_seed_services() -> list[Service]:
                 "Inventory Sync",
                 "Payment Webhook",
             ],
+            incidents=[]
         ),
         Service(
             id=UUID("22222222-2222-4222-8222-222222222222"),
@@ -48,6 +49,7 @@ def create_seed_services() -> list[Service]:
                 tzinfo=UTC,
             ),
             dependencies=[],
+            incidents=[]
         ),
         Service(
             id=UUID("33333333-3333-4333-8333-333333333333"),
@@ -70,6 +72,7 @@ def create_seed_services() -> list[Service]:
             dependencies=[
                 "Order API",
             ],
+            incidents=[]
         ),
         Service(
             id=UUID("44444444-4444-4444-8444-444444444444"),
@@ -90,5 +93,6 @@ def create_seed_services() -> list[Service]:
                 tzinfo=UTC,
             ),
             dependencies=[],
+            incidents=[]
         ),
     ]

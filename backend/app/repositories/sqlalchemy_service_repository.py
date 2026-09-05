@@ -190,4 +190,7 @@ class SqlAlchemyServiceRepository:
                 dependency.dependency_name
                 for dependency in model.dependencies
             ],
+            incidents=[
+                
+            ]
         )

@@ -65,6 +65,7 @@ class ServiceService:
             version=payload.version,
             last_deployed_at=(payload.last_deployed_at or datetime.now(UTC)),
             dependencies=payload.dependencies,
+            incidents=[]
         )
 
         return self._repository.create(service)

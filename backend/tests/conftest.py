@@ -128,6 +128,7 @@ def db_session() -> Generator[Session, None, None]:
                 "Identity API",
                 "PostgreSQL",
             ],
+            incidents=[]
         )
 
         service_repository.create(
@@ -182,6 +183,9 @@ def seeded_incidents(
                 "the expected threshold."
             ),
             assignee="Payments Team",
+            source="monitoring",
+            customer_impacting=True,
+            acknowledged_at=now,
             started_at=now,
             resolved_at=None,
             created_at=now,
@@ -214,6 +218,9 @@ def seeded_incidents(
                 "temporary delays."
             ),
             assignee="SRE Team",
+            source="monitoring",
+            customer_impacting=False,
+            acknowledged_at=now,
             started_at=now,
             resolved_at=now,
             created_at=now,

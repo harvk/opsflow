@@ -43,6 +43,7 @@ def create_seed_services() -> list[Service]:
                 "Identity API",
                 "PostgreSQL",
             ],
+            incidents=[],
         ),
         Service(
             id=IDENTITY_SERVICE_ID,
@@ -58,6 +59,7 @@ def create_seed_services() -> list[Service]:
             dependencies=[
                 "PostgreSQL",
             ],
+            incidents=[]
         ),
     ]
     

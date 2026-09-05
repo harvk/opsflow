@@ -18,6 +18,11 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 from app.domain.service import ServiceStatus
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from app.models.incident import IncidentModel
+
 
 class ServiceModel(Base):
     __tablename__ = "services"
@@ -93,6 +98,13 @@ class ServiceModel(Base):
         back_populates="service",
         cascade="all, delete-orphan",
         lazy="selectin",
+    )
+    
+    incidents: Mapped[list["IncidentModel"]] = relationship(
+        "IncidentModel",
+        back_populates="service",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
 
 

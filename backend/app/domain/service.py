@@ -23,3 +23,4 @@ class Service:
     version: str
     last_deployed_at: datetime
     dependencies: list[str]
+    incidents: list[str]

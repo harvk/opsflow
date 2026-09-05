@@ -199,3 +199,23 @@ class IncidentService:
             raise IncidentServiceReferenceError(
                 f"Service {service_id} does not exist."
             )
+            
+    def list_for_service(
+        self,
+        service_id: UUID,
+        *,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[Incident]:
+        service = self._service_repository.get_by_id(
+            service_id
+        )
+
+        if service is None:
+            raise IncidentNotFoundError(service_id)
+
+        return self._incident_repository.list_by_service(
+            service_id,
+            offset=offset,
+            limit=limit,
+        )

@@ -31,3 +31,6 @@ class Incident:
     resolved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    source: str = "manual"
+    customer_impacting: bool = False
+    acknowledged_at: datetime | None = None

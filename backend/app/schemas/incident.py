@@ -54,6 +54,12 @@ class IncidentCreate(IncidentSchema):
     )
 
     started_at: datetime | None = None
+    
+    source: str = "manual"
+    
+    customer_impacting: bool = False
+    
+    acknowledged_at: datetime | None = None
 
 
 class IncidentUpdate(IncidentSchema):
@@ -80,8 +86,16 @@ class IncidentUpdate(IncidentSchema):
         min_length=1,
         max_length=120,
     )
+    
+    source: str | None = None
+    
+    customer_impacting: bool | None = None
+    
+    acknowledged_at: datetime | None = None
 
     started_at: datetime | None = None
+    
+    resolved_at: datetime | None = None
 
 
 class IncidentResponse(IncidentSchema):
@@ -92,6 +106,9 @@ class IncidentResponse(IncidentSchema):
     status: IncidentStatus
     summary: str
     assignee: str
+    source: str
+    customer_impacting: bool
+    acknowledged_at: datetime | None
     started_at: datetime
     resolved_at: datetime | None
     created_at: datetime
