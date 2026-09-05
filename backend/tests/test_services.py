@@ -2,7 +2,6 @@ from uuid import UUID
 
 from fastapi.testclient import TestClient
 
-from app.domain.service import Service
 
 PAYMENTS_SERVICE_ID = UUID(
     "11111111-1111-1111-1111-111111111111"
@@ -14,8 +13,7 @@ SERVICES_URL = "/api/v1/services"
 
 def test_get_services_returns_200(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     response = client.get(
         SERVICES_URL,
@@ -32,8 +30,7 @@ def test_get_services_returns_200(
 
 def test_get_service_returns_service(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     response = client.get(
         f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
@@ -122,8 +119,7 @@ def test_negative_latency_returns_422(
 
 def test_patch_service_updates_selected_fields(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     response = client.patch(
         f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
@@ -147,8 +143,7 @@ def test_patch_service_updates_selected_fields(
 
 def test_patch_service_updates_latency(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     response = client.patch(
         f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
@@ -167,8 +162,7 @@ def test_patch_service_updates_latency(
 
 def test_patch_service_latency_persists(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     patch_response = client.patch(
         f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",
@@ -194,8 +188,7 @@ def test_patch_service_latency_persists(
 
 def test_delete_service_returns_204(
     client: TestClient,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ) -> None:
     delete_response = client.delete(
         f"{SERVICES_URL}/{PAYMENTS_SERVICE_ID}",

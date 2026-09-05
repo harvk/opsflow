@@ -2,7 +2,6 @@ from uuid import uuid4
 
 from fastapi.testclient import TestClient
 
-from app.domain.service import Service
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -55,8 +54,7 @@ def test_list_incidents_for_missing_service_returns_404(
     
 def test_existing_service_with_no_incidents_returns_empty_list(
     client,
-    auth_headers: dict[str, str],
-    seeded_services: list[Service]
+    auth_headers: dict[str, str]
 ):
     response = client.get(
         f"/api/v1/services/{PAYMENTS_SERVICE_ID}/incidents",

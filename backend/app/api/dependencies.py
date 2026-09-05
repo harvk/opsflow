@@ -1,17 +1,8 @@
 from typing import Annotated
 
-from collections.abc import Callable
-
 from fastapi import Depends, HTTPException, status
 from fastapi.security import OAuth2PasswordBearer
 from sqlalchemy.orm import Session
-
-from app.domain.authorization import Permission
-
-from app.services.authorization_service import (
-    AuthorizationService,
-    PermissionDeniedError
-)
 
 from app.db.session import get_db_session
 
@@ -45,9 +36,6 @@ from app.services.authentication_service import (
 )
 
 
-authorization_service = AuthorizationService()
-
-
 DbSession = Annotated[
     Session,
     Depends(get_db_session),
@@ -57,37 +45,6 @@ DbSession = Annotated[
 oauth2_scheme = OAuth2PasswordBearer(
     tokenUrl="api/v1/auth/token"
 )
-
-
-# ---------------------------------------------------------
-# Permissions
-# ---------------------------------------------------------
-
-def require_permission(
-    permission: Permission,
-) -> Callable[..., User]:
-    def permission_dependency(
-        current_user: CurrentUser,
-    ) -> User:
-        try:
-            authorization_service.require_permission(
-                current_user,
-                permission,
-            )
-        except PermissionDeniedError as exc:
-            raise HTTPException(
-                status_code=(
-                    status.HTTP_403_FORBIDDEN
-                ),
-                detail=(
-                    "You do not have permission "
-                    "to perform this action."
-                ),
-            ) from exc
-
-        return current_user
-
-    return permission_dependency
 
 
 # ---------------------------------------------------------

@@ -3,7 +3,6 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.domain.service import Service
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -205,7 +204,6 @@ def test_create_incident_returns_201(
     client: TestClient,
     db_session: Session,
     auth_headers: dict[str, str],
-    seeded_services: list[Service]
 ) -> None:
     payload = {
         "title": "Payments API errors",
