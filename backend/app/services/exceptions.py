@@ -4,3 +4,11 @@ class ServiceNotFoundError(Exception):
 
 class ServiceNameConflictError(Exception):
     pass
+
+
+class IncidentNotFoundError(Exception):
+    pass
+
+
+class RelatedServiceNotFoundError(Exception):
+    pass
