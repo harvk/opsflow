@@ -3,8 +3,14 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from app.api.dependencies import ServiceServiceDependency, IncidentServiceDependency
+from app.api.dependencies import (
+    ServiceServiceDependency,
+    IncidentServiceDependency,
+    require_permission
+)
 from app.domain.service import ServiceStatus
+from app.domain.authorization import Permission
+
 from app.schemas.service import (
     ServiceCreate,
     ServiceResponse,
@@ -27,6 +33,13 @@ router = APIRouter()
 @router.get(
     "",
     response_model=list[ServiceResponse],
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_READ
+            )
+        )
+    ]
 )
 def list_services(
     service_service: ServiceServiceDependency,
@@ -79,6 +92,13 @@ def list_services(
 @router.get(
     "/{service_id}",
     response_model=ServiceResponse,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_READ
+            )
+        )
+    ]
 )
 def get_service(
     service_id: UUID,
@@ -101,6 +121,13 @@ def get_service(
 @router.get(
     "/{service_id}/incidents",
     response_model=list[IncidentResponse],
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_READ
+            )
+        )
+    ],
 )
 def list_service_incidents(
     service_id: UUID,
@@ -139,6 +166,13 @@ def list_service_incidents(
     "",
     response_model=ServiceResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_CREATE
+            )
+        )
+    ]
 )
 def create_service(
     payload: ServiceCreate,
@@ -162,6 +196,13 @@ def create_service(
 @router.patch(
     "/{service_id}",
     response_model=ServiceResponse,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_UPDATE
+            )
+        )
+    ]
 )
 def update_service(
     service_id: UUID,
@@ -192,6 +233,13 @@ def update_service(
 @router.delete(
     "/{service_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_DELETE
+            )
+        )
+    ]
 )
 def delete_service(
     service_id: UUID,
