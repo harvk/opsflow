@@ -9,6 +9,7 @@ from app.core.config import settings
 from app.db.base import Base
 from app.models.service import ServiceModel, ServiceDependencyModel
 from app.models.incident import IncidentModel
+from app.models.user import UserModel
 
 # this is the Alembic Config object, which provides
 # access to the values within the .ini file in use.

@@ -1,6 +1,8 @@
 from collections.abc import Generator
 from datetime import datetime, timezone
 
+from uuid import uuid4
+
 import pytest
 
 from fastapi.testclient import TestClient
@@ -9,6 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db_session
+
+from app.core.security import create_access_token
+
+from app.domain.user import User, UserRole
+from app.repositories.sqlalchemy_user_repository import SqlAlchemyUserRepository
+from app.services.user_service import UserService
 
 from app.domain.incident import (
     Incident,
@@ -264,3 +272,44 @@ def client(
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        
+@pytest.fixture
+def authenticated_user(
+    db_session,
+) -> User:
+    repository = SqlAlchemyUserRepository(
+        db_session
+    )
+
+    service = UserService(
+        repository
+    )
+
+    user = service.create_user(
+        email=(
+            f"api-test-{uuid4().hex}"
+            "@example.com"
+        ),
+        full_name="OpsFlow Test Administrator",
+        password="VerySecurePassword123!",
+        role=UserRole.ADMIN,
+    )
+
+    db_session.flush()
+
+    return user
+
+
+@pytest.fixture
+def auth_headers(
+    authenticated_user: User,
+) -> dict[str, str]:
+    access_token = create_access_token(
+        authenticated_user.id
+    )
+
+    return {
+        "Authorization": (
+            f"Bearer {access_token}"
+        )
+    }
