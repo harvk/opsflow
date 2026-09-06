@@ -1,8 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.middleware.security_headers import (
+    SecurityHeadersMiddleware,
+)
+
 from app.api.router import api_router
 from app.core.config import settings
+
+from app.middleware.broswer_trust import BrowserTrustBoundaryMiddleware
 
 
 def create_app() -> FastAPI:
@@ -31,3 +37,35 @@ def create_app() -> FastAPI:
 
 
 app = create_app()
+
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        settings.frontend_origin,
+    ],
+    allow_credentials=True,
+    allow_methods=[
+        "GET",
+        "POST",
+        "PUT",
+        "PATCH",
+        "DELETE",
+        "OPTIONS",
+    ],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-CSRF-Token"
+    ],
+)
+
+
+app.add_middleware(
+    SecurityHeadersMiddleware,
+)
+
+app.add_middleware(
+    BrowserTrustBoundaryMiddleware,
+    allowed_origins=settings.frontend_origin,
+)

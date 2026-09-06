@@ -191,12 +191,14 @@ def get_current_user(
     )
 
     try:
-        return authentication_service.resolve_access_token(
-            token
+        return (
+            authentication_service
+            .resolve_access_token(
+                token
+            )
         )
+
     except AuthenticationError as exc:
-        raise credentials_exception from exc
-    except ValueError as exc:
         raise credentials_exception from exc
     
 CurrentUser = Annotated[
