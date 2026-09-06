@@ -1,6 +1,8 @@
 from collections.abc import Generator
 from datetime import datetime, timezone
 
+from uuid import uuid4
+
 import pytest
 
 from fastapi.testclient import TestClient
@@ -9,6 +11,12 @@ from sqlalchemy.orm import Session
 
 from app.core.config import settings
 from app.db.session import get_db_session
+
+from app.core.security import create_access_token
+
+from app.domain.user import User, UserRole
+from app.repositories.sqlalchemy_user_repository import SqlAlchemyUserRepository
+from app.services.user_service import UserService
 
 from app.domain.incident import (
     Incident,
@@ -44,13 +52,17 @@ test_engine = create_engine(
 
 
 @pytest.fixture
-def db_session() -> Generator[Session, None, None]:
+def db_session() -> Generator[
+    Session,
+    None,
+    None,
+]:
     """
     Creates one transaction-controlled SQLAlchemy Session
     for each test.
 
-    The base Service record is inserted here because both
-    Service tests and Incident tests depend on it.
+    Test data is seeded by dedicated fixtures such as
+    seeded_services and seeded_incidents.
     """
 
     connection = test_engine.connect()
@@ -66,7 +78,9 @@ def db_session() -> Generator[Session, None, None]:
 
     try:
         database_name = session.execute(
-            text("SELECT current_database()")
+            text(
+                "SELECT current_database()"
+            )
         ).scalar_one()
 
         if database_name != "opsflow_test":
@@ -103,56 +117,68 @@ def db_session() -> Generator[Session, None, None]:
                 "from opsflow_test."
             )
 
-        service_repository = (
-            SqlAlchemyServiceRepository(
-                session
-            )
-        )
-
-        payments_service = Service(
-            id=PAYMENTS_SERVICE_ID,
-            name="Payments API",
-            owner="Payments Team",
-            status=ServiceStatus.HEALTHY,
-            uptime="99.99%",
-            latency_ms=42,
-            description=(
-                "Processes customer payments."
-            ),
-            region="us-east-1",
-            version="2.4.1",
-            last_deployed_at=datetime.now(
-                timezone.utc
-            ),
-            dependencies=[
-                "Identity API",
-                "PostgreSQL",
-            ],
-            incidents=[]
-        )
-
-        service_repository.create(
-            payments_service
-        )
-
-        # Make the INSERT visible inside this transaction.
-        session.flush()
-
         yield session
 
     finally:
         session.close()
 
         # Removes every change made by the test:
-        # Services, dependencies, Incidents, PATCHes, etc.
+        # Services, dependencies, Incidents,
+        # PATCHes, users, etc.
         transaction.rollback()
 
         connection.close()
+        
+        
+@pytest.fixture
+def seeded_services(
+    db_session: Session,
+) -> list[Service]:
+    service_repository = (
+        SqlAlchemyServiceRepository(
+            db_session
+        )
+    )
+
+    payments_service = Service(
+        id=PAYMENTS_SERVICE_ID,
+        name="Payments API",
+        owner="Payments Team",
+        status=ServiceStatus.HEALTHY,
+        uptime="99.99%",
+        latency_ms=42,
+        description=(
+            "Processes customer payments."
+        ),
+        region="us-east-1",
+        version="2.4.1",
+        last_deployed_at=datetime.now(
+            timezone.utc
+        ),
+        dependencies=[
+            "Identity API",
+            "PostgreSQL",
+        ],
+        incidents=[],
+    )
+
+    service_repository.create(
+        payments_service
+    )
+
+    # Make the inserted Service visible to all operations
+    # using this test transaction.
+    db_session.flush()
+
+    return [
+        payments_service
+    ]
 
 
 @pytest.fixture
 def seeded_incidents(
     db_session: Session,
+    seeded_services: list[Service]
 ) -> list[Incident]:
     """
     Adds Incident rows to the SAME Session/transaction
@@ -264,3 +290,144 @@ def client(
             yield test_client
     finally:
         app.dependency_overrides.clear()
+        
+@pytest.fixture
+def authenticated_user(
+    db_session,
+) -> User:
+    repository = SqlAlchemyUserRepository(
+        db_session
+    )
+
+    service = UserService(
+        repository
+    )
+
+    user = service.create_user(
+        email=(
+            f"api-test-{uuid4().hex}"
+            "@example.com"
+        ),
+        full_name="OpsFlow Test Administrator",
+        password="VerySecurePassword123!",
+        role=UserRole.ADMIN,
+    )
+
+    db_session.flush()
+
+    return user
+
+
+@pytest.fixture
+def auth_headers(
+    authenticated_user: User,
+) -> dict[str, str]:
+    access_token = create_access_token(
+        authenticated_user.id
+    )
+
+    return {
+        "Authorization": (
+            f"Bearer {access_token}"
+        )
+    }
+
+    
+def create_user_with_role(
+    db_session,
+    role: UserRole,
+) -> User:
+    repository = SqlAlchemyUserRepository(
+        db_session
+    )
+
+    service = UserService(
+        repository
+    )
+
+    user = service.create_user(
+        email=(
+            f"{role.value}-"
+            f"{uuid4().hex}@example.com"
+        ),
+        full_name=(
+            f"OpsFlow Test {role.value.title()}"
+        ),
+        password="VerySecurePassword123!",
+        role=role,
+    )
+
+    db_session.flush()
+
+    return user
+
+
+@pytest.fixture
+def viewer_user(
+    db_session,
+) -> User:
+    return create_user_with_role(
+        db_session,
+        UserRole.VIEWER,
+    )
+
+
+@pytest.fixture
+def operator_user(
+    db_session,
+) -> User:
+    return create_user_with_role(
+        db_session,
+        UserRole.OPERATOR,
+    )
+
+
+@pytest.fixture
+def admin_user(
+    db_session,
+) -> User:
+    return create_user_with_role(
+        db_session,
+        UserRole.ADMIN,
+    )
+    
+
+def headers_for_user(
+    user: User,
+) -> dict[str, str]:
+    token = create_access_token(
+        user.id
+    )
+
+    return {
+        "Authorization": (
+            f"Bearer {token}"
+        )
+    }
+    
+    
+@pytest.fixture
+def viewer_headers(
+    viewer_user: User,
+) -> dict[str, str]:
+    return headers_for_user(
+        viewer_user
+    )
+
+
+@pytest.fixture
+def operator_headers(
+    operator_user: User,
+) -> dict[str, str]:
+    return headers_for_user(
+        operator_user
+    )
+
+
+@pytest.fixture
+def admin_headers(
+    admin_user: User,
+) -> dict[str, str]:
+    return headers_for_user(
+        admin_user
+    )

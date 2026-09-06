@@ -1,10 +1,13 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status
+from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from app.api.dependencies import IncidentServiceDependency
+from app.api.dependencies import IncidentServiceDependency, require_permission
+
 from app.domain.incident import IncidentSeverity, IncidentStatus
+from app.domain.authorization import Permission
+
 from app.schemas.incident import (
     IncidentCreate,
     IncidentResponse,
@@ -22,6 +25,13 @@ router = APIRouter()
 @router.get(
     "",
     response_model=list[IncidentResponse],
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_READ
+            )
+        )
+    ]
 )
 def list_incidents(
     incident_service: IncidentServiceDependency,
@@ -91,6 +101,13 @@ def list_incidents(
 @router.get(
     "/{incident_id}",
     response_model=IncidentResponse,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.SERVICE_READ
+            )
+        )
+    ]
 )
 def get_incident(
     incident_id: UUID,
@@ -115,6 +132,13 @@ def get_incident(
     "",
     response_model=IncidentResponse,
     status_code=status.HTTP_201_CREATED,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.INCIDENT_CREATE
+            )
+        )
+    ]
 )
 def create_incident(
     payload: IncidentCreate,
@@ -138,6 +162,13 @@ def create_incident(
 @router.patch(
     "/{incident_id}",
     response_model=IncidentResponse,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.INCIDENT_UPDATE
+            )
+        )
+    ]
 )
 def update_incident(
     incident_id: UUID,
@@ -168,6 +199,13 @@ def update_incident(
 @router.delete(
     "/{incident_id}",
     status_code=status.HTTP_204_NO_CONTENT,
+    dependencies=[
+        Depends(
+            require_permission(
+                Permission.INCIDENT_DELETE
+            )
+        )
+    ]
 )
 def delete_incident(
     incident_id: UUID,

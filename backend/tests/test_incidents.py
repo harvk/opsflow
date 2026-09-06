@@ -1,7 +1,9 @@
 from uuid import uuid4
 
 from fastapi.testclient import TestClient
+from sqlalchemy.orm import Session
 
+from app.domain.service import Service
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -20,10 +22,12 @@ INCIDENTS_URL = "/api/v1/incidents"
 
 def test_list_incidents_returns_seeded_incidents(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
-        INCIDENTS_URL
+        INCIDENTS_URL,
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -45,6 +49,7 @@ def test_list_incidents_returns_seeded_incidents(
 
 def test_list_incidents_can_filter_by_status(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
@@ -54,6 +59,7 @@ def test_list_incidents_can_filter_by_status(
                 IncidentStatus.INVESTIGATING.value
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -70,6 +76,7 @@ def test_list_incidents_can_filter_by_status(
 
 def test_list_incidents_can_filter_by_severity(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
@@ -79,6 +86,7 @@ def test_list_incidents_can_filter_by_severity(
                 IncidentSeverity.SEV_1.value
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -95,6 +103,7 @@ def test_list_incidents_can_filter_by_severity(
 
 def test_list_incidents_can_filter_by_service(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
@@ -104,6 +113,7 @@ def test_list_incidents_can_filter_by_service(
                 PAYMENTS_SERVICE_ID
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -123,6 +133,7 @@ def test_list_incidents_can_filter_by_service(
 
 def test_list_incidents_can_search(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
@@ -130,6 +141,7 @@ def test_list_incidents_can_search(
         params={
             "search": "error spike",
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -151,10 +163,12 @@ def test_list_incidents_can_search(
 
 def test_get_incident_returns_incident(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.get(
-        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
+        headers=auth_headers
     )
 
     assert response.status_code == 200
@@ -189,6 +203,9 @@ def test_get_incident_returns_incident(
 
 def test_create_incident_returns_201(
     client: TestClient,
+    db_session: Session,
+    auth_headers: dict[str, str],
+    seeded_services: list[Service]
 ) -> None:
     payload = {
         "title": "Payments API errors",
@@ -211,6 +228,7 @@ def test_create_incident_returns_201(
     response = client.post(
         INCIDENTS_URL,
         json=payload,
+        headers=auth_headers
     )
 
     assert response.status_code == 201, response.text
@@ -244,6 +262,7 @@ def test_create_incident_returns_201(
 
 def test_create_incident_with_missing_service_returns_404(
     client: TestClient,
+    auth_headers: dict[str, str],
 ) -> None:
     missing_service_id = uuid4()
 
@@ -268,6 +287,7 @@ def test_create_incident_with_missing_service_returns_404(
     response = client.post(
         INCIDENTS_URL,
         json=payload,
+        headers=auth_headers
     )
 
     assert response.status_code == 404, response.text
@@ -275,6 +295,7 @@ def test_create_incident_with_missing_service_returns_404(
 
 def test_resolving_incident_sets_resolved_at(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.patch(
@@ -284,6 +305,7 @@ def test_resolving_incident_sets_resolved_at(
                 IncidentStatus.RESOLVED.value
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200, response.text
@@ -300,11 +322,13 @@ def test_resolving_incident_sets_resolved_at(
 
 def test_reopening_incident_clears_resolved_at(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     # THIRD_INCIDENT_ID is seeded as Resolved.
     before_response = client.get(
-        f"{INCIDENTS_URL}/{THIRD_INCIDENT_ID}"
+        f"{INCIDENTS_URL}/{THIRD_INCIDENT_ID}",
+        headers=auth_headers
     )
 
     assert before_response.status_code == 200
@@ -325,6 +349,7 @@ def test_reopening_incident_clears_resolved_at(
                 IncidentStatus.INVESTIGATING.value
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200, response.text
@@ -341,6 +366,8 @@ def test_reopening_incident_clears_resolved_at(
 
 def test_patch_incident_updates_selected_fields(
     client: TestClient,
+    db_session: Session,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     response = client.patch(
@@ -351,6 +378,7 @@ def test_patch_incident_updates_selected_fields(
                 IncidentSeverity.SEV_1.value
             ),
         },
+        headers=auth_headers
     )
 
     assert response.status_code == 200, response.text
@@ -382,6 +410,7 @@ def test_patch_incident_updates_selected_fields(
 
 def test_patch_incident_changes_persist(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     patch_response = client.patch(
@@ -389,6 +418,7 @@ def test_patch_incident_changes_persist(
         json={
             "assignee": "SRE Team",
         },
+        headers=auth_headers
     )
 
     assert (
@@ -397,7 +427,8 @@ def test_patch_incident_changes_persist(
     ), patch_response.text
 
     get_response = client.get(
-        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
+        headers=auth_headers
     )
 
     assert get_response.status_code == 200
@@ -409,10 +440,12 @@ def test_patch_incident_changes_persist(
 
 def test_delete_incident_returns_204(
     client: TestClient,
+    auth_headers: dict[str, str],
     seeded_incidents: list[Incident],
 ) -> None:
     delete_response = client.delete(
-        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
+        headers=auth_headers
     )
 
     assert (
@@ -421,7 +454,17 @@ def test_delete_incident_returns_204(
     ), delete_response.text
 
     get_response = client.get(
-        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}"
+        f"{INCIDENTS_URL}/{PAYMENTS_INCIDENT_ID}",
+        headers=auth_headers
     )
 
     assert get_response.status_code == 404
+    
+def test_incidents_require_authentication(
+    client: TestClient,
+) -> None:
+    response = client.get(
+        "/api/v1/incidents"
+    )
+
+    assert response.status_code == 401
