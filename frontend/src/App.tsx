@@ -1,7 +1,10 @@
-import { Route, Routes } from "react-router";
+import { Route, Routes } from "react-router-dom";
 
 import AppLayout from "./layouts/AppLayout";
 
+import { ProtectedRoute } from "./auth/ProtectedRoute";
+
+import { LoginPage } from "./pages/LoginPage";
 import NotFoundPage from "./pages/NotFoundPage";
 import OverviewPage from "./pages/OverviewPage";
 import ServicesPage from "./pages/ServicesPage";
@@ -12,16 +15,26 @@ import ReportIncidentPage from "./pages/ReportIncidentPage";
 export default function App() {
   return (
     <Routes>
-      <Route element={<AppLayout />}>
-        <Route index element={<OverviewPage />} />
+      {/* Public route */}
+      <Route path="/login" element={<LoginPage />} />
 
-        <Route path="services" element={<ServicesPage />} />
+      {/* Authenticated application */}
+      <Route element={<ProtectedRoute />}>
+        <Route element={<AppLayout />}>
+          {/* Dashboard / overview */}
+          <Route index element={<OverviewPage />} />
 
-        <Route path="services/:serviceId" element={<ServiceDetailsPage />} />
+          {/* Services */}
+          <Route path="services" element={<ServicesPage />} />
 
-        <Route path="incidents/new" element={<ReportIncidentPage />} />
+          <Route path="services/:serviceId" element={<ServiceDetailsPage />} />
 
-        <Route path="*" element={<NotFoundPage />} />
+          {/* Incidents */}
+          <Route path="incidents/new" element={<ReportIncidentPage />} />
+
+          {/* Authenticated 404 */}
+          <Route path="*" element={<NotFoundPage />} />
+        </Route>
       </Route>
     </Routes>
   );

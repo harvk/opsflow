@@ -2,7 +2,7 @@ import type { FormEvent } from "react";
 
 import { useState } from "react";
 
-import { Link, useSearchParams } from "react-router";
+import { Link, useSearchParams } from "react-router-dom";
 
 import FormField from "../components/forms/FormField";
 import ErrorState from "../components/ui/ErrorState";

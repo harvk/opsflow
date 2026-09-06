@@ -25,12 +25,13 @@ class Settings(BaseSettings):
     # JWT authentication settings
     # ---------------------------------------------------------
     jwt_secret_key: SecretStr
+    jwt_algorithm: str = "HS256"
 
     jwt_issuer: str = "opsflow-api"
     jwt_audience: str = "opsflow-web"
 
     access_token_expire_minutes: int = Field(
-        default=30,
+        default=15,
         ge=5,
         le=1440,
     )

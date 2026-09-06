@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from "react";
-
-import { Outlet, useLocation } from "react-router";
+import { Outlet, useLocation } from "react-router-dom";
 
 import AppHeader from "../components/AppHeader";
 import AppSidebar from "../components/AppSidebar";
+
+import "../styles/app-shell.css";
 
 export default function AppLayout() {
   const location = useLocation();
@@ -37,35 +38,33 @@ export default function AppLayout() {
   }
 
   return (
-    <>
+    <div className="ops-app-viewport">
       <a className="skip-link" href="#main-content">
         Skip to main content
       </a>
 
       <div className="ops-app-shell">
+        <AppHeader
+          isNavigationOpen={isNavigationOpen}
+          onToggleNavigation={toggleNavigation}
+        />
+
         <AppSidebar
           isOpen={isNavigationOpen}
           onClose={() => setIsNavigationOpen(false)}
         />
 
-        <div className="ops-app-shell__content">
-          <AppHeader
-            isNavigationOpen={isNavigationOpen}
-            onToggleNavigation={toggleNavigation}
-          />
-
-          <main
-            id="main-content"
-            ref={mainRef}
-            tabIndex={-1}
-            className="ops-main-content"
-          >
-            <div className="container-fluid py-4 py-xl-5">
-              <Outlet />
-            </div>
-          </main>
-        </div>
+        <main
+          id="main-content"
+          ref={mainRef}
+          tabIndex={-1}
+          className="ops-main-content"
+        >
+          <div className="ops-content-container">
+            <Outlet />
+          </div>
+        </main>
       </div>
-    </>
+    </div>
   );
 }

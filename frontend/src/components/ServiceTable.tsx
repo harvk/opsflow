@@ -1,6 +1,6 @@
 import type { Service } from "../types/dashboard";
 
-import { Link } from "react-router";
+import { Link } from "react-router-dom";
 
 import StatusBadge from "./StatusBadge";
 
