@@ -96,6 +96,18 @@ from app.core.security_events import (
     security_event_logger,
 )
 
+from app.repositories.password_reset_token_repository import (
+    PasswordResetTokenRepository,
+)
+
+from app.repositories.sqlalchemy_password_reset_token_repository import (
+    SqlAlchemyPasswordResetTokenRepository,
+)
+
+from app.services.password_reset_service import (
+    PasswordResetService,
+)
+
 
 authorization_service = (
     AuthorizationService()
@@ -336,6 +348,69 @@ AuthSessionRepositoryDependency = Annotated[
         get_auth_session_repository
     ),
 ]
+
+
+# =========================================================
+# PASSWORD RESET DEPENDENCIES
+# =========================================================
+
+
+def get_password_reset_token_repository(
+    session: DbSession,
+) -> PasswordResetTokenRepository:
+    return (
+        SqlAlchemyPasswordResetTokenRepository(
+            session
+        )
+    )
+
+
+PasswordResetTokenRepositoryDependency = (
+    Annotated[
+        PasswordResetTokenRepository,
+        Depends(
+            get_password_reset_token_repository
+        ),
+    ]
+)
+
+
+def get_password_reset_service(
+    db: DbSession,
+    password_reset_repository: (
+        PasswordResetTokenRepositoryDependency
+    ),
+    auth_session_repository: (
+        AuthSessionRepositoryDependency
+    ),
+) -> PasswordResetService:
+    user_repository = (
+        SqlAlchemyUserRepository(
+            db
+        )
+    )
+
+    return PasswordResetService(
+        user_repository=(
+            user_repository
+        ),
+        password_reset_repository=(
+            password_reset_repository
+        ),
+        auth_session_repository=(
+            auth_session_repository
+        ),
+    )
+
+
+PasswordResetServiceDependency = (
+    Annotated[
+        PasswordResetService,
+        Depends(
+            get_password_reset_service
+        ),
+    ]
+)
 
 
 # =========================================================

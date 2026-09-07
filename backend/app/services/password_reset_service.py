@@ -1,12 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+)
 
 from datetime import (
     datetime,
     timedelta,
     timezone,
 )
+
+import hmac
 
 from uuid import (
     UUID,
@@ -17,7 +21,6 @@ from app.core.password_reset_tokens import (
     create_password_reset_credential_fingerprint,
     digest_password_reset_token,
     generate_password_reset_token,
-    password_reset_credential_matches,
 )
 
 from app.core.security import (
@@ -43,18 +46,7 @@ from app.repositories.user_repository import (
 
 
 # =========================================================
-# CONFIGURATION
-# =========================================================
-
-DEFAULT_PASSWORD_RESET_TTL = (
-    timedelta(
-        minutes=30
-    )
-)
-
-
-# =========================================================
-# RESULT TYPES
+# RESULTS
 # =========================================================
 
 
@@ -62,17 +54,25 @@ DEFAULT_PASSWORD_RESET_TTL = (
     frozen=True,
     slots=True,
 )
-class PasswordResetIssuance:
+class PasswordResetIssueResult:
     """
-    Internal result used by the future delivery layer.
+    Internal result of issuing a recovery credential.
 
-    The raw token must never be returned by the public
-    password-reset request endpoint.
+    raw_token must never be:
+
+        stored in the database
+        logged
+        returned by the public API
+
+    The later notification/delivery layer will be the only
+    production consumer of this value.
     """
+
+    user_id: UUID
 
     email: str
 
-    token: str
+    raw_token: str
 
     expires_at: datetime
 
@@ -81,39 +81,31 @@ class PasswordResetIssuance:
     frozen=True,
     slots=True,
 )
-class PasswordResetCompletion:
-    """
-    Result of a completed recovery operation.
-    """
-
+class PasswordResetCompletionResult:
     user_id: UUID
 
     revoked_sessions: int
 
 
 # =========================================================
-# PASSWORD RESET ERRORS
+# ERRORS
 # =========================================================
 
 
 class PasswordResetError(
     Exception
 ):
-    """
-    Base password-recovery domain failure.
-    """
-
     pass
 
 
-class InvalidPasswordResetTokenError(
+class InvalidPasswordResetCredentialError(
     PasswordResetError
 ):
     """
-    Reset proof cannot be trusted.
+    Reset credential cannot be trusted.
 
-    The API layer should deliberately avoid exposing which
-    exact validation condition failed.
+    Public HTTP responses intentionally collapse the exact
+    reason into one generic error.
     """
 
     pass
@@ -123,8 +115,7 @@ class PasswordResetPasswordError(
     PasswordResetError
 ):
     """
-    The requested replacement password violates password
-    policy.
+    Replacement password violates a password invariant.
     """
 
     pass
@@ -140,32 +131,22 @@ class PasswordResetService:
         self,
         *,
         user_repository: UserRepository,
-        reset_token_repository: (
+        password_reset_repository: (
             PasswordResetTokenRepository
         ),
         auth_session_repository: (
             AuthSessionRepository
         ),
-        token_ttl: timedelta = (
-            DEFAULT_PASSWORD_RESET_TTL
+        token_ttl: timedelta = timedelta(
+            minutes=30
         ),
     ) -> None:
-        if (
-            token_ttl
-            <= timedelta(
-                seconds=0
-            )
-        ):
-            raise ValueError(
-                "Password-reset TTL must be positive."
-            )
-
         self.user_repository = (
             user_repository
         )
 
-        self.reset_token_repository = (
-            reset_token_repository
+        self.password_reset_repository = (
+            password_reset_repository
         )
 
         self.auth_session_repository = (
@@ -177,23 +158,21 @@ class PasswordResetService:
         )
 
     # =====================================================
-    # RESET REQUEST
+    # REQUEST RESET
     # =====================================================
 
-    def request_password_reset(
+    def request_reset(
         self,
         *,
         email: str,
-    ) -> PasswordResetIssuance | None:
+    ) -> PasswordResetIssueResult | None:
         """
-        Create an internal password-reset credential.
+        Create a one-time recovery credential for an eligible
+        account.
 
-        Returning None for unknown/inactive accounts is an
-        INTERNAL distinction only.
-
-        Phase 6.4D-3B will ensure that the public HTTP
-        response is identical regardless of whether this
-        method returns an issuance.
+        Unknown and inactive accounts return None rather than
+        raising. The HTTP layer deliberately turns both None
+        and a real result into the exact same 202 response.
         """
 
         normalized_email = (
@@ -210,15 +189,8 @@ class PasswordResetService:
         )
 
         if (
-            auth_record
-            is None
-        ):
-            return None
-
-        if not (
-            auth_record
-            .user
-            .is_active
+            auth_record is None
+            or not auth_record.user.is_active
         ):
             return None
 
@@ -226,9 +198,18 @@ class PasswordResetService:
             timezone.utc
         )
 
-        expires_at = (
-            now
-            + self.token_ttl
+        # A newly requested credential supersedes all
+        # previous outstanding reset credentials.
+        (
+            self.password_reset_repository
+            .invalidate_active_for_user(
+                user_id=(
+                    auth_record
+                    .user
+                    .id
+                ),
+                invalidated_at=now,
+            )
         )
 
         raw_token = (
@@ -248,23 +229,14 @@ class PasswordResetService:
             )
         )
 
-        # Supersede previous outstanding recovery links.
-        self.reset_token_repository.invalidate_active_for_user(
-            user_id=(
-                auth_record
-                .user
-                .id
-            ),
-            invalidated_at=(
-                now
-            ),
+        expires_at = (
+            now
+            + self.token_ttl
         )
 
         reset_token = (
             PasswordResetToken(
-                id=(
-                    uuid4()
-                ),
+                id=uuid4(),
                 user_id=(
                     auth_record
                     .user
@@ -276,9 +248,7 @@ class PasswordResetService:
                 credential_fingerprint=(
                     credential_fingerprint
                 ),
-                created_at=(
-                    now
-                ),
+                created_at=now,
                 expires_at=(
                     expires_at
                 ),
@@ -287,17 +257,25 @@ class PasswordResetService:
             )
         )
 
-        self.reset_token_repository.create(
-            reset_token
+        (
+            self.password_reset_repository
+            .create(
+                reset_token
+            )
         )
 
-        return PasswordResetIssuance(
+        return PasswordResetIssueResult(
+            user_id=(
+                auth_record
+                .user
+                .id
+            ),
             email=(
                 auth_record
                 .user
                 .email
             ),
-            token=(
+            raw_token=(
                 raw_token
             ),
             expires_at=(
@@ -306,82 +284,61 @@ class PasswordResetService:
         )
 
     # =====================================================
-    # RESET COMPLETION
+    # CONFIRM RESET
     # =====================================================
 
-    def reset_password(
+    def confirm_reset(
         self,
         *,
-        token: str,
+        raw_token: str,
         new_password: str,
-    ) -> PasswordResetCompletion:
+    ) -> PasswordResetCompletionResult:
         """
-        Consume one reset token and replace the associated
-        account password.
+        Atomically consume a one-time recovery credential.
 
-        Security sequence:
+        Successful recovery:
 
-            1. hash submitted opaque token
-            2. SELECT reset row FOR UPDATE
-            3. validate token lifecycle
-            4. resolve current user
-            5. verify credential-version binding
-            6. validate replacement password
-            7. reject current-password reuse
-            8. compare-and-set current password hash
-            9. mark reset token single-use consumed
-           10. invalidate other recovery tokens
-           11. revoke every persistent auth session
-
-        No new authentication session is created here.
+            changes the password
+            consumes the reset credential
+            invalidates sibling reset credentials
+            revokes every persistent auth session
         """
 
         token_digest = (
-            self._digest_submitted_token(
-                token
+            digest_password_reset_token(
+                raw_token
             )
         )
 
         reset_token = (
-            self.reset_token_repository
+            self.password_reset_repository
             .get_by_digest_for_update(
                 token_digest
             )
         )
 
+        if reset_token is None:
+            raise (
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "is invalid."
+                )
+            )
+
         now = datetime.now(
             timezone.utc
         )
 
-        # -------------------------------------------------
-        # TOKEN LIFECYCLE
-        # -------------------------------------------------
-
-        if (
-            reset_token
-            is None
-        ):
-            raise (
-                self._invalid_token_error()
-            )
-
-        if not (
-            reset_token.is_usable(
-                now=now
-            )
-        ):
-            raise (
-                self._invalid_token_error()
-            )
-
-        # -------------------------------------------------
-        # USER
-        # -------------------------------------------------
+        self._require_usable_token(
+            reset_token,
+            now=now,
+        )
 
         user = (
             self.user_repository
             .get_by_id(
-                reset_token.user_id
+                reset_token
+                .user_id
             )
         )
 
@@ -390,12 +347,11 @@ class PasswordResetService:
             or not user.is_active
         ):
             raise (
-                self._invalid_token_error()
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "is invalid."
+                )
             )
-
-        # -------------------------------------------------
-        # CURRENT CREDENTIAL RECORD
-        # -------------------------------------------------
 
         auth_record = (
             self.user_repository
@@ -409,10 +365,13 @@ class PasswordResetService:
         if (
             auth_record is None
             or auth_record.user.id
-            != reset_token.user_id
+            != user.id
         ):
             raise (
-                self._invalid_token_error()
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "is invalid."
+                )
             )
 
         current_hashed_password = (
@@ -420,39 +379,29 @@ class PasswordResetService:
             .hashed_password
         )
 
-        # -------------------------------------------------
-        # CREDENTIAL VERSION
-        # -------------------------------------------------
-
-        # If a password change or another successful reset
-        # occurred after this token was issued, this reset
-        # credential immediately becomes stale.
-        if not (
-            password_reset_credential_matches(
-                hashed_password=(
-                    current_hashed_password
-                ),
-                credential_fingerprint=(
-                    reset_token
-                    .credential_fingerprint
-                ),
+        expected_fingerprint = (
+            create_password_reset_credential_fingerprint(
+                current_hashed_password
             )
+        )
+
+        if not hmac.compare_digest(
+            expected_fingerprint,
+            reset_token
+            .credential_fingerprint,
         ):
+            # Password changed after this reset credential
+            # was issued.
             raise (
-                self._invalid_token_error()
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "is stale."
+                )
             )
-
-        # -------------------------------------------------
-        # PASSWORD POLICY
-        # -------------------------------------------------
 
         self._validate_new_password(
             new_password
         )
-
-        # -------------------------------------------------
-        # PASSWORD REUSE
-        # -------------------------------------------------
 
         if verify_password(
             new_password,
@@ -468,10 +417,6 @@ class PasswordResetService:
                 new_password
             )
         )
-
-        # -------------------------------------------------
-        # ATOMIC CREDENTIAL UPDATE
-        # -------------------------------------------------
 
         password_updated = (
             self.user_repository
@@ -489,59 +434,47 @@ class PasswordResetService:
         )
 
         if not password_updated:
-            # Another credential update occurred between our
-            # read and write.
-            #
-            # The request transaction must roll back rather
-            # than overwriting that newer credential.
             raise (
-                self._invalid_token_error()
+                InvalidPasswordResetCredentialError(
+                    "The credential changed while "
+                    "the reset was in progress."
+                )
             )
 
-        # -------------------------------------------------
-        # SINGLE-USE CONSUMPTION
-        # -------------------------------------------------
-
-        consumed = (
-            self.reset_token_repository
+        token_consumed = (
+            self.password_reset_repository
             .mark_used(
                 token_id=(
-                    reset_token.id
+                    reset_token
+                    .id
                 ),
-                used_at=(
-                    now
-                ),
+                used_at=now,
             )
         )
 
-        if not consumed:
-            # Under the row lock this should not normally be
-            # reachable. Treat it as a failed security
-            # invariant and let the request transaction roll
-            # back the password update.
+        if not token_consumed:
             raise (
-                self._invalid_token_error()
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "could not be consumed."
+                )
             )
 
-        # -------------------------------------------------
-        # INVALIDATE OTHER RESET TOKENS
-        # -------------------------------------------------
-
-        self.reset_token_repository.invalidate_active_for_user(
-            user_id=(
-                user.id
-            ),
-            invalidated_at=(
-                now
-            ),
-            exclude_token_id=(
-                reset_token.id
-            ),
+        # Defensive cleanup. Once the password is changed,
+        # no sibling reset credential should survive.
+        (
+            self.password_reset_repository
+            .invalidate_active_for_user(
+                user_id=(
+                    user.id
+                ),
+                invalidated_at=now,
+                exclude_token_id=(
+                    reset_token
+                    .id
+                ),
+            )
         )
-
-        # -------------------------------------------------
-        # REVOKE AUTHENTICATION SESSIONS
-        # -------------------------------------------------
 
         revoked_sessions = (
             self.auth_session_repository
@@ -549,87 +482,89 @@ class PasswordResetService:
                 user_id=(
                     user.id
                 ),
-                revoked_at=(
-                    now
-                ),
+                revoked_at=now,
                 reason=(
                     "password_reset"
                 ),
             )
         )
 
-        return PasswordResetCompletion(
-            user_id=(
-                user.id
-            ),
-            revoked_sessions=(
-                revoked_sessions
-            ),
+        return (
+            PasswordResetCompletionResult(
+                user_id=(
+                    user.id
+                ),
+                revoked_sessions=(
+                    revoked_sessions
+                ),
+            )
         )
 
     # =====================================================
-    # INTERNAL HELPERS
+    # SECURITY HELPERS
     # =====================================================
 
     @staticmethod
-    def _digest_submitted_token(
-        token: str,
-    ) -> str:
-        try:
-            return (
-                digest_password_reset_token(
-                    token
+    def _require_usable_token(
+        token: PasswordResetToken,
+        *,
+        now: datetime,
+    ) -> None:
+        if (
+            token.used_at
+            is not None
+        ):
+            raise (
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "has already been used."
                 )
             )
 
-        except ValueError as exc:
+        if (
+            token.invalidated_at
+            is not None
+        ):
             raise (
-                PasswordResetService
-                ._invalid_token_error()
-            ) from exc
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "has been invalidated."
+                )
+            )
 
-    @staticmethod
-    def _invalid_token_error(
-    ) -> InvalidPasswordResetTokenError:
-        """
-        Keep all token-lifecycle failures deliberately
-        indistinguishable.
-        """
-
-        return InvalidPasswordResetTokenError(
-            "The password-reset token is "
-            "invalid or expired."
-        )
+        if (
+            token.expires_at
+            <= now
+        ):
+            raise (
+                InvalidPasswordResetCredentialError(
+                    "Password reset credential "
+                    "has expired."
+                )
+            )
 
     @staticmethod
     def _validate_new_password(
         password: str,
     ) -> None:
         """
-        Keep reset-password policy consistent with the
-        authenticated password-change flow:
+        Mirrors the server-side password-change rule.
 
-            minimum 15 Unicode code points
-            maximum 128 Unicode code points
+        We will extract this into one shared password-policy
+        component in the next cleanup slice.
         """
 
-        if (
-            len(
-                password
-            )
-            < 15
-        ):
+        if len(
+            password
+        ) < 15:
             raise PasswordResetPasswordError(
                 "The new password must contain "
                 "at least 15 characters."
             )
 
-        if (
-            len(
-                password
-            )
-            > 128
-        ):
+        if len(
+            password
+        ) > 128:
             raise PasswordResetPasswordError(
                 "The new password must not exceed "
                 "128 characters."

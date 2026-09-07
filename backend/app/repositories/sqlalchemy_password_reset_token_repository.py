@@ -1,17 +1,24 @@
 from __future__ import annotations
 
-from datetime import datetime
+from sqlalchemy.engine.row import (
+    RowMapping,
+)
+
+from datetime import (
+    datetime,
+)
 
 from typing import (
     Any,
     cast,
 )
 
-from uuid import UUID
+from uuid import (
+    UUID,
+)
 
 from sqlalchemy import (
-    select,
-    update,
+    text,
 )
 
 from sqlalchemy.engine import (
@@ -26,18 +33,8 @@ from app.domain.password_reset_token import (
     PasswordResetToken,
 )
 
-from app.models.password_reset_token import (
-    PasswordResetTokenModel,
-)
 
-from app.repositories.password_reset_token_repository import (
-    PasswordResetTokenRepository,
-)
-
-
-class SqlAlchemyPasswordResetTokenRepository(
-    PasswordResetTokenRepository
-):
+class SqlAlchemyPasswordResetTokenRepository:
     def __init__(
         self,
         session: Session,
@@ -52,116 +49,109 @@ class SqlAlchemyPasswordResetTokenRepository(
 
     def create(
         self,
-        reset_token: PasswordResetToken,
+        token: PasswordResetToken,
     ) -> PasswordResetToken:
-        model = PasswordResetTokenModel(
-            id=(
-                reset_token.id
-            ),
-            user_id=(
-                reset_token.user_id
-            ),
-            token_digest=(
-                reset_token.token_digest
-            ),
-            credential_fingerprint=(
-                reset_token
-                .credential_fingerprint
-            ),
-            created_at=(
-                reset_token.created_at
-            ),
-            expires_at=(
-                reset_token.expires_at
-            ),
-            used_at=(
-                reset_token.used_at
-            ),
-            invalidated_at=(
-                reset_token.invalidated_at
-            ),
+        statement = text(
+            """
+            INSERT INTO password_reset_tokens (
+                id,
+                user_id,
+                token_digest,
+                credential_fingerprint,
+                created_at,
+                expires_at,
+                used_at,
+                invalidated_at
+            )
+            VALUES (
+                :id,
+                :user_id,
+                :token_digest,
+                :credential_fingerprint,
+                :created_at,
+                :expires_at,
+                :used_at,
+                :invalidated_at
+            )
+            """
         )
 
-        self.session.add(
-            model
+        self.session.execute(
+            statement,
+            {
+                "id": token.id,
+                "user_id": token.user_id,
+                "token_digest": (
+                    token.token_digest
+                ),
+                "credential_fingerprint": (
+                    token
+                    .credential_fingerprint
+                ),
+                "created_at": (
+                    token.created_at
+                ),
+                "expires_at": (
+                    token.expires_at
+                ),
+                "used_at": (
+                    token.used_at
+                ),
+                "invalidated_at": (
+                    token.invalidated_at
+                ),
+            },
         )
 
         self.session.flush()
 
-        return self._to_domain(
-            model
-        )
+        return token
 
     # =====================================================
-    # READ
+    # LOCKED LOOKUP
     # =====================================================
-
-    def get_by_id(
-        self,
-        token_id: UUID,
-    ) -> PasswordResetToken | None:
-        statement = (
-            select(
-                PasswordResetTokenModel
-            )
-            .where(
-                PasswordResetTokenModel.id
-                == token_id
-            )
-        )
-
-        model = (
-            self.session
-            .execute(
-                statement
-            )
-            .scalar_one_or_none()
-        )
-
-        if model is None:
-            return None
-
-        return self._to_domain(
-            model
-        )
 
     def get_by_digest_for_update(
         self,
         token_digest: str,
     ) -> PasswordResetToken | None:
-        """
-        Acquire a row-level PostgreSQL lock before token
-        consumption.
-
-        The lock is held until the surrounding SQLAlchemy
-        transaction commits or rolls back.
-        """
-
-        statement = (
-            select(
-                PasswordResetTokenModel
-            )
-            .where(
-                PasswordResetTokenModel
-                .token_digest
-                == token_digest
-            )
-            .with_for_update()
+        statement = text(
+            """
+            SELECT
+                id,
+                user_id,
+                token_digest,
+                credential_fingerprint,
+                created_at,
+                expires_at,
+                used_at,
+                invalidated_at
+            FROM password_reset_tokens
+            WHERE token_digest = :token_digest
+            FOR UPDATE
+            """
         )
 
-        model = (
-            self.session
-            .execute(
-                statement
+        row = (
+            self.session.execute(
+                statement,
+                {
+                    "token_digest": (
+                        token_digest
+                    ),
+                },
             )
-            .scalar_one_or_none()
+            .mappings()
+            .one_or_none()
         )
 
-        if model is None:
+        if row is None:
             return None
 
-        return self._to_domain(
-            model
+        return (
+            self._to_domain(
+                row
+            )
         )
 
     # =====================================================
@@ -174,46 +164,38 @@ class SqlAlchemyPasswordResetTokenRepository(
         token_id: UUID,
         used_at: datetime,
     ) -> bool:
-        """
-        Consume the token only if it has not already been
-        used or invalidated.
-        """
-
-        statement = (
-            update(
-                PasswordResetTokenModel
-            )
-            .where(
-                PasswordResetTokenModel.id
-                == token_id
-            )
-            .where(
-                PasswordResetTokenModel.used_at
-                .is_(None)
-            )
-            .where(
-                PasswordResetTokenModel
-                .invalidated_at
-                .is_(None)
-            )
-            .values(
-                used_at=(
-                    used_at
-                )
-            )
+        statement = text(
+            """
+            UPDATE password_reset_tokens
+            SET used_at = :used_at
+            WHERE id = :token_id
+              AND used_at IS NULL
+              AND invalidated_at IS NULL
+            """
         )
 
         result = cast(
             CursorResult[Any],
             self.session.execute(
-                statement
+                statement,
+                {
+                    "token_id": (
+                        token_id
+                    ),
+                    "used_at": (
+                        used_at
+                    ),
+                },
             ),
         )
 
         self.session.flush()
 
         return (
-            result.rowcount
+            int(
+                result.rowcount
+                or 0
+            )
             == 1
         )
 
@@ -228,93 +210,96 @@ class SqlAlchemyPasswordResetTokenRepository(
         invalidated_at: datetime,
         exclude_token_id: UUID | None = None,
     ) -> int:
-        statement = (
-            update(
-                PasswordResetTokenModel
-            )
-            .where(
-                PasswordResetTokenModel.user_id
-                == user_id
-            )
-            .where(
-                PasswordResetTokenModel.used_at
-                .is_(None)
-            )
-            .where(
-                PasswordResetTokenModel
-                .invalidated_at
-                .is_(None)
-            )
-        )
+        sql = """
+            UPDATE password_reset_tokens
+            SET invalidated_at = :invalidated_at
+            WHERE user_id = :user_id
+              AND used_at IS NULL
+              AND invalidated_at IS NULL
+        """
+
+        parameters: dict[
+            str,
+            Any,
+        ] = {
+            "user_id": (
+                user_id
+            ),
+            "invalidated_at": (
+                invalidated_at
+            ),
+        }
 
         if (
             exclude_token_id
             is not None
         ):
-            statement = (
-                statement.where(
-                    PasswordResetTokenModel.id
-                    != exclude_token_id
-                )
+            sql += (
+                """
+                AND id <> :exclude_token_id
+                """
             )
 
-        statement = (
-            statement.values(
-                invalidated_at=(
-                    invalidated_at
-                )
-            )
-        )
+            parameters[
+                "exclude_token_id"
+            ] = exclude_token_id
 
         result = cast(
             CursorResult[Any],
             self.session.execute(
-                statement
+                text(
+                    sql
+                ),
+                parameters,
             ),
         )
 
         self.session.flush()
 
-        if (
+        return int(
             result.rowcount
-            < 0
-        ):
-            return 0
+            or 0
+        )
 
-        return result.rowcount
-
-    # =====================================================
-    # MAPPING
-    # =====================================================
+    # =========================================================
+    # DOMAIN MAPPING
+    # =========================================================
 
     @staticmethod
     def _to_domain(
-        model: PasswordResetTokenModel,
+        row: RowMapping,
     ) -> PasswordResetToken:
         return PasswordResetToken(
-            id=(
-                model.id
-            ),
-            user_id=(
-                model.user_id
-            ),
+            id=row["id"],
+            user_id=row["user_id"],
             token_digest=(
-                model.token_digest
+                row[
+                    "token_digest"
+                ]
             ),
             credential_fingerprint=(
-                model
-                .credential_fingerprint
+                row[
+                    "credential_fingerprint"
+                ]
             ),
             created_at=(
-                model.created_at
+                row[
+                    "created_at"
+                ]
             ),
             expires_at=(
-                model.expires_at
+                row[
+                    "expires_at"
+                ]
             ),
             used_at=(
-                model.used_at
+                row[
+                    "used_at"
+                ]
             ),
             invalidated_at=(
-                model.invalidated_at
+                row[
+                    "invalidated_at"
+                ]
             ),
         )

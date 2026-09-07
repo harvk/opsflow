@@ -48,7 +48,7 @@ from app.repositories.sqlalchemy_user_repository import (
 )
 
 from app.services.password_reset_service import (
-    InvalidPasswordResetTokenError,
+    InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
     PasswordResetService,
 )
@@ -103,7 +103,7 @@ def build_password_reset_service(
             user_repository=(
                 user_repository
             ),
-            reset_token_repository=(
+            password_reset_repository=(
                 reset_token_repository
             ),
             auth_session_repository=(
@@ -216,7 +216,7 @@ def test_password_reset_request_creates_persistent_digest(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=(
                 user.email
             )
@@ -230,7 +230,7 @@ def test_password_reset_request_creates_persistent_digest(
 
     digest = (
         digest_password_reset_token(
-            issuance.token
+            issuance.raw_token
         )
     )
 
@@ -260,7 +260,7 @@ def test_password_reset_request_creates_persistent_digest(
     # credential.
     assert (
         persisted.token_digest
-        != issuance.token
+        != issuance.raw_token
     )
 
     assert (
@@ -288,7 +288,7 @@ def test_unknown_email_does_not_create_reset_credential(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=(
                 "missing-account@example.com"
             )
@@ -319,7 +319,7 @@ def test_second_reset_request_invalidates_first_token(
 
     first = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -331,7 +331,7 @@ def test_second_reset_request_invalidates_first_token(
 
     second = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -343,7 +343,7 @@ def test_second_reset_request_invalidates_first_token(
 
     first_digest = (
         digest_password_reset_token(
-            first.token
+            first.raw_token
         )
     )
 
@@ -366,7 +366,7 @@ def test_second_reset_request_invalidates_first_token(
 
     second_digest = (
         digest_password_reset_token(
-            second.token
+            second.raw_token
         )
     )
 
@@ -406,10 +406,10 @@ def test_invalid_password_reset_token_is_rejected(
     )
 
     with pytest.raises(
-        InvalidPasswordResetTokenError
+        InvalidPasswordResetCredentialError
     ):
-        service.reset_password(
-            token=(
+        service.confirm_reset(
+            raw_token=(
                 generate_password_reset_token()
             ),
             new_password=(
@@ -491,10 +491,10 @@ def test_expired_password_reset_token_is_rejected(
     )
 
     with pytest.raises(
-        InvalidPasswordResetTokenError
+        InvalidPasswordResetCredentialError
     ):
-        service.reset_password(
-            token=(
+        service.confirm_reset(
+            raw_token=(
                 raw_token
             ),
             new_password=(
@@ -526,7 +526,7 @@ def test_reset_rejects_short_password(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -539,9 +539,9 @@ def test_reset_rejects_short_password(
     with pytest.raises(
         PasswordResetPasswordError
     ):
-        service.reset_password(
-            token=(
-                issuance.token
+        service.confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 "TooShort123!"
@@ -567,7 +567,7 @@ def test_reset_rejects_current_password_reuse(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -580,9 +580,9 @@ def test_reset_rejects_current_password_reuse(
     with pytest.raises(
         PasswordResetPasswordError
     ):
-        service.reset_password(
-            token=(
-                issuance.token
+        service.confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 OLD_PASSWORD
@@ -613,7 +613,7 @@ def test_password_reset_changes_password(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -625,9 +625,9 @@ def test_password_reset_changes_password(
 
     result = (
         service
-        .reset_password(
-            token=(
-                issuance.token
+        .confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 NEW_PASSWORD
@@ -686,7 +686,7 @@ def test_password_reset_token_is_single_use(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -696,9 +696,9 @@ def test_password_reset_token_is_single_use(
         is not None
     )
 
-    service.reset_password(
-        token=(
-            issuance.token
+    service.confirm_reset(
+        raw_token=(
+            issuance.raw_token
         ),
         new_password=(
             NEW_PASSWORD
@@ -708,11 +708,11 @@ def test_password_reset_token_is_single_use(
     db_session.expire_all()
 
     with pytest.raises(
-        InvalidPasswordResetTokenError
+        InvalidPasswordResetCredentialError
     ):
-        service.reset_password(
-            token=(
-                issuance.token
+        service.confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 "AnotherSecurePassword789!"
@@ -760,7 +760,7 @@ def test_password_reset_revokes_existing_auth_sessions(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -772,9 +772,9 @@ def test_password_reset_revokes_existing_auth_sessions(
 
     result = (
         service
-        .reset_password(
-            token=(
-                issuance.token
+        .confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 NEW_PASSWORD
@@ -857,7 +857,7 @@ def test_reset_token_becomes_stale_after_password_changes(
 
     issuance = (
         service
-        .request_password_reset(
+        .request_reset(
             email=user.email
         )
     )
@@ -909,11 +909,11 @@ def test_reset_token_becomes_stale_after_password_changes(
     db_session.expire_all()
 
     with pytest.raises(
-        InvalidPasswordResetTokenError
+        InvalidPasswordResetCredentialError
     ):
-        service.reset_password(
-            token=(
-                issuance.token
+        service.confirm_reset(
+            raw_token=(
+                issuance.raw_token
             ),
             new_password=(
                 NEW_PASSWORD

@@ -22,6 +22,7 @@ from fastapi.security import (
 from app.api.dependencies import (
     CurrentUser,
     LoginThrottleDependency,
+    PasswordResetServiceDependency,
     get_authentication_service,
 )
 
@@ -42,6 +43,9 @@ from app.core.security_events import (
 
 from app.schemas.auth import (
     PasswordChangeRequest,
+    PasswordResetConfirmRequest,
+    PasswordResetRequest,
+    PasswordResetRequestResponse,
     ReauthenticationRequest,
     ReauthenticationResponse,
     TokenResponse,
@@ -58,6 +62,11 @@ from app.services.authentication_service import (
     PasswordChangeError,
     ReauthenticationError,
     RefreshTokenReuseError,
+)
+
+from app.services.password_reset_service import (
+    InvalidPasswordResetCredentialError,
+    PasswordResetPasswordError,
 )
 
 
@@ -613,6 +622,228 @@ def change_current_user_password(
     security_event_logger.emit(
         event=(
             "auth.password_change.succeeded"
+        ),
+        outcome="success",
+        level=logging.WARNING,
+        request=request,
+        user_id=(
+            result.user_id
+        ),
+        details={
+            "sessions_revoked": (
+                result
+                .revoked_sessions
+            ),
+        },
+    )
+    
+    
+# =========================================================
+# PASSWORD RESET REQUEST
+# =========================================================
+
+
+@router.post(
+    "/password-reset/request",
+    response_model=(
+        PasswordResetRequestResponse
+    ),
+    status_code=(
+        status.HTTP_202_ACCEPTED
+    ),
+)
+def request_password_reset(
+    request: Request,
+    response: Response,
+    payload: PasswordResetRequest,
+    password_reset_service: (
+        PasswordResetServiceDependency
+    ),
+) -> PasswordResetRequestResponse:
+    """
+    Begin anonymous password recovery.
+
+    Account enumeration is deliberately resisted:
+
+        existing active account
+        nonexistent account
+        inactive account
+
+    all receive the exact same external response.
+
+    The raw reset credential is never included in this HTTP
+    response and is never logged.
+    """
+
+    # PasswordResetService may internally create a credential
+    # for an eligible account.
+    #
+    # Do not branch the HTTP response based on the result.
+    (
+        password_reset_service
+        .request_reset(
+            email=(
+                payload.email
+            ),
+        )
+    )
+
+    security_event_logger.emit(
+        event=(
+            "auth.password_reset.requested"
+        ),
+        outcome="success",
+        level=logging.INFO,
+        request=request,
+        account_identifier=(
+            payload.email
+        ),
+    )
+
+    prevent_auth_response_caching(
+        response
+    )
+
+    return (
+        PasswordResetRequestResponse(
+            message=(
+                "If an eligible account exists, "
+                "password reset instructions will "
+                "be sent."
+            )
+        )
+    )
+
+
+# =========================================================
+# PASSWORD RESET CONFIRMATION
+# =========================================================
+
+
+@router.post(
+    "/password-reset/confirm",
+    status_code=(
+        status.HTTP_204_NO_CONTENT
+    ),
+)
+def confirm_password_reset(
+    request: Request,
+    response: Response,
+    payload: PasswordResetConfirmRequest,
+    password_reset_service: (
+        PasswordResetServiceDependency
+    ),
+) -> None:
+    """
+    Consume a one-time password-reset credential.
+
+    Success does NOT:
+
+        issue an access token
+        issue a refresh token
+        establish an authenticated session
+
+    The user must sign in again with the new password.
+    """
+
+    try:
+        result = (
+            password_reset_service
+            .confirm_reset(
+                raw_token=(
+                    payload
+                    .token
+                    .get_secret_value()
+                ),
+                new_password=(
+                    payload
+                    .new_password
+                    .get_secret_value()
+                ),
+            )
+        )
+
+    except (
+        InvalidPasswordResetCredentialError
+    ) as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.password_reset.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            reason=(
+                "invalid_or_expired_reset_credential"
+            ),
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_400_BAD_REQUEST
+            ),
+            detail=(
+                "The password reset credential "
+                "is invalid or expired."
+            ),
+            headers={
+                "Cache-Control": (
+                    "no-store"
+                ),
+                "Pragma": (
+                    "no-cache"
+                ),
+            },
+        ) from exc
+
+    except (
+        PasswordResetPasswordError
+    ) as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.password_reset.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            reason=(
+                "replacement_password_rejected"
+            ),
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_400_BAD_REQUEST
+            ),
+            detail=str(
+                exc
+            ),
+            headers={
+                "Cache-Control": (
+                    "no-store"
+                ),
+                "Pragma": (
+                    "no-cache"
+                ),
+            },
+        ) from exc
+
+    # Every persistent session was revoked by the service.
+    #
+    # Also remove any stale credentials held by this browser.
+    _clear_auth_cookies(
+        response
+    )
+
+    prevent_auth_response_caching(
+        response
+    )
+
+    security_event_logger.emit(
+        event=(
+            "auth.password_reset.completed"
         ),
         outcome="success",
         level=logging.WARNING,
