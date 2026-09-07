@@ -1,12 +1,17 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import (
+    dataclass,
+)
+
 from datetime import (
     datetime,
     timedelta,
     timezone,
 )
+
 import hmac
+
 from uuid import (
     UUID,
     uuid4,
@@ -22,8 +27,10 @@ from app.core.security import (
     TokenValidationError,
     create_access_token,
     create_csrf_token,
+    create_reauthentication_token,
     create_refresh_token,
     decode_access_token,
+    decode_reauthentication_token,
     decode_refresh_token,
     validate_csrf_token,
     verify_password,
@@ -47,7 +54,7 @@ from app.repositories.user_repository import (
 
 
 # =========================================================
-# AUTHENTICATION RESULT TYPES
+# RESULT TYPES
 # =========================================================
 
 
@@ -56,11 +63,6 @@ from app.repositories.user_repository import (
     slots=True,
 )
 class AuthenticationResult:
-    """
-    Complete browser authentication state created by an
-    initial username/password login.
-    """
-
     access_token: str
     refresh_token: str
     csrf_token: str
@@ -76,11 +78,6 @@ class AuthenticationResult:
     slots=True,
 )
 class ResolvedRefreshSession:
-    """
-    Result of validating an existing refresh credential
-    without consuming it.
-    """
-
     user: User
     session: AuthSession
     claims: RefreshTokenClaims
@@ -91,20 +88,13 @@ class ResolvedRefreshSession:
     slots=True,
 )
 class RefreshRotationResult:
-    """
-    Result of atomically consuming one refresh token and
-    replacing it with another.
-    """
-
     access_token: str
     refresh_token: str
 
     user: User
 
     session_id: UUID
-
     previous_refresh_token_id: UUID
-
     refresh_token_id: UUID
 
 
@@ -113,13 +103,22 @@ class RefreshRotationResult:
     slots=True,
 )
 class SessionRevocationResult:
-    """
-    Result of successfully revoking one persistent browser
-    authentication session.
-    """
-
     user: User
     session_id: UUID
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class ReauthenticationResult:
+    """
+    Proof that an already-authenticated user has just
+    successfully supplied their current password.
+    """
+
+    reauth_token: str
+    expires_in_seconds: int
 
 
 # =========================================================
@@ -130,28 +129,26 @@ class SessionRevocationResult:
 class AuthenticationError(
     Exception
 ):
-    """
-    Base class for authentication-layer failures.
-    """
-
     pass
 
 
 class InvalidCredentialsError(
     AuthenticationError
 ):
-    """
-    Credentials could not be trusted.
-    """
-
     pass
 
 
 class InactiveUserError(
     AuthenticationError
 ):
+    pass
+
+
+class ReauthenticationError(
+    AuthenticationError
+):
     """
-    Authentication state resolved to an inactive account.
+    Recent-password verification failed.
     """
 
     pass
@@ -160,15 +157,6 @@ class InactiveUserError(
 class RefreshTokenReuseError(
     AuthenticationError
 ):
-    """
-    A validly signed refresh JWT belongs to an existing
-    authentication session but its jti is no longer the
-    session's current_jti.
-
-    The persistent session is revoked before this exception
-    is raised.
-    """
-
     def __init__(
         self,
         *,
@@ -179,18 +167,18 @@ class RefreshTokenReuseError(
             "Refresh-token reuse detected."
         )
 
-        self.user_id = user_id
-        self.session_id = session_id
+        self.user_id = (
+            user_id
+        )
+
+        self.session_id = (
+            session_id
+        )
 
 
 class InvalidCsrfTokenError(
     Exception
 ):
-    """
-    CSRF failures remain distinct from ordinary
-    authentication failures.
-    """
-
     pass
 
 
@@ -207,7 +195,9 @@ class AuthenticationService:
             AuthSessionRepository
         ),
     ) -> None:
-        self.repository = repository
+        self.repository = (
+            repository
+        )
 
         self.auth_session_repository = (
             auth_session_repository
@@ -230,16 +220,13 @@ class AuthenticationService:
         )
 
         auth_record = (
-            self
-            .repository
+            self.repository
             .get_auth_record_by_email(
                 normalized_email
             )
         )
 
         if auth_record is None:
-            # Perform equivalent hashing work even when the
-            # submitted account does not exist.
             verify_password(
                 password,
                 DUMMY_PASSWORD_HASH,
@@ -266,7 +253,118 @@ class AuthenticationService:
                 "The user account is inactive."
             )
 
-        return auth_record.user
+        return (
+            auth_record.user
+        )
+
+    # =====================================================
+    # SENSITIVE-ACTION REAUTHENTICATION
+    # =====================================================
+
+    def reauthenticate(
+        self,
+        user: User,
+        *,
+        password: str,
+    ) -> ReauthenticationResult:
+        """
+        Verify the current password of an already bearer-
+        authenticated user and issue short-lived proof.
+
+        This does not create another auth_sessions row and
+        does not modify the refresh-token family.
+        """
+
+        self._require_active_user(
+            user
+        )
+
+        normalized_email = (
+            user.email
+            .strip()
+            .lower()
+        )
+
+        auth_record = (
+            self.repository
+            .get_auth_record_by_email(
+                normalized_email
+            )
+        )
+
+        if auth_record is None:
+            verify_password(
+                password,
+                DUMMY_PASSWORD_HASH,
+            )
+
+            raise ReauthenticationError(
+                "Reauthentication failed."
+            )
+
+        password_is_valid = (
+            verify_password(
+                password,
+                auth_record.hashed_password,
+            )
+        )
+
+        # The repository record must represent the exact same
+        # user that was authenticated by the access JWT.
+        if (
+            not password_is_valid
+            or auth_record.user.id
+            != user.id
+        ):
+            raise ReauthenticationError(
+                "Reauthentication failed."
+            )
+
+        token = (
+            create_reauthentication_token(
+                user.id
+            )
+        )
+
+        return ReauthenticationResult(
+            reauth_token=token,
+            expires_in_seconds=(
+                settings
+                .reauth_token_expire_minutes
+                * 60
+            ),
+        )
+
+    def resolve_reauthentication_token(
+        self,
+        token: str,
+    ) -> User:
+        """
+        Resolve a reauthentication JWT into the active user
+        who recently supplied their password.
+
+        D-2 will require this proof alongside the ordinary
+        bearer access token for password changes.
+        """
+
+        try:
+            user_id = (
+                decode_reauthentication_token(
+                    token
+                )
+            )
+
+        except TokenValidationError as exc:
+            raise ReauthenticationError(
+                "Reauthentication proof "
+                "is invalid."
+            ) from exc
+
+        return (
+            self._resolve_active_user(
+                user_id
+            )
+        )
 
     # =====================================================
     # INITIAL LOGIN SESSION
@@ -276,13 +374,6 @@ class AuthenticationService:
         self,
         user: User,
     ) -> AuthenticationResult:
-        """
-        Establish a brand-new persistent authentication
-        session.
-
-        This method belongs to LOGIN only.
-        """
-
         self._require_active_user(
             user
         )
@@ -301,9 +392,13 @@ class AuthenticationService:
             )
         )
 
-        session_id = uuid4()
+        session_id = (
+            uuid4()
+        )
 
-        refresh_token_id = uuid4()
+        refresh_token_id = (
+            uuid4()
+        )
 
         auth_session = AuthSession(
             id=session_id,
@@ -376,7 +471,7 @@ class AuthenticationService:
         )
 
     # =====================================================
-    # ACCESS-TOKEN ISSUANCE
+    # ACCESS TOKEN
     # =====================================================
 
     def issue_access_token(
@@ -390,10 +485,6 @@ class AuthenticationService:
         return create_access_token(
             user.id
         )
-
-    # =====================================================
-    # ACCESS-TOKEN RESOLUTION
-    # =====================================================
 
     def resolve_access_token(
         self,
@@ -411,8 +502,10 @@ class AuthenticationService:
                 "Invalid access token."
             ) from exc
 
-        return self._resolve_active_user(
-            user_id
+        return (
+            self._resolve_active_user(
+                user_id
+            )
         )
 
     # =====================================================
@@ -426,11 +519,6 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> ResolvedRefreshSession:
-        """
-        Validate refresh JWT + CSRF + persistent-session
-        state without consuming the refresh credential.
-        """
-
         claims = (
             self
             ._decode_refresh_token_with_csrf(
@@ -500,11 +588,6 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> RefreshRotationResult:
-        """
-        Atomically consume one refresh credential and issue
-        its replacement.
-        """
-
         claims = (
             self
             ._decode_refresh_token_with_csrf(
@@ -518,8 +601,6 @@ class AuthenticationService:
             )
         )
 
-        # Lock the persistent session before checking and
-        # replacing current_jti.
         session = (
             self
             .auth_session_repository
@@ -543,10 +624,6 @@ class AuthenticationService:
             claims=claims,
             now=now,
         )
-
-        # -------------------------------------------------
-        # REFRESH-TOKEN REUSE DETECTION
-        # -------------------------------------------------
 
         if (
             session.current_jti
@@ -632,7 +709,7 @@ class AuthenticationService:
         )
 
     # =====================================================
-    # CURRENT-SESSION REVOCATION
+    # CURRENT SESSION REVOCATION
     # =====================================================
 
     def revoke_refresh_session_with_csrf(
@@ -642,17 +719,6 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> SessionRevocationResult:
-        """
-        Validate and revoke the persistent session represented
-        by the supplied refresh credential.
-
-        This method backs POST /auth/logout.
-
-        The session row is locked so refresh and logout cannot
-        concurrently mutate the same session without
-        serialization.
-        """
-
         claims = (
             self
             ._decode_refresh_token_with_csrf(
@@ -690,12 +756,6 @@ class AuthenticationService:
             now=now,
         )
 
-        # A stale but otherwise validly signed refresh token
-        # means that this token family has already advanced.
-        #
-        # Conservatively revoke the complete session rather
-        # than leave a potentially compromised current token
-        # active.
         if (
             session.current_jti
             != claims.token_id
@@ -741,24 +801,13 @@ class AuthenticationService:
         )
 
     # =====================================================
-    # REVOKE ALL USER SESSIONS
+    # REVOKE ALL SESSIONS
     # =====================================================
 
     def revoke_all_sessions_for_user(
         self,
         user: User,
     ) -> int:
-        """
-        Revoke every currently-unrevoked refresh session
-        belonging to one user.
-
-        This powers "logout everywhere".
-
-        Existing short-lived access JWTs remain valid until
-        their normal expiration because access tokens remain
-        stateless.
-        """
-
         self._require_active_user(
             user
         )
@@ -792,11 +841,6 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> RefreshTokenClaims:
-        """
-        Validate refresh-token cryptography and the
-        session-bound CSRF proof.
-        """
-
         try:
             claims = (
                 decode_refresh_token(
@@ -824,7 +868,7 @@ class AuthenticationService:
         return claims
 
     # =====================================================
-    # PERSISTENT SESSION INVARIANTS
+    # SESSION INVARIANTS
     # =====================================================
 
     @staticmethod
@@ -834,11 +878,6 @@ class AuthenticationService:
         claims: RefreshTokenClaims,
         now: datetime,
     ) -> None:
-        """
-        Validate persistent-session invariants except
-        current_jti.
-        """
-
         if (
             session.revoked_at
             is not None
@@ -885,18 +924,14 @@ class AuthenticationService:
                 "CSRF proof is missing."
             )
 
-        tokens_match = (
-            hmac.compare_digest(
-                csrf_cookie.encode(
-                    "utf-8"
-                ),
-                csrf_header.encode(
-                    "utf-8"
-                ),
-            )
-        )
-
-        if not tokens_match:
+        if not hmac.compare_digest(
+            csrf_cookie.encode(
+                "utf-8"
+            ),
+            csrf_header.encode(
+                "utf-8"
+            ),
+        ):
             raise InvalidCsrfTokenError(
                 "CSRF proof does not match."
             )
@@ -919,7 +954,8 @@ class AuthenticationService:
         user_id: UUID,
     ) -> User:
         user = (
-            self.repository.get_by_id(
+            self.repository
+            .get_by_id(
                 user_id
             )
         )

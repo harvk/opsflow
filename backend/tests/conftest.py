@@ -112,17 +112,34 @@ def db_session() -> Generator[
                 ")"
             )
         ).scalar_one()
+        
+        auth_sessions_table = (
+            session.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.auth_sessions'"
+                    ")"
+                )
+            )
+            .scalar_one()
+        )
 
         if services_table is None:
             raise RuntimeError(
-                "public.services is missing "
-                "from opsflow_test."
+                "public.services is missing from opsflow_test."
             )
 
         if incidents_table is None:
             raise RuntimeError(
-                "public.incidents is missing "
-                "from opsflow_test."
+                "public.incidents is missing from opsflow_test."
+            )
+            
+        if (
+            auth_sessions_table
+            is None
+        ):
+            raise RuntimeError(
+                "public.auth_sessions is missing from opsflow_test."
             )
 
         yield session

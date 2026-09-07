@@ -1336,3 +1336,74 @@ def test_successful_login_emits_security_event(
         success_events[0]["user_id"]
         == user.id
     )
+    
+def test_invalid_access_token_emits_security_event(
+    client,
+    monkeypatch,
+) -> None:
+    from app.api import (
+        dependencies as dependencies_module,
+    )
+
+    emitted_events: list[
+        dict[str, object]
+    ] = []
+
+    def fake_emit(
+        **kwargs,
+    ) -> None:
+        emitted_events.append(
+            kwargs
+        )
+
+    monkeypatch.setattr(
+        dependencies_module
+        .security_event_logger,
+        "emit",
+        fake_emit,
+    )
+
+    response = client.get(
+        "/api/v1/auth/me",
+        headers={
+            "Authorization": (
+                "Bearer definitely-not-a-valid-token"
+            )
+        },
+    )
+
+    assert (
+        response.status_code
+        == 401
+    )
+
+    matching_events = [
+        event
+        for event
+        in emitted_events
+        if (
+            event["event"]
+            == "auth.access_token.failed"
+        )
+    ]
+
+    assert (
+        len(
+            matching_events
+        )
+        == 1
+    )
+
+    assert (
+        matching_events[0][
+            "reason"
+        ]
+        == "invalid_access_token"
+    )
+
+    # The raw bearer credential must never be copied into
+    # the security-event arguments.
+    assert (
+        "token"
+        not in matching_events[0]
+    )

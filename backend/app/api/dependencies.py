@@ -11,6 +11,7 @@ from typing import (
 from fastapi import (
     Depends,
     HTTPException,
+    Request,
     status,
 )
 
@@ -87,6 +88,12 @@ from app.services.incident_service import (
 
 from app.services.service_service import (
     ServiceService,
+)
+
+import logging
+
+from app.core.security_events import (
+    security_event_logger,
 )
 
 
@@ -358,6 +365,7 @@ def get_authentication_service(
 
 
 def get_current_user(
+    request: Request,
     token: Annotated[
         str,
         Depends(
@@ -371,6 +379,13 @@ def get_current_user(
         ),
     ],
 ) -> User:
+    """
+    Resolve the bearer access JWT into an active user.
+
+    Failed access-token validation is recorded as a security
+    event, but the token itself is never logged.
+    """
+
     credentials_exception = (
         HTTPException(
             status_code=(
@@ -384,7 +399,13 @@ def get_current_user(
             headers={
                 "WWW-Authenticate": (
                     "Bearer"
-                )
+                ),
+                "Cache-Control": (
+                    "no-store"
+                ),
+                "Pragma": (
+                    "no-cache"
+                ),
             },
         )
     )
@@ -398,6 +419,18 @@ def get_current_user(
         )
 
     except AuthenticationError as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.access_token.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            reason=(
+                "invalid_access_token"
+            ),
+        )
+
         raise (
             credentials_exception
         ) from exc

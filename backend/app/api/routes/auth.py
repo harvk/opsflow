@@ -1,5 +1,8 @@
 import logging
-from typing import Annotated
+
+from typing import (
+    Annotated,
+)
 
 from fastapi import (
     APIRouter,
@@ -40,6 +43,8 @@ from app.core.security_events import (
 )
 
 from app.schemas.auth import (
+    ReauthenticationRequest,
+    ReauthenticationResponse,
     TokenResponse,
 )
 
@@ -51,11 +56,14 @@ from app.services.authentication_service import (
     AuthenticationError,
     AuthenticationService,
     InvalidCsrfTokenError,
+    ReauthenticationError,
     RefreshTokenReuseError,
 )
 
 
-router = APIRouter()
+router = (
+    APIRouter()
+)
 
 
 # =========================================================
@@ -66,14 +74,10 @@ router = APIRouter()
 def _credentials_exception(
     detail: str,
 ) -> HTTPException:
-    """
-    Create the standard HTTP 401 response used when
-    authentication credentials cannot be trusted.
-    """
-
     return HTTPException(
         status_code=(
-            status.HTTP_401_UNAUTHORIZED
+            status
+            .HTTP_401_UNAUTHORIZED
         ),
         detail=detail,
         headers={
@@ -90,17 +94,12 @@ def _credentials_exception(
     )
 
 
-def _csrf_exception() -> HTTPException:
-    """
-    CSRF validation failures are authorization failures.
-
-    The client receives a generic HTTP 403 response rather
-    than internal validation details.
-    """
-
+def _csrf_exception(
+) -> HTTPException:
     return HTTPException(
         status_code=(
-            status.HTTP_403_FORBIDDEN
+            status
+            .HTTP_403_FORBIDDEN
         ),
         detail=(
             "CSRF validation failed."
@@ -117,17 +116,13 @@ def _csrf_exception() -> HTTPException:
 
 
 # =========================================================
-# CSRF REQUEST HELPERS
+# CSRF HELPERS
 # =========================================================
 
 
 def _get_csrf_cookie(
     request: Request,
 ) -> str | None:
-    """
-    Read the JavaScript-readable CSRF cookie.
-    """
-
     return request.cookies.get(
         settings.csrf_cookie_name
     )
@@ -136,32 +131,15 @@ def _get_csrf_cookie(
 def _get_csrf_header(
     request: Request,
 ) -> str | None:
-    """
-    Read the CSRF proof copied by the frontend into the
-    configured request header.
-    """
-
     return request.headers.get(
         settings.csrf_header_name
     )
-
-
-# =========================================================
-# CSRF COOKIE HELPERS
-# =========================================================
 
 
 def _set_csrf_cookie(
     response: Response,
     csrf_token: str,
 ) -> None:
-    """
-    Set the JavaScript-readable signed CSRF cookie.
-
-    httponly=False is intentional because the frontend must
-    read the value and copy it into X-CSRF-Token.
-    """
-
     response.set_cookie(
         key=(
             settings.csrf_cookie_name
@@ -172,7 +150,8 @@ def _set_csrf_cookie(
             settings.is_production
         ),
         samesite=(
-            settings.refresh_cookie_samesite
+            settings
+            .refresh_cookie_samesite
         ),
         path="/",
     )
@@ -181,10 +160,6 @@ def _set_csrf_cookie(
 def _clear_csrf_cookie(
     response: Response,
 ) -> None:
-    """
-    Expire the CSRF cookie.
-    """
-
     response.delete_cookie(
         key=(
             settings.csrf_cookie_name
@@ -196,10 +171,6 @@ def _clear_csrf_cookie(
 def _clear_auth_cookies(
     response: Response,
 ) -> None:
-    """
-    Clear both browser-managed authentication cookies.
-    """
-
     clear_refresh_cookie(
         response
     )
@@ -238,37 +209,15 @@ def login_for_access_token(
         LoginThrottleDependency
     ),
 ) -> TokenResponse:
-    """
-    Authenticate username/password credentials and establish
-    a new persistent browser authentication session.
-
-    A successful login creates:
-
-        auth_sessions row
-
-        access JWT
-
-        HttpOnly refresh JWT
-
-        session-bound readable CSRF cookie
-    """
-
-    # =====================================================
-    # SOURCE ADDRESS
-    # =====================================================
-
     client_address = (
         request.client.host
         if request.client is not None
         else "unknown"
     )
 
-    # =====================================================
-    # LOGIN THROTTLING
-    # =====================================================
-
     throttle_decision = (
-        login_throttle.begin_attempt(
+        login_throttle
+        .begin_attempt(
             client_address=(
                 client_address
             ),
@@ -290,7 +239,8 @@ def login_for_access_token(
                 form_data.username
             ),
             reason=(
-                throttle_decision.blocked_by
+                throttle_decision
+                .blocked_by
                 or "unknown"
             ),
         )
@@ -313,10 +263,6 @@ def login_for_access_token(
                 ),
             },
         )
-
-    # =====================================================
-    # PASSWORD AUTHENTICATION
-    # =====================================================
 
     try:
         user = (
@@ -355,7 +301,8 @@ def login_for_access_token(
 
         raise HTTPException(
             status_code=(
-                status.HTTP_401_UNAUTHORIZED
+                status
+                .HTTP_401_UNAUTHORIZED
             ),
             detail=(
                 "Incorrect email or password."
@@ -373,10 +320,6 @@ def login_for_access_token(
             },
         ) from exc
 
-    # =====================================================
-    # SUCCESS
-    # =====================================================
-
     login_throttle.record_success(
         account_identifier=(
             form_data.username
@@ -390,14 +333,11 @@ def login_for_access_token(
         )
     )
 
-    # Store refresh credential only in the HttpOnly browser
-    # cookie.
     set_refresh_cookie(
         response,
         result.refresh_token,
     )
 
-    # Store the session-bound CSRF proof separately.
     _set_csrf_cookie(
         response,
         result.csrf_token,
@@ -419,10 +359,116 @@ def login_for_access_token(
         response
     )
 
-    # Only the short-lived access JWT is returned in JSON.
     return TokenResponse(
         access_token=(
             result.access_token
+        ),
+    )
+
+
+# =========================================================
+# REAUTHENTICATION
+# =========================================================
+
+
+@router.post(
+    "/reauthenticate",
+    response_model=(
+        ReauthenticationResponse
+    ),
+    status_code=(
+        status.HTTP_200_OK
+    ),
+)
+def reauthenticate_current_user(
+    request: Request,
+    response: Response,
+    payload: ReauthenticationRequest,
+    current_user: CurrentUser,
+    authentication_service: Annotated[
+        AuthenticationService,
+        Depends(
+            get_authentication_service
+        ),
+    ],
+) -> ReauthenticationResponse:
+    """
+    Require an already bearer-authenticated user to supply
+    their current password again before a sensitive action.
+
+    This does not create or rotate a refresh session.
+    """
+
+    try:
+        result = (
+            authentication_service
+            .reauthenticate(
+                current_user,
+                password=(
+                    payload
+                    .password
+                    .get_secret_value()
+                ),
+            )
+        )
+
+    except ReauthenticationError as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.reauthentication.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            user_id=(
+                current_user.id
+            ),
+            reason=(
+                "invalid_current_password"
+            ),
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Reauthentication failed."
+            ),
+            headers={
+                "Cache-Control": (
+                    "no-store"
+                ),
+                "Pragma": (
+                    "no-cache"
+                ),
+            },
+        ) from exc
+
+    security_event_logger.emit(
+        event=(
+            "auth.reauthentication.succeeded"
+        ),
+        outcome="success",
+        level=logging.INFO,
+        request=request,
+        user_id=(
+            current_user.id
+        ),
+    )
+
+    prevent_auth_response_caching(
+        response
+    )
+
+    return ReauthenticationResponse(
+        reauth_token=(
+            result.reauth_token
+        ),
+        expires_in_seconds=(
+            result
+            .expires_in_seconds
         ),
     )
 
@@ -449,37 +495,6 @@ def refresh_access_token(
         ),
     ],
 ) -> TokenResponse | Response:
-    """
-    Atomically consume the currently-valid refresh JWT and
-    replace it with another refresh JWT.
-
-    Phase 6.4C-3 refresh sequence:
-
-        refresh JWT
-            +
-        matching CSRF cookie/header
-            +
-        persistent session
-            +
-        SELECT ... FOR UPDATE
-            +
-        JWT jti == auth_sessions.current_jti
-            |
-            v
-        rotate current_jti
-            |
-            v
-        return new access JWT
-        set new refresh cookie
-
-    If an already-consumed refresh JWT is submitted again,
-    the entire authentication session is revoked.
-    """
-
-    # =====================================================
-    # READ REFRESH CREDENTIAL
-    # =====================================================
-
     refresh_token = (
         get_refresh_cookie(
             request
@@ -503,10 +518,6 @@ def refresh_access_token(
             "Could not refresh credentials."
         )
 
-    # =====================================================
-    # READ CSRF PROOF
-    # =====================================================
-
     csrf_cookie = (
         _get_csrf_cookie(
             request
@@ -518,10 +529,6 @@ def refresh_access_token(
             request
         )
     )
-
-    # =====================================================
-    # ATOMIC REFRESH ROTATION
-    # =====================================================
 
     try:
         rotation_result = (
@@ -537,14 +544,7 @@ def refresh_access_token(
             )
         )
 
-    # =====================================================
-    # CSRF FAILURE
-    # =====================================================
-
     except InvalidCsrfTokenError as exc:
-        # Do not clear legitimate authentication cookies
-        # merely because an unsafe request failed CSRF
-        # validation.
         security_event_logger.emit(
             event=(
                 "csrf.validation.failed"
@@ -559,22 +559,7 @@ def refresh_access_token(
 
         raise _csrf_exception() from exc
 
-    # =====================================================
-    # REFRESH-TOKEN REUSE
-    # =====================================================
-
     except RefreshTokenReuseError as exc:
-        # rotate_refresh_token_with_csrf() has already
-        # revoked this persistent auth session.
-        #
-        # IMPORTANT:
-        #
-        # Return a concrete Response instead of allowing the
-        # reuse exception to propagate through the database
-        # dependency.
-        #
-        # The revocation must survive the rejected HTTP
-        # request rather than being rolled back.
         security_event_logger.emit(
             event=(
                 "auth.refresh.reuse_detected"
@@ -590,40 +575,37 @@ def refresh_access_token(
             ),
         )
 
-        replay_response = JSONResponse(
-            status_code=(
-                status.HTTP_401_UNAUTHORIZED
-            ),
-            content={
-                "detail": (
-                    "Could not refresh "
-                    "credentials."
-                )
-            },
-            headers={
-                "WWW-Authenticate": (
-                    "Bearer"
+        replay_response = (
+            JSONResponse(
+                status_code=(
+                    status
+                    .HTTP_401_UNAUTHORIZED
                 ),
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+                content={
+                    "detail": (
+                        "Could not refresh "
+                        "credentials."
+                    )
+                },
+                headers={
+                    "WWW-Authenticate": (
+                        "Bearer"
+                    ),
+                    "Cache-Control": (
+                        "no-store"
+                    ),
+                    "Pragma": (
+                        "no-cache"
+                    ),
+                },
+            )
         )
 
-        # The browser's refresh credential belongs to a
-        # revoked token family and must be removed.
         _clear_auth_cookies(
             replay_response
         )
 
         return replay_response
-
-    # =====================================================
-    # OTHER REFRESH FAILURE
-    # =====================================================
 
     except AuthenticationError as exc:
         security_event_logger.emit(
@@ -642,36 +624,10 @@ def refresh_access_token(
             "Could not refresh credentials."
         ) from exc
 
-    # =====================================================
-    # SUCCESSFUL ROTATION
-    # =====================================================
-
-    # The server-side session ID remains constant.
-    #
-    # Only current_jti changes.
-    #
-    # Store the new refresh JWT in the same HttpOnly cookie.
     set_refresh_cookie(
         response,
         rotation_result.refresh_token,
     )
-
-    # =====================================================
-    # KEEP CSRF COOKIE STABLE
-    # =====================================================
-
-    # The CSRF proof is bound to the persistent session ID
-    # rather than to the refresh token's jti.
-    #
-    # Therefore:
-    #
-    #   sid stays S1
-    #
-    #   J1 -> J2 -> J3
-    #
-    # while the existing CSRF token remains valid.
-    #
-    # Do not call _set_csrf_cookie() here.
 
     security_event_logger.emit(
         event=(
@@ -681,9 +637,7 @@ def refresh_access_token(
         level=logging.INFO,
         request=request,
         user_id=(
-            rotation_result
-            .user
-            .id
+            rotation_result.user.id
         ),
         details={
             "refresh_rotated": True,
@@ -696,8 +650,7 @@ def refresh_access_token(
 
     return TokenResponse(
         access_token=(
-            rotation_result
-            .access_token
+            rotation_result.access_token
         ),
     )
 
@@ -723,48 +676,11 @@ def logout(
         ),
     ],
 ) -> None:
-    """
-    Revoke the current persistent refresh session and remove
-    browser authentication state.
-
-    Logout remains idempotent:
-
-        no refresh cookie
-            -> clear stale cookies
-            -> 204
-
-        valid refresh + valid CSRF
-            -> revoke server session
-            -> clear cookies
-            -> 204
-
-        bad CSRF
-            -> preserve legitimate cookies
-            -> 403
-
-        invalid/already-revoked session
-            -> clear stale cookies
-            -> 204
-
-        stale refresh-token replay
-            -> revoke token family
-            -> clear cookies
-            -> 204
-    """
-
-    # =====================================================
-    # READ REFRESH CREDENTIAL
-    # =====================================================
-
     refresh_token = (
         get_refresh_cookie(
             request
         )
     )
-
-    # =====================================================
-    # ALREADY LOGGED OUT
-    # =====================================================
 
     if refresh_token is None:
         _clear_auth_cookies(
@@ -777,10 +693,6 @@ def logout(
 
         return
 
-    # =====================================================
-    # READ CSRF PROOF
-    # =====================================================
-
     csrf_cookie = (
         _get_csrf_cookie(
             request
@@ -792,10 +704,6 @@ def logout(
             request
         )
     )
-
-    # =====================================================
-    # SERVER-SIDE SESSION REVOCATION
-    # =====================================================
 
     try:
         revocation_result = (
@@ -811,10 +719,6 @@ def logout(
             )
         )
 
-    # =====================================================
-    # CSRF FAILURE
-    # =====================================================
-
     except InvalidCsrfTokenError as exc:
         security_event_logger.emit(
             event=(
@@ -828,19 +732,9 @@ def logout(
             ),
         )
 
-        # Invalid CSRF must not destroy an otherwise-valid
-        # browser session.
         raise _csrf_exception() from exc
 
-    # =====================================================
-    # REFRESH-TOKEN REUSE
-    # =====================================================
-
     except RefreshTokenReuseError as exc:
-        # The authentication service has already revoked the
-        # refresh-token family.
-        #
-        # Logout itself remains idempotently successful.
         security_event_logger.emit(
             event=(
                 "auth.logout.reuse_detected"
@@ -866,10 +760,6 @@ def logout(
 
         return
 
-    # =====================================================
-    # INVALID / ALREADY-REVOKED SESSION
-    # =====================================================
-
     except AuthenticationError:
         security_event_logger.emit(
             event=(
@@ -893,10 +783,6 @@ def logout(
 
         return
 
-    # =====================================================
-    # SUCCESSFUL LOGOUT
-    # =====================================================
-
     _clear_auth_cookies(
         response
     )
@@ -912,23 +798,15 @@ def logout(
         outcome="success",
         level=logging.INFO,
         request=request,
-
-        # C-4 correction:
-        #
-        # revoke_refresh_session_with_csrf() returns
-        # SessionRevocationResult, not ResolvedRefreshSession.
         user_id=(
-            revocation_result
-            .user
-            .id
+            revocation_result.user.id
         ),
-
         details={
             "session_revoked": True,
         },
     )
-    
-    
+
+
 # =========================================================
 # LOGOUT ALL
 # =========================================================
@@ -951,23 +829,6 @@ def logout_all(
         ),
     ],
 ) -> None:
-    """
-    Revoke every persistent refresh session belonging to the
-    currently bearer-authenticated user.
-
-    Unlike ordinary /logout, this endpoint is authenticated
-    with the short-lived access token in the Authorization
-    header.
-
-    Browsers do not automatically attach bearer tokens, so
-    this operation does not depend on refresh-cookie CSRF
-    authentication.
-    """
-
-    # =====================================================
-    # REVOKE ALL SERVER-SIDE SESSIONS
-    # =====================================================
-
     revoked_count = (
         authentication_service
         .revoke_all_sessions_for_user(
@@ -975,13 +836,6 @@ def logout_all(
         )
     )
 
-    # =====================================================
-    # CLEAR THIS BROWSER'S AUTHENTICATION COOKIES
-    # =====================================================
-
-    # Other devices cannot have their cookies remotely
-    # deleted, but their corresponding server-side sessions
-    # are now revoked and therefore cannot refresh again.
     _clear_auth_cookies(
         response
     )
@@ -989,10 +843,6 @@ def logout_all(
     prevent_auth_response_caching(
         response
     )
-
-    # =====================================================
-    # SECURITY AUDIT EVENT
-    # =====================================================
 
     security_event_logger.emit(
         event=(
@@ -1027,14 +877,6 @@ def logout_all(
 def read_current_user(
     current_user: CurrentUser,
 ) -> UserRead:
-    """
-    Return the current bearer-authenticated user.
-
-    /me uses the Authorization header rather than
-    cookie-managed authentication state, so CSRF validation
-    is not required.
-    """
-
     return UserRead.model_validate(
         current_user
     )

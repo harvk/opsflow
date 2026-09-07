@@ -10,6 +10,7 @@ from uuid import UUID
 from sqlalchemy import (
     select,
     update,
+    delete
 )
 
 from sqlalchemy.engine import (
@@ -272,6 +273,58 @@ class SqlAlchemyAuthSessionRepository(
         # The explicit cast lets the type checker correctly
         # recognize the rowcount attribute without suppressing
         # type checking.
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                statement
+            ),
+        )
+
+        self.session.flush()
+
+        return (
+            result.rowcount
+            if result.rowcount >= 0
+            else 0
+        )
+        
+    # =====================================================
+    # MAINTENANCE
+    # =====================================================
+
+    def delete_expired_before(
+        self,
+        *,
+        cutoff: datetime,
+    ) -> int:
+        """
+        Permanently remove authentication-session rows whose
+        absolute expiration is older than the supplied
+        retention cutoff.
+
+        Repository methods flush but do not commit.
+        """
+
+        if (
+            cutoff.tzinfo
+            is None
+        ):
+            raise ValueError(
+                "Session cleanup cutoff "
+                "must be timezone-aware."
+            )
+
+        statement = (
+            delete(
+                AuthSessionModel
+            )
+            .where(
+                AuthSessionModel
+                .expires_at
+                < cutoff
+            )
+        )
+
         result = cast(
             CursorResult[Any],
             self.session.execute(
