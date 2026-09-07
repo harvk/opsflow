@@ -1,8 +1,6 @@
 import logging
 
-from typing import (
-    Annotated,
-)
+from typing import Annotated
 
 from fastapi import (
     APIRouter,
@@ -43,6 +41,7 @@ from app.core.security_events import (
 )
 
 from app.schemas.auth import (
+    PasswordChangeRequest,
     ReauthenticationRequest,
     ReauthenticationResponse,
     TokenResponse,
@@ -56,14 +55,13 @@ from app.services.authentication_service import (
     AuthenticationError,
     AuthenticationService,
     InvalidCsrfTokenError,
+    PasswordChangeError,
     ReauthenticationError,
     RefreshTokenReuseError,
 )
 
 
-router = (
-    APIRouter()
-)
+router = APIRouter()
 
 
 # =========================================================
@@ -103,6 +101,28 @@ def _csrf_exception(
         ),
         detail=(
             "CSRF validation failed."
+        ),
+        headers={
+            "Cache-Control": (
+                "no-store"
+            ),
+            "Pragma": (
+                "no-cache"
+            ),
+        },
+    )
+
+
+def _reauthentication_exception(
+) -> HTTPException:
+    return HTTPException(
+        status_code=(
+            status
+            .HTTP_403_FORBIDDEN
+        ),
+        detail=(
+            "Valid recent reauthentication "
+            "is required."
         ),
         headers={
             "Cache-Control": (
@@ -216,8 +236,7 @@ def login_for_access_token(
     )
 
     throttle_decision = (
-        login_throttle
-        .begin_attempt(
+        login_throttle.begin_attempt(
             client_address=(
                 client_address
             ),
@@ -392,13 +411,6 @@ def reauthenticate_current_user(
         ),
     ],
 ) -> ReauthenticationResponse:
-    """
-    Require an already bearer-authenticated user to supply
-    their current password again before a sensitive action.
-
-    This does not create or rotate a refresh session.
-    """
-
     try:
         result = (
             authentication_service
@@ -470,6 +482,150 @@ def reauthenticate_current_user(
             result
             .expires_in_seconds
         ),
+    )
+
+
+# =========================================================
+# CHANGE PASSWORD
+# =========================================================
+
+
+@router.post(
+    "/change-password",
+    status_code=(
+        status.HTTP_204_NO_CONTENT
+    ),
+)
+def change_current_user_password(
+    request: Request,
+    response: Response,
+    payload: PasswordChangeRequest,
+    current_user: CurrentUser,
+    authentication_service: Annotated[
+        AuthenticationService,
+        Depends(
+            get_authentication_service
+        ),
+    ],
+) -> None:
+    """
+    Change the authenticated user's password.
+
+    This endpoint does not use the refresh cookie as its
+    authentication mechanism.
+
+    Required proof:
+
+        bearer access JWT
+            +
+        recent reauthentication JWT
+            +
+        replacement password
+
+    On success every persistent refresh session is revoked
+    and this browser's authentication cookies are removed.
+    """
+
+    try:
+        result = (
+            authentication_service
+            .change_password(
+                current_user,
+                reauth_token=(
+                    payload
+                    .reauth_token
+                    .get_secret_value()
+                ),
+                new_password=(
+                    payload
+                    .new_password
+                    .get_secret_value()
+                ),
+            )
+        )
+
+    except ReauthenticationError as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.password_change.blocked"
+            ),
+            outcome="blocked",
+            level=logging.WARNING,
+            request=request,
+            user_id=(
+                current_user.id
+            ),
+            reason=(
+                "invalid_or_stale_reauthentication"
+            ),
+        )
+
+        raise (
+            _reauthentication_exception()
+        ) from exc
+
+    except PasswordChangeError as exc:
+        security_event_logger.emit(
+            event=(
+                "auth.password_change.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            user_id=(
+                current_user.id
+            ),
+            reason=(
+                "password_policy_rejected"
+            ),
+        )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_400_BAD_REQUEST
+            ),
+            detail=str(
+                exc
+            ),
+            headers={
+                "Cache-Control": (
+                    "no-store"
+                ),
+                "Pragma": (
+                    "no-cache"
+                ),
+            },
+        ) from exc
+
+    # Password mutation and persistent-session revocation
+    # have now succeeded in this request transaction.
+    #
+    # Remove this browser's cookie credentials as well.
+    _clear_auth_cookies(
+        response
+    )
+
+    prevent_auth_response_caching(
+        response
+    )
+
+    security_event_logger.emit(
+        event=(
+            "auth.password_change.succeeded"
+        ),
+        outcome="success",
+        level=logging.WARNING,
+        request=request,
+        user_id=(
+            result.user_id
+        ),
+        details={
+            "sessions_revoked": (
+                result
+                .revoked_sessions
+            ),
+        },
     )
 
 
@@ -761,18 +917,6 @@ def logout(
         return
 
     except AuthenticationError:
-        security_event_logger.emit(
-            event=(
-                "auth.logout.stale_session"
-            ),
-            outcome="success",
-            level=logging.INFO,
-            request=request,
-            reason=(
-                "invalid_refresh_credential"
-            ),
-        )
-
         _clear_auth_cookies(
             response
         )

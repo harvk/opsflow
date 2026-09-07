@@ -1,12 +1,7 @@
 from __future__ import annotations
 
-from datetime import (
-    timedelta,
-)
-
-from uuid import (
-    uuid4,
-)
+from datetime import timedelta
+from uuid import uuid4
 
 import pytest
 
@@ -28,6 +23,7 @@ from app.core.security import (
     create_reauthentication_token,
     decode_access_token,
     decode_reauthentication_token,
+    hash_password,
 )
 
 from app.repositories.sqlalchemy_auth_session_repository import (
@@ -130,21 +126,34 @@ def test_reauthentication_token_round_trip(
         uuid4()
     )
 
-    token = (
-        create_reauthentication_token(
-            user_id
+    credential_hash = (
+        hash_password(
+            TEST_PASSWORD
         )
     )
 
-    decoded_user_id = (
+    token = (
+        create_reauthentication_token(
+            user_id,
+            credential_hash=(
+                credential_hash
+            ),
+        )
+    )
+
+    claims = (
         decode_reauthentication_token(
             token
         )
     )
 
     assert (
-        decoded_user_id
+        claims.user_id
         == user_id
+    )
+
+    assert (
+        claims.credential_fingerprint
     )
 
 
@@ -153,6 +162,11 @@ def test_expired_reauthentication_token_is_rejected(
     token = (
         create_reauthentication_token(
             uuid4(),
+            credential_hash=(
+                hash_password(
+                    TEST_PASSWORD
+                )
+            ),
             expires_delta=(
                 timedelta(
                     seconds=-1
@@ -189,7 +203,12 @@ def test_reauthentication_token_cannot_be_used_as_access_token(
 ) -> None:
     reauth_token = (
         create_reauthentication_token(
-            uuid4()
+            uuid4(),
+            credential_hash=(
+                hash_password(
+                    TEST_PASSWORD
+                )
+            ),
         )
     )
 
@@ -230,14 +249,14 @@ def test_correct_current_password_issues_reauth_token(
         )
     )
 
-    token_user_id = (
+    claims = (
         decode_reauthentication_token(
             result.reauth_token
         )
     )
 
     assert (
-        token_user_id
+        claims.user_id
         == user.id
     )
 
@@ -395,12 +414,16 @@ def test_reauthenticate_endpoint_returns_short_lived_proof(
         )
     )
 
-    assert (
+    claims = (
         decode_reauthentication_token(
             body[
                 "reauth_token"
             ]
         )
+    )
+
+    assert (
+        claims.user_id
         == user.id
     )
 

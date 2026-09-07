@@ -1,4 +1,9 @@
+from datetime import datetime, timezone
+from typing import Any, cast
 from uuid import UUID
+
+from sqlalchemy import update
+from sqlalchemy.engine import CursorResult
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -92,4 +97,56 @@ class SqlAlchemyUserRepository(UserRepository):
         return UserAuthRecord(
             user=self._to_domain(model),
             hashed_password=model.hashed_password,
+        )
+        
+    def update_password_hash_if_current(
+        self,
+        *,
+        user_id: UUID,
+        expected_hashed_password: str,
+        new_hashed_password: str,
+    ) -> bool:
+        """
+        Perform an atomic compare-and-set password update.
+
+        The expected hash protects against a stale
+        reauthentication proof racing another password change.
+        """
+
+        statement = (
+            update(
+                UserModel
+            )
+            .where(
+                UserModel.id
+                == user_id
+            )
+            .where(
+                UserModel.hashed_password
+                == expected_hashed_password
+            )
+            .values(
+                hashed_password=(
+                    new_hashed_password
+                ),
+                updated_at=(
+                    datetime.now(
+                        timezone.utc
+                    )
+                ),
+            )
+        )
+
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                statement
+            ),
+        )
+
+        self.session.flush()
+
+        return (
+            result.rowcount
+            == 1
         )

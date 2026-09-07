@@ -69,50 +69,120 @@ def db_session() -> Generator[
     Creates one transaction-controlled SQLAlchemy Session
     for each test.
 
+    The fixture also performs several safety checks before
+    yielding the Session:
+
+        1. verify pytest is connected to opsflow_test
+        2. verify core application tables exist
+        3. verify authentication-session tables exist
+        4. verify password-reset tables exist
+
+    This prevents migration drift from surfacing later as
+    confusing PostgreSQL UndefinedTable errors.
+
     Test data is seeded by dedicated fixtures such as
     seeded_services and seeded_incidents.
     """
 
-    connection = test_engine.connect()
+    # =====================================================
+    # OPEN TEST DATABASE CONNECTION
+    # =====================================================
 
-    transaction = connection.begin()
+    connection = (
+        test_engine.connect()
+    )
+
+    # =====================================================
+    # START OUTER TEST TRANSACTION
+    # =====================================================
+
+    # Every test runs inside this outer transaction.
+    #
+    # At the end of the test we roll this transaction back,
+    # which removes all rows created or changed by that test.
+    transaction = (
+        connection.begin()
+    )
+
+    # =====================================================
+    # CREATE TEST SQLALCHEMY SESSION
+    # =====================================================
 
     session = Session(
         bind=connection,
         autoflush=False,
         expire_on_commit=False,
-        join_transaction_mode="create_savepoint",
+
+        # Nested transactions/savepoints created by request
+        # fixtures can safely participate in this outer test
+        # transaction.
+        join_transaction_mode=(
+            "create_savepoint"
+        ),
     )
 
     try:
-        database_name = session.execute(
-            text(
-                "SELECT current_database()"
-            )
-        ).scalar_one()
+        # =================================================
+        # VERIFY CORRECT DATABASE
+        # =================================================
 
-        if database_name != "opsflow_test":
+        database_name = (
+            session.execute(
+                text(
+                    "SELECT current_database()"
+                )
+            )
+            .scalar_one()
+        )
+
+        if (
+            database_name
+            != "opsflow_test"
+        ):
             raise RuntimeError(
                 "Tests are connected to the wrong database. "
-                f"Expected 'opsflow_test', got '{database_name}'."
+                f"Expected 'opsflow_test', "
+                f"got '{database_name}'."
             )
 
-        services_table = session.execute(
-            text(
-                "SELECT to_regclass("
-                "'public.services'"
-                ")"
-            )
-        ).scalar_one()
+        # =================================================
+        # VERIFY REQUIRED TABLES EXIST
+        # =================================================
 
-        incidents_table = session.execute(
-            text(
-                "SELECT to_regclass("
-                "'public.incidents'"
-                ")"
+        # -------------------------------------------------
+        # services
+        # -------------------------------------------------
+
+        services_table = (
+            session.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.services'"
+                    ")"
+                )
             )
-        ).scalar_one()
-        
+            .scalar_one()
+        )
+
+        # -------------------------------------------------
+        # incidents
+        # -------------------------------------------------
+
+        incidents_table = (
+            session.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.incidents'"
+                    ")"
+                )
+            )
+            .scalar_one()
+        )
+
+        # -------------------------------------------------
+        # auth_sessions
+        # -------------------------------------------------
+
         auth_sessions_table = (
             session.execute(
                 text(
@@ -124,32 +194,92 @@ def db_session() -> Generator[
             .scalar_one()
         )
 
-        if services_table is None:
+        # -------------------------------------------------
+        # password_reset_tokens
+        # -------------------------------------------------
+
+        password_reset_tokens_table = (
+            session.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.password_reset_tokens'"
+                    ")"
+                )
+            )
+            .scalar_one()
+        )
+
+        # =================================================
+        # FAIL EARLY IF SCHEMA IS INCOMPLETE
+        # =================================================
+
+        if (
+            services_table
+            is None
+        ):
             raise RuntimeError(
-                "public.services is missing from opsflow_test."
+                "public.services is missing "
+                "from opsflow_test."
             )
 
-        if incidents_table is None:
+        if (
+            incidents_table
+            is None
+        ):
             raise RuntimeError(
-                "public.incidents is missing from opsflow_test."
+                "public.incidents is missing "
+                "from opsflow_test."
             )
-            
+
         if (
             auth_sessions_table
             is None
         ):
             raise RuntimeError(
-                "public.auth_sessions is missing from opsflow_test."
+                "public.auth_sessions is missing "
+                "from opsflow_test. "
+                "Run the required Alembic migrations "
+                "against the test database."
             )
+
+        if (
+            password_reset_tokens_table
+            is None
+        ):
+            raise RuntimeError(
+                "public.password_reset_tokens is missing "
+                "from opsflow_test. "
+                "Run the latest password-reset Alembic "
+                "migration against the test database."
+            )
+
+        # =================================================
+        # HAND SESSION TO TEST
+        # =================================================
 
         yield session
 
     finally:
+        # =================================================
+        # TEST CLEANUP
+        # =================================================
+
         session.close()
 
-        # Removes every change made by the test:
-        # Services, dependencies, Incidents,
-        # PATCHes, users, etc.
+        # Remove every database change made by the test.
+        #
+        # This includes:
+        #
+        #   services
+        #   dependencies
+        #   incidents
+        #   users
+        #   auth_sessions
+        #   password_reset_tokens
+        #   password changes
+        #   session revocations
+        #
+        # Nothing from one test should leak into the next.
         transaction.rollback()
 
         connection.close()
@@ -292,27 +422,85 @@ def seeded_incidents(
 @pytest.fixture
 def client(
     db_session: Session,
-) -> Generator[TestClient, None, None]:
+) -> Generator[
+    TestClient,
+    None,
+    None,
+]:
     """
-    Makes FastAPI use the exact SQLAlchemy Session controlled
-    by pytest instead of creating a normal application session.
+    Run FastAPI requests against the SQLAlchemy Session
+    controlled by the current pytest test.
+
+    The test itself owns one outer database transaction.
+
+    Every HTTP request receives its own nested transaction
+    (PostgreSQL SAVEPOINT).
+
+    This is important because expected HTTP failures such as:
+
+        401 invalid login
+        403 authorization failure
+        404 missing resource
+
+    must roll back only the work performed by that request.
+
+    They must NOT roll back successful requests that occurred
+    earlier in the same test.
+
+    At the end of the test, db_session's outer transaction is
+    still rolled back by the db_session fixture so the test
+    database remains clean.
     """
 
     def override_get_db_session():
+        # Each FastAPI request receives an independent
+        # savepoint inside pytest's outer transaction.
+        #
+        # Successful request:
+        #
+        #     SAVEPOINT
+        #         ↓
+        #     endpoint work
+        #         ↓
+        #     flush
+        #         ↓
+        #     RELEASE SAVEPOINT
+        #
+        # Failed request:
+        #
+        #     SAVEPOINT
+        #         ↓
+        #     endpoint raises
+        #         ↓
+        #     ROLLBACK TO SAVEPOINT
+        #
+        # Previous successful requests remain intact.
         try:
-            yield db_session
-            db_session.flush()
-        except Exception:
-            db_session.rollback()
-            raise
+            with db_session.begin_nested():
+                yield db_session
+
+                db_session.flush()
+
+        finally:
+            # Production uses a new Session for each HTTP
+            # request.
+            #
+            # Pytest intentionally shares one Session for the
+            # entire test, so expire loaded ORM state between
+            # simulated requests to prevent the identity map
+            # from leaking stale request-local state.
+            db_session.expire_all()
 
     app.dependency_overrides[
         get_db_session
     ] = override_get_db_session
 
     try:
-        with TestClient(app) as test_client:
+        with TestClient(
+            app
+        ) as test_client:
             yield test_client
+
     finally:
         app.dependency_overrides.clear()
         

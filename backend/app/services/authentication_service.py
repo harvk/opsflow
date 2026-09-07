@@ -23,6 +23,7 @@ from app.core.config import (
 
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
+    ReauthenticationClaims,
     RefreshTokenClaims,
     TokenValidationError,
     create_access_token,
@@ -32,6 +33,8 @@ from app.core.security import (
     decode_access_token,
     decode_reauthentication_token,
     decode_refresh_token,
+    hash_password,
+    reauthentication_credential_matches,
     validate_csrf_token,
     verify_password,
 )
@@ -63,6 +66,11 @@ from app.repositories.user_repository import (
     slots=True,
 )
 class AuthenticationResult:
+    """
+    Result of establishing a brand-new browser
+    authentication session.
+    """
+
     access_token: str
     refresh_token: str
     csrf_token: str
@@ -78,6 +86,10 @@ class AuthenticationResult:
     slots=True,
 )
 class ResolvedRefreshSession:
+    """
+    Validated persistent refresh-session context.
+    """
+
     user: User
     session: AuthSession
     claims: RefreshTokenClaims
@@ -88,12 +100,18 @@ class ResolvedRefreshSession:
     slots=True,
 )
 class RefreshRotationResult:
+    """
+    Result of atomically replacing one refresh credential
+    with another.
+    """
+
     access_token: str
     refresh_token: str
 
     user: User
 
     session_id: UUID
+
     previous_refresh_token_id: UUID
     refresh_token_id: UUID
 
@@ -103,6 +121,11 @@ class RefreshRotationResult:
     slots=True,
 )
 class SessionRevocationResult:
+    """
+    Result of revoking one persistent authentication
+    session.
+    """
+
     user: User
     session_id: UUID
 
@@ -113,12 +136,25 @@ class SessionRevocationResult:
 )
 class ReauthenticationResult:
     """
-    Proof that an already-authenticated user has just
-    successfully supplied their current password.
+    Result of successfully verifying the current password
+    for sensitive-action step-up authentication.
     """
 
     reauth_token: str
     expires_in_seconds: int
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class PasswordChangeResult:
+    """
+    Result of a successful password change.
+    """
+
+    user_id: UUID
+    revoked_sessions: int
 
 
 # =========================================================
@@ -129,18 +165,34 @@ class ReauthenticationResult:
 class AuthenticationError(
     Exception
 ):
+    """
+    Base exception for authentication-domain failures.
+
+    API routes translate subclasses into appropriate HTTP
+    responses.
+    """
+
     pass
 
 
 class InvalidCredentialsError(
     AuthenticationError
 ):
+    """
+    An ordinary authentication credential could not be
+    trusted.
+    """
+
     pass
 
 
 class InactiveUserError(
     AuthenticationError
 ):
+    """
+    Authentication resolved to an inactive account.
+    """
+
     pass
 
 
@@ -148,7 +200,27 @@ class ReauthenticationError(
     AuthenticationError
 ):
     """
-    Recent-password verification failed.
+    Recent sensitive-action authentication proof could not
+    be trusted.
+
+    Examples include:
+
+        invalid reauthentication JWT
+        expired reauthentication JWT
+        wrong current password
+        stale credential fingerprint
+        proof belonging to another user
+    """
+
+    pass
+
+
+class PasswordChangeError(
+    AuthenticationError
+):
+    """
+    The replacement password violates a password-change
+    invariant.
     """
 
     pass
@@ -157,6 +229,14 @@ class ReauthenticationError(
 class RefreshTokenReuseError(
     AuthenticationError
 ):
+    """
+    A previously consumed refresh credential was presented
+    again.
+
+    The associated persistent authentication session is
+    revoked before this exception is raised.
+    """
+
     def __init__(
         self,
         *,
@@ -179,6 +259,14 @@ class RefreshTokenReuseError(
 class InvalidCsrfTokenError(
     Exception
 ):
+    """
+    CSRF validation failure.
+
+    This remains separate from AuthenticationError because
+    the API translates it to HTTP 403 rather than ordinary
+    credential failure.
+    """
+
     pass
 
 
@@ -213,6 +301,10 @@ class AuthenticationService:
         email: str,
         password: str,
     ) -> User:
+        """
+        Authenticate ordinary username/password credentials.
+        """
+
         normalized_email = (
             email
             .strip()
@@ -226,7 +318,12 @@ class AuthenticationService:
             )
         )
 
-        if auth_record is None:
+        if (
+            auth_record
+            is None
+        ):
+            # Preserve approximately equivalent password
+            # hashing work for nonexistent accounts.
             verify_password(
                 password,
                 DUMMY_PASSWORD_HASH,
@@ -248,7 +345,11 @@ class AuthenticationService:
                 "Invalid credentials."
             )
 
-        if not auth_record.user.is_active:
+        if not (
+            auth_record
+            .user
+            .is_active
+        ):
             raise InactiveUserError(
                 "The user account is inactive."
             )
@@ -268,31 +369,27 @@ class AuthenticationService:
         password: str,
     ) -> ReauthenticationResult:
         """
-        Verify the current password of an already bearer-
-        authenticated user and issue short-lived proof.
-
-        This does not create another auth_sessions row and
-        does not modify the refresh-token family.
+        Verify an already-authenticated user's current
+        password and issue short-lived step-up proof.
         """
 
         self._require_active_user(
             user
         )
 
-        normalized_email = (
-            user.email
-            .strip()
-            .lower()
-        )
-
         auth_record = (
             self.repository
             .get_auth_record_by_email(
-                normalized_email
+                user.email
+                .strip()
+                .lower()
             )
         )
 
-        if auth_record is None:
+        if (
+            auth_record
+            is None
+        ):
             verify_password(
                 password,
                 DUMMY_PASSWORD_HASH,
@@ -309,8 +406,6 @@ class AuthenticationService:
             )
         )
 
-        # The repository record must represent the exact same
-        # user that was authenticated by the access JWT.
         if (
             not password_is_valid
             or auth_record.user.id
@@ -322,12 +417,18 @@ class AuthenticationService:
 
         token = (
             create_reauthentication_token(
-                user.id
+                user.id,
+                credential_hash=(
+                    auth_record
+                    .hashed_password
+                ),
             )
         )
 
         return ReauthenticationResult(
-            reauth_token=token,
+            reauth_token=(
+                token
+            ),
             expires_in_seconds=(
                 settings
                 .reauth_token_expire_minutes
@@ -340,30 +441,247 @@ class AuthenticationService:
         token: str,
     ) -> User:
         """
-        Resolve a reauthentication JWT into the active user
-        who recently supplied their password.
-
-        D-2 will require this proof alongside the ordinary
-        bearer access token for password changes.
+        Validate the reauthentication JWT and confirm that
+        its credential fingerprint still matches the user's
+        currently stored password hash.
         """
 
-        try:
-            user_id = (
-                decode_reauthentication_token(
-                    token
-                )
+        claims = (
+            self._decode_reauthentication_token(
+                token
             )
+        )
 
-        except TokenValidationError as exc:
+        user = (
+            self._resolve_active_user(
+                claims.user_id
+            )
+        )
+
+        auth_record = (
+            self.repository
+            .get_auth_record_by_email(
+                user.email
+                .strip()
+                .lower()
+            )
+        )
+
+        if (
+            auth_record is None
+            or auth_record.user.id
+            != user.id
+        ):
             raise ReauthenticationError(
                 "Reauthentication proof "
                 "is invalid."
-            ) from exc
-
-        return (
-            self._resolve_active_user(
-                user_id
             )
+
+        if not (
+            reauthentication_credential_matches(
+                hashed_password=(
+                    auth_record
+                    .hashed_password
+                ),
+                credential_fingerprint=(
+                    claims
+                    .credential_fingerprint
+                ),
+            )
+        ):
+            raise ReauthenticationError(
+                "Reauthentication proof "
+                "is stale."
+            )
+
+        return user
+
+    # =====================================================
+    # PASSWORD CHANGE
+    # =====================================================
+
+    def change_password(
+        self,
+        user: User,
+        *,
+        reauth_token: str,
+        new_password: str,
+    ) -> PasswordChangeResult:
+        """
+        Change the currently authenticated user's password.
+
+        Required invariants:
+
+            bearer identity already established
+
+            valid recent reauthentication proof
+
+            proof belongs to this user
+
+            credential fingerprint is still current
+
+            new password satisfies policy
+
+            new password differs from current password
+
+            database password update uses compare-and-set
+
+            all persistent refresh sessions are revoked
+        """
+
+        self._require_active_user(
+            user
+        )
+
+        # -------------------------------------------------
+        # REAUTHENTICATION PROOF
+        # -------------------------------------------------
+
+        claims = (
+            self._decode_reauthentication_token(
+                reauth_token
+            )
+        )
+
+        if (
+            claims.user_id
+            != user.id
+        ):
+            raise ReauthenticationError(
+                "Reauthentication proof does "
+                "not belong to this user."
+            )
+
+        # -------------------------------------------------
+        # CURRENT CREDENTIAL RECORD
+        # -------------------------------------------------
+
+        auth_record = (
+            self.repository
+            .get_auth_record_by_email(
+                user.email
+                .strip()
+                .lower()
+            )
+        )
+
+        if (
+            auth_record is None
+            or auth_record.user.id
+            != user.id
+        ):
+            raise ReauthenticationError(
+                "Reauthentication proof "
+                "cannot be validated."
+            )
+
+        current_hashed_password = (
+            auth_record
+            .hashed_password
+        )
+
+        # -------------------------------------------------
+        # PROOF MUST MATCH CURRENT CREDENTIAL
+        # -------------------------------------------------
+
+        if not (
+            reauthentication_credential_matches(
+                hashed_password=(
+                    current_hashed_password
+                ),
+                credential_fingerprint=(
+                    claims
+                    .credential_fingerprint
+                ),
+            )
+        ):
+            raise ReauthenticationError(
+                "Reauthentication proof "
+                "is stale."
+            )
+
+        # -------------------------------------------------
+        # PASSWORD POLICY
+        # -------------------------------------------------
+
+        self._validate_new_password(
+            new_password
+        )
+
+        # -------------------------------------------------
+        # CANNOT REUSE CURRENT PASSWORD
+        # -------------------------------------------------
+
+        if verify_password(
+            new_password,
+            current_hashed_password,
+        ):
+            raise PasswordChangeError(
+                "The new password must differ "
+                "from the current password."
+            )
+
+        replacement_hash = (
+            hash_password(
+                new_password
+            )
+        )
+
+        # -------------------------------------------------
+        # COMPARE-AND-SET PASSWORD UPDATE
+        # -------------------------------------------------
+
+        password_updated = (
+            self.repository
+            .update_password_hash_if_current(
+                user_id=(
+                    user.id
+                ),
+                expected_hashed_password=(
+                    current_hashed_password
+                ),
+                new_hashed_password=(
+                    replacement_hash
+                ),
+            )
+        )
+
+        if not password_updated:
+            raise ReauthenticationError(
+                "The credential changed while "
+                "the operation was in progress."
+            )
+
+        # -------------------------------------------------
+        # REVOKE ALL PERSISTENT SESSIONS
+        # -------------------------------------------------
+
+        now = datetime.now(
+            timezone.utc
+        )
+
+        revoked_sessions = (
+            self.auth_session_repository
+            .revoke_all_for_user(
+                user_id=(
+                    user.id
+                ),
+                revoked_at=(
+                    now
+                ),
+                reason=(
+                    "password_changed"
+                ),
+            )
+        )
+
+        return PasswordChangeResult(
+            user_id=(
+                user.id
+            ),
+            revoked_sessions=(
+                revoked_sessions
+            ),
         )
 
     # =====================================================
@@ -374,6 +692,10 @@ class AuthenticationService:
         self,
         user: User,
     ) -> AuthenticationResult:
+        """
+        Establish a new persistent login session.
+        """
+
         self._require_active_user(
             user
         )
@@ -401,21 +723,30 @@ class AuthenticationService:
         )
 
         auth_session = AuthSession(
-            id=session_id,
-            user_id=user.id,
+            id=(
+                session_id
+            ),
+            user_id=(
+                user.id
+            ),
             current_jti=(
                 refresh_token_id
             ),
-            created_at=now,
-            last_used_at=now,
-            expires_at=expires_at,
+            created_at=(
+                now
+            ),
+            last_used_at=(
+                now
+            ),
+            expires_at=(
+                expires_at
+            ),
             revoked_at=None,
             revocation_reason=None,
         )
 
         persisted_session = (
-            self
-            .auth_session_repository
+            self.auth_session_repository
             .create(
                 auth_session
             )
@@ -460,7 +791,9 @@ class AuthenticationService:
             csrf_token=(
                 csrf_token
             ),
-            user=user,
+            user=(
+                user
+            ),
             session_id=(
                 persisted_session.id
             ),
@@ -478,6 +811,10 @@ class AuthenticationService:
         self,
         user: User,
     ) -> str:
+        """
+        Issue another short-lived access JWT.
+        """
+
         self._require_active_user(
             user
         )
@@ -490,6 +827,10 @@ class AuthenticationService:
         self,
         token: str,
     ) -> User:
+        """
+        Resolve an access JWT into the current active user.
+        """
+
         try:
             user_id = (
                 decode_access_token(
@@ -519,9 +860,12 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> ResolvedRefreshSession:
+        """
+        Validate a refresh credential without consuming it.
+        """
+
         claims = (
-            self
-            ._decode_refresh_token_with_csrf(
+            self._decode_refresh_token_with_csrf(
                 token,
                 csrf_cookie=(
                     csrf_cookie
@@ -533,14 +877,16 @@ class AuthenticationService:
         )
 
         session = (
-            self
-            .auth_session_repository
+            self.auth_session_repository
             .get_by_id(
                 claims.session_id
             )
         )
 
-        if session is None:
+        if (
+            session
+            is None
+        ):
             raise InvalidCredentialsError(
                 "The authentication session "
                 "does not exist."
@@ -551,9 +897,15 @@ class AuthenticationService:
         )
 
         self._require_usable_session(
-            session=session,
-            claims=claims,
-            now=now,
+            session=(
+                session
+            ),
+            claims=(
+                claims
+            ),
+            now=(
+                now
+            ),
         )
 
         if (
@@ -572,9 +924,15 @@ class AuthenticationService:
         )
 
         return ResolvedRefreshSession(
-            user=user,
-            session=session,
-            claims=claims,
+            user=(
+                user
+            ),
+            session=(
+                session
+            ),
+            claims=(
+                claims
+            ),
         )
 
     # =====================================================
@@ -588,9 +946,13 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> RefreshRotationResult:
+        """
+        Consume the current refresh credential and issue its
+        one-time replacement.
+        """
+
         claims = (
-            self
-            ._decode_refresh_token_with_csrf(
+            self._decode_refresh_token_with_csrf(
                 token,
                 csrf_cookie=(
                     csrf_cookie
@@ -602,14 +964,16 @@ class AuthenticationService:
         )
 
         session = (
-            self
-            .auth_session_repository
+            self.auth_session_repository
             .get_by_id_for_update(
                 claims.session_id
             )
         )
 
-        if session is None:
+        if (
+            session
+            is None
+        ):
             raise InvalidCredentialsError(
                 "The authentication session "
                 "does not exist."
@@ -620,10 +984,20 @@ class AuthenticationService:
         )
 
         self._require_usable_session(
-            session=session,
-            claims=claims,
-            now=now,
+            session=(
+                session
+            ),
+            claims=(
+                claims
+            ),
+            now=(
+                now
+            ),
         )
+
+        # -------------------------------------------------
+        # REFRESH-TOKEN REUSE
+        # -------------------------------------------------
 
         if (
             session.current_jti
@@ -633,7 +1007,9 @@ class AuthenticationService:
                 session_id=(
                     session.id
                 ),
-                revoked_at=now,
+                revoked_at=(
+                    now
+                ),
                 reason=(
                     "refresh_token_reuse"
                 ),
@@ -665,7 +1041,9 @@ class AuthenticationService:
             current_jti=(
                 replacement_token_id
             ),
-            last_used_at=now,
+            last_used_at=(
+                now
+            ),
         )
 
         replacement_refresh_token = (
@@ -696,7 +1074,9 @@ class AuthenticationService:
             refresh_token=(
                 replacement_refresh_token
             ),
-            user=user,
+            user=(
+                user
+            ),
             session_id=(
                 session.id
             ),
@@ -719,9 +1099,13 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> SessionRevocationResult:
+        """
+        Validate and revoke the current persistent browser
+        authentication session.
+        """
+
         claims = (
-            self
-            ._decode_refresh_token_with_csrf(
+            self._decode_refresh_token_with_csrf(
                 token,
                 csrf_cookie=(
                     csrf_cookie
@@ -733,14 +1117,16 @@ class AuthenticationService:
         )
 
         session = (
-            self
-            .auth_session_repository
+            self.auth_session_repository
             .get_by_id_for_update(
                 claims.session_id
             )
         )
 
-        if session is None:
+        if (
+            session
+            is None
+        ):
             raise InvalidCredentialsError(
                 "The authentication session "
                 "does not exist."
@@ -751,9 +1137,15 @@ class AuthenticationService:
         )
 
         self._require_usable_session(
-            session=session,
-            claims=claims,
-            now=now,
+            session=(
+                session
+            ),
+            claims=(
+                claims
+            ),
+            now=(
+                now
+            ),
         )
 
         if (
@@ -764,7 +1156,9 @@ class AuthenticationService:
                 session_id=(
                     session.id
                 ),
-                revoked_at=now,
+                revoked_at=(
+                    now
+                ),
                 reason=(
                     "refresh_token_reuse"
                 ),
@@ -789,25 +1183,35 @@ class AuthenticationService:
             session_id=(
                 session.id
             ),
-            revoked_at=now,
-            reason="logout",
+            revoked_at=(
+                now
+            ),
+            reason=(
+                "logout"
+            ),
         )
 
         return SessionRevocationResult(
-            user=user,
+            user=(
+                user
+            ),
             session_id=(
                 session.id
             ),
         )
 
     # =====================================================
-    # REVOKE ALL SESSIONS
+    # REVOKE ALL USER SESSIONS
     # =====================================================
 
     def revoke_all_sessions_for_user(
         self,
         user: User,
     ) -> int:
+        """
+        Revoke all refresh sessions belonging to one user.
+        """
+
         self._require_active_user(
             user
         )
@@ -817,13 +1221,14 @@ class AuthenticationService:
         )
 
         return (
-            self
-            .auth_session_repository
+            self.auth_session_repository
             .revoke_all_for_user(
                 user_id=(
                     user.id
                 ),
-                revoked_at=now,
+                revoked_at=(
+                    now
+                ),
                 reason=(
                     "logout_all"
                 ),
@@ -831,8 +1236,30 @@ class AuthenticationService:
         )
 
     # =====================================================
-    # REFRESH JWT + CSRF VALIDATION
+    # TOKEN VALIDATION HELPERS
     # =====================================================
+
+    def _decode_reauthentication_token(
+        self,
+        token: str,
+    ) -> ReauthenticationClaims:
+        """
+        Translate low-level JWT validation failures into a
+        service-layer reauthentication failure.
+        """
+
+        try:
+            return (
+                decode_reauthentication_token(
+                    token
+                )
+            )
+
+        except TokenValidationError as exc:
+            raise ReauthenticationError(
+                "Reauthentication proof "
+                "is invalid."
+            ) from exc
 
     def _decode_refresh_token_with_csrf(
         self,
@@ -841,6 +1268,11 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> RefreshTokenClaims:
+        """
+        Decode a refresh JWT and validate its session-bound
+        CSRF proof.
+        """
+
         try:
             claims = (
                 decode_refresh_token(
@@ -878,6 +1310,11 @@ class AuthenticationService:
         claims: RefreshTokenClaims,
         now: datetime,
     ) -> None:
+        """
+        Validate persistent authentication-session state
+        other than current_jti.
+        """
+
         if (
             session.revoked_at
             is not None
@@ -916,6 +1353,10 @@ class AuthenticationService:
         csrf_cookie: str | None,
         csrf_header: str | None,
     ) -> None:
+        """
+        Require a valid signed double-submit CSRF proof.
+        """
+
         if (
             csrf_cookie is None
             or csrf_header is None
@@ -946,6 +1387,49 @@ class AuthenticationService:
             )
 
     # =====================================================
+    # PASSWORD POLICY
+    # =====================================================
+
+    @staticmethod
+    def _validate_new_password(
+        password: str,
+    ) -> None:
+        """
+        OpsFlow currently uses passwords as a single
+        authentication factor.
+
+        Minimum:
+            15 Unicode code points
+
+        Maximum:
+            128 Unicode code points
+
+        No arbitrary composition requirements are imposed.
+        """
+
+        if (
+            len(
+                password
+            )
+            < 15
+        ):
+            raise PasswordChangeError(
+                "The new password must contain "
+                "at least 15 characters."
+            )
+
+        if (
+            len(
+                password
+            )
+            > 128
+        ):
+            raise PasswordChangeError(
+                "The new password must not exceed "
+                "128 characters."
+            )
+
+    # =====================================================
     # USER RESOLUTION
     # =====================================================
 
@@ -953,6 +1437,10 @@ class AuthenticationService:
         self,
         user_id: UUID,
     ) -> User:
+        """
+        Resolve a UUID into an active user.
+        """
+
         user = (
             self.repository
             .get_by_id(
@@ -960,7 +1448,10 @@ class AuthenticationService:
             )
         )
 
-        if user is None:
+        if (
+            user
+            is None
+        ):
             raise InvalidCredentialsError(
                 "The authenticated user "
                 "no longer exists."
@@ -976,6 +1467,10 @@ class AuthenticationService:
     def _require_active_user(
         user: User,
     ) -> None:
+        """
+        Require the user account to remain active.
+        """
+
         if not user.is_active:
             raise InactiveUserError(
                 "The user account is inactive."

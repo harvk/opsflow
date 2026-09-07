@@ -1,9 +1,8 @@
-from typing import (
-    Literal,
-)
+from typing import Annotated, Literal
 
 from pydantic import (
     BaseModel,
+    Field,
     SecretStr,
 )
 
@@ -24,33 +23,19 @@ class TokenResponse(
 
 
 # =========================================================
-# SENSITIVE-ACTION REAUTHENTICATION
+# REAUTHENTICATION
 # =========================================================
 
 
 class ReauthenticationRequest(
     BaseModel
 ):
-    """
-    Current password supplied by an already-authenticated
-    user.
-
-    SecretStr prevents ordinary Pydantic representations from
-    displaying the clear-text password.
-    """
-
     password: SecretStr
 
 
 class ReauthenticationResponse(
     BaseModel
 ):
-    """
-    Short-lived proof of recent password verification.
-
-    This credential should remain in frontend memory only.
-    """
-
     reauth_token: str
 
     token_type: Literal[
@@ -58,3 +43,35 @@ class ReauthenticationResponse(
     ] = "reauth"
 
     expires_in_seconds: int
+
+
+# =========================================================
+# PASSWORD CHANGE
+# =========================================================
+
+
+NewPassword = Annotated[
+    SecretStr,
+    Field(
+        min_length=15,
+        max_length=128,
+    ),
+]
+
+
+class PasswordChangeRequest(
+    BaseModel
+):
+    """
+    Password changes require both:
+
+        - recent reauthentication proof
+        - a replacement password
+
+    SecretStr prevents normal Pydantic repr/debug output from
+    displaying either sensitive value.
+    """
+
+    reauth_token: SecretStr
+
+    new_password: NewPassword

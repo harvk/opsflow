@@ -74,6 +74,11 @@ DUMMY_PASSWORD_HASH = (
 def hash_password(
     password: str,
 ) -> str:
+    """
+    Hash a plaintext password using the application's
+    configured recommended password-hashing algorithm.
+    """
+
     return password_hasher.hash(
         password
     )
@@ -83,6 +88,11 @@ def verify_password(
     plain_password: str,
     hashed_password: str,
 ) -> bool:
+    """
+    Verify a plaintext password against a stored password
+    hash.
+    """
+
     return password_hasher.verify(
         plain_password,
         hashed_password,
@@ -99,10 +109,33 @@ def verify_password(
     slots=True,
 )
 class RefreshTokenClaims:
+    """
+    Trusted claims extracted from a validated refresh JWT.
+    """
+
     user_id: UUID
     session_id: UUID
     token_id: UUID
     expires_at: datetime
+
+
+@dataclass(
+    frozen=True,
+    slots=True,
+)
+class ReauthenticationClaims:
+    """
+    Trusted claims extracted from a validated
+    reauthentication JWT.
+
+    credential_fingerprint binds the reauthentication proof
+    to the password hash that existed when the user supplied
+    their current password.
+    """
+
+    user_id: UUID
+    token_id: UUID
+    credential_fingerprint: str
 
 
 # =========================================================
@@ -114,7 +147,11 @@ class TokenValidationError(
     ValueError
 ):
     """
-    Raised when a JWT cannot be trusted.
+    Raised when a JWT cannot be cryptographically or
+    structurally trusted.
+
+    Higher-level services translate this low-level security
+    exception into authentication-domain exceptions.
     """
 
     pass
@@ -132,6 +169,10 @@ def create_access_token(
         timedelta | None
     ) = None,
 ) -> str:
+    """
+    Create a short-lived bearer access JWT.
+    """
+
     now = datetime.now(
         timezone.utc
     )
@@ -188,6 +229,12 @@ def create_access_token(
 def decode_access_token(
     token: str,
 ) -> UUID:
+    """
+    Decode and validate a bearer access JWT.
+
+    Returns the authenticated user's UUID.
+    """
+
     try:
         payload = jwt.decode(
             token,
@@ -259,9 +306,18 @@ def create_refresh_token(
     """
     Create a refresh JWT bound to one persistent
     authentication session.
+
+    sid:
+        stable authentication-session identifier
+
+    jti:
+        identity of the current one-time refresh credential
     """
 
-    if expires_at.tzinfo is None:
+    if (
+        expires_at.tzinfo
+        is None
+    ):
         raise ValueError(
             "Refresh-token expiration "
             "must be timezone-aware."
@@ -314,6 +370,10 @@ def create_refresh_token(
 def decode_refresh_token(
     token: str,
 ) -> RefreshTokenClaims:
+    """
+    Decode and validate a persistent-session refresh JWT.
+    """
+
     try:
         payload = jwt.decode(
             token,
@@ -458,10 +518,89 @@ def decode_refresh_token(
         ) from exc
 
     return RefreshTokenClaims(
-        user_id=user_id,
-        session_id=session_id,
-        token_id=token_id,
-        expires_at=expires_at,
+        user_id=(
+            user_id
+        ),
+        session_id=(
+            session_id
+        ),
+        token_id=(
+            token_id
+        ),
+        expires_at=(
+            expires_at
+        ),
+    )
+
+
+# =========================================================
+# REAUTHENTICATION CREDENTIAL FINGERPRINT
+# =========================================================
+
+
+def create_reauthentication_fingerprint(
+    hashed_password: str,
+) -> str:
+    """
+    Create a keyed fingerprint of the user's currently
+    stored password hash.
+
+    This allows a reauthentication JWT to be invalidated
+    automatically when the stored password hash changes.
+
+    Neither the plaintext password nor the password hash is
+    placed into the JWT.
+    """
+
+    secret = (
+        settings
+        .jwt_reauth_secret_key
+        .get_secret_value()
+        .encode(
+            "utf-8"
+        )
+    )
+
+    message = (
+        "opsflow-reauth-credential:"
+        f"{hashed_password}"
+    ).encode(
+        "utf-8"
+    )
+
+    return hmac.new(
+        secret,
+        message,
+        hashlib.sha256,
+    ).hexdigest()
+
+
+def reauthentication_credential_matches(
+    *,
+    hashed_password: str,
+    credential_fingerprint: str,
+) -> bool:
+    """
+    Determine whether a reauthentication JWT was issued
+    against the user's currently stored password hash.
+
+    If the password hash changed after the token was issued,
+    the calculated fingerprint will no longer match.
+    """
+
+    expected_fingerprint = (
+        create_reauthentication_fingerprint(
+            hashed_password
+        )
+    )
+
+    return hmac.compare_digest(
+        expected_fingerprint.encode(
+            "utf-8"
+        ),
+        credential_fingerprint.encode(
+            "utf-8"
+        ),
     )
 
 
@@ -473,20 +612,21 @@ def decode_refresh_token(
 def create_reauthentication_token(
     user_id: UUID,
     *,
+    credential_hash: str,
     expires_delta: (
         timedelta | None
     ) = None,
 ) -> str:
     """
-    Create a very short-lived JWT proving that the user
-    recently supplied their current password.
+    Create short-lived proof of recent password
+    verification.
 
-    This token is deliberately distinct from:
+    credential_hash is the user's currently stored password
+    hash.
 
-        access JWT
-        refresh JWT
-
-    It must never be accepted as either of those token types.
+    The password hash itself is never placed inside the JWT.
+    Instead, the JWT receives an HMAC credential
+    fingerprint.
     """
 
     now = datetime.now(
@@ -503,6 +643,16 @@ def create_reauthentication_token(
 
     expires_at = (
         now + expires_delta
+    )
+
+    token_id = (
+        uuid4()
+    )
+
+    credential_fingerprint = (
+        create_reauthentication_fingerprint(
+            credential_hash
+        )
     )
 
     payload = {
@@ -522,7 +672,15 @@ def create_reauthentication_token(
             REAUTH_TOKEN_TYPE
         ),
         "jti": str(
-            uuid4()
+            token_id
+        ),
+
+        # cv = credential-version fingerprint.
+        #
+        # This is an HMAC value, not the password and not the
+        # stored password hash.
+        "cv": (
+            credential_fingerprint
         ),
     }
 
@@ -544,10 +702,17 @@ def create_reauthentication_token(
 
 def decode_reauthentication_token(
     token: str,
-) -> UUID:
+) -> ReauthenticationClaims:
     """
-    Validate a short-lived sensitive-action reauthentication
-    credential and return its subject.
+    Decode and validate a sensitive-action reauthentication
+    JWT.
+
+    Unlike decode_access_token(), this decoder returns a
+    typed claims object because password-change validation
+    needs both:
+
+        user identity
+        credential fingerprint
     """
 
     try:
@@ -577,6 +742,7 @@ def decode_reauthentication_token(
                     "aud",
                     "type",
                     "jti",
+                    "cv",
                 ]
             },
         )
@@ -598,12 +764,50 @@ def decode_reauthentication_token(
             "reauthentication token."
         )
 
-    _validate_jti(
-        payload
+    user_id = (
+        _decode_subject(
+            payload
+        )
     )
 
-    return _decode_subject(
-        payload
+    token_id = (
+        _decode_jti(
+            payload
+        )
+    )
+
+    credential_fingerprint = (
+        payload.get(
+            "cv"
+        )
+    )
+
+    if (
+        not isinstance(
+            credential_fingerprint,
+            str,
+        )
+        or len(
+            credential_fingerprint
+        )
+        != 64
+    ):
+        raise TokenValidationError(
+            "The reauthentication "
+            "credential fingerprint "
+            "is invalid."
+        )
+
+    return ReauthenticationClaims(
+        user_id=(
+            user_id
+        ),
+        token_id=(
+            token_id
+        ),
+        credential_fingerprint=(
+            credential_fingerprint
+        ),
     )
 
 
@@ -617,6 +821,11 @@ def _csrf_signature(
     session_id: UUID,
     nonce: str,
 ) -> str:
+    """
+    Calculate the CSRF-token signature for one persistent
+    authentication session.
+    """
+
     message = (
         f"{session_id}:{nonce}"
         .encode(
@@ -642,6 +851,11 @@ def _csrf_signature(
 def create_csrf_token(
     session_id: UUID,
 ) -> str:
+    """
+    Create a signed CSRF token bound to one persistent
+    authentication session.
+    """
+
     nonce = (
         secrets.token_urlsafe(
             32
@@ -650,8 +864,12 @@ def create_csrf_token(
 
     signature = (
         _csrf_signature(
-            session_id=session_id,
-            nonce=nonce,
+            session_id=(
+                session_id
+            ),
+            nonce=(
+                nonce
+            ),
         )
     )
 
@@ -664,10 +882,16 @@ def validate_csrf_token(
     session_id: UUID,
     csrf_token: str,
 ) -> bool:
-    nonce, separator, supplied_signature = (
-        csrf_token.partition(
-            "."
-        )
+    """
+    Validate a CSRF token against its persistent session ID.
+    """
+
+    (
+        nonce,
+        separator,
+        supplied_signature,
+    ) = csrf_token.partition(
+        "."
     )
 
     if (
@@ -679,8 +903,12 @@ def validate_csrf_token(
 
     expected_signature = (
         _csrf_signature(
-            session_id=session_id,
-            nonce=nonce,
+            session_id=(
+                session_id
+            ),
+            nonce=(
+                nonce
+            ),
         )
     )
 
@@ -702,6 +930,10 @@ def validate_csrf_token(
 def _decode_subject(
     payload: dict,
 ) -> UUID:
+    """
+    Extract and validate a UUID-valued JWT subject claim.
+    """
+
     subject = (
         payload.get(
             "sub"
@@ -727,17 +959,24 @@ def _decode_subject(
         ) from exc
 
 
-def _validate_jti(
+def _decode_jti(
     payload: dict,
-) -> None:
-    token_id = (
+) -> UUID:
+    """
+    Extract and validate the UUID-valued JWT ID claim.
+
+    Returns the UUID for callers that need the actual token
+    identifier.
+    """
+
+    token_value = (
         payload.get(
             "jti"
         )
     )
 
     if not isinstance(
-        token_id,
+        token_value,
         str,
     ):
         raise TokenValidationError(
@@ -745,11 +984,24 @@ def _validate_jti(
         )
 
     try:
-        UUID(
-            token_id
+        return UUID(
+            token_value
         )
 
     except ValueError as exc:
         raise TokenValidationError(
             "The token identifier is invalid."
         ) from exc
+
+
+def _validate_jti(
+    payload: dict,
+) -> None:
+    """
+    Validate a JWT ID when the caller does not need the
+    parsed UUID value.
+    """
+
+    _decode_jti(
+        payload
+    )
