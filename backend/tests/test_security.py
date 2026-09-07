@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import timedelta, datetime, timezone
 from uuid import uuid4
 
 import pytest
@@ -150,31 +150,84 @@ def test_completely_invalid_token_is_rejected() -> None:
         )
         
         
-def test_refresh_token_round_trip() -> None:
+def test_refresh_token_round_trip(
+) -> None:
     user_id = uuid4()
+    session_id = uuid4()
+    token_id = uuid4()
 
-    token = create_refresh_token(
-        user_id
+    expires_at = (
+        datetime.now(
+            timezone.utc
+        )
+        + timedelta(
+            days=7
+        )
     )
 
-    decoded_user_id = (
+    token = create_refresh_token(
+        user_id,
+        session_id=(
+            session_id
+        ),
+        token_id=(
+            token_id
+        ),
+        expires_at=(
+            expires_at
+        ),
+    )
+
+    decoded = (
         decode_refresh_token(
             token
         )
     )
 
     assert (
-        decoded_user_id
+        decoded.user_id
         == user_id
     )
 
+    assert (
+        decoded.session_id
+        == session_id
+    )
 
-def test_refresh_token_cannot_be_used_as_access_token() -> None:
+    assert (
+        decoded.token_id
+        == token_id
+    )
+
+    assert abs(
+        (
+            decoded.expires_at
+            - expires_at
+        ).total_seconds()
+    ) < 1
+
+
+def test_refresh_token_cannot_be_used_as_access_token(
+) -> None:
     user_id = uuid4()
 
     refresh_token = (
         create_refresh_token(
-            user_id
+            user_id,
+            session_id=(
+                uuid4()
+            ),
+            token_id=(
+                uuid4()
+            ),
+            expires_at=(
+                datetime.now(
+                    timezone.utc
+                )
+                + timedelta(
+                    days=7
+                )
+            ),
         )
     )
 
@@ -203,14 +256,26 @@ def test_access_token_cannot_be_used_as_refresh_token() -> None:
         )
 
 
-def test_expired_refresh_token_is_rejected() -> None:
+def test_expired_refresh_token_is_rejected(
+) -> None:
     user_id = uuid4()
 
     refresh_token = (
         create_refresh_token(
             user_id,
-            expires_delta=timedelta(
-                seconds=-1
+            session_id=(
+                uuid4()
+            ),
+            token_id=(
+                uuid4()
+            ),
+            expires_at=(
+                datetime.now(
+                    timezone.utc
+                )
+                - timedelta(
+                    seconds=1
+                )
             ),
         )
     )

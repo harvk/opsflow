@@ -10,21 +10,88 @@ from starlette.types import (
     Send,
 )
 
-from app.core.config import settings
+from app.core.config import (
+    settings,
+)
+
+
+# =========================================================
+# BASELINE RESPONSE SECURITY POLICY
+# =========================================================
+
+
+BASE_SECURITY_HEADERS: tuple[
+    tuple[str, str],
+    ...,
+] = (
+    (
+        "X-Content-Type-Options",
+        "nosniff",
+    ),
+    (
+        "X-Frame-Options",
+        "DENY",
+    ),
+    (
+        "Referrer-Policy",
+        "strict-origin-when-cross-origin",
+    ),
+    (
+        "Permissions-Policy",
+        (
+            "camera=(), "
+            "microphone=(), "
+            "geolocation=()"
+        ),
+    ),
+    (
+        "X-Permitted-Cross-Domain-Policies",
+        "none",
+    ),
+)
+
+
+HSTS_HEADER_NAME = (
+    "Strict-Transport-Security"
+)
+
+HSTS_HEADER_VALUE = (
+    "max-age=31536000; "
+    "includeSubDomains"
+)
+
+
+# =========================================================
+# SECURITY HEADERS MIDDLEWARE
+# =========================================================
 
 
 class SecurityHeadersMiddleware:
     """
-    Adds baseline defensive HTTP response headers
-    to OpsFlow API responses.
+    Add baseline defensive HTTP response headers to OpsFlow
+    responses.
 
-    This middleware intentionally does not add a
-    Content-Security-Policy yet because FastAPI's
-    development Swagger/Redoc interfaces require
-    a CSP designed specifically for those pages.
+    The middleware operates at the ASGI response boundary,
+    allowing the same policy to apply to responses produced
+    by:
 
-    HSTS is enabled only in production because it
-    applies to HTTPS deployments.
+        API routes
+        authentication failures
+        validation failures
+        CORS middleware
+        browser-trust middleware
+        framework-generated 404 responses
+
+    Content-Security-Policy is intentionally not added yet.
+
+    FastAPI's Swagger and ReDoc interfaces require a CSP
+    designed specifically for their scripts, styles, and
+    resources.
+
+    Strict-Transport-Security is enabled only when OpsFlow
+    runs in the production environment because HSTS applies
+    to HTTPS deployments and should not be forced onto local
+    HTTP development.
     """
 
     def __init__(
@@ -39,7 +106,17 @@ class SecurityHeadersMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        if scope["type"] != "http":
+        """
+        Apply security headers to HTTP responses.
+
+        Non-HTTP ASGI scopes, such as WebSocket traffic, are
+        passed through unchanged.
+        """
+
+        if (
+            scope["type"]
+            != "http"
+        ):
             await self.app(
                 scope,
                 receive,
@@ -51,57 +128,50 @@ class SecurityHeadersMiddleware:
         async def send_with_security_headers(
             message: Message,
         ) -> None:
+            """
+            Intercept the response-start event before headers
+            are transmitted to the client.
+            """
+
             if (
                 message["type"]
                 == "http.response.start"
             ):
-                headers = MutableHeaders(
-                    scope=message
+                headers = (
+                    MutableHeaders(
+                        scope=message
+                    )
                 )
 
-                # Prevent MIME-type sniffing.
-                headers[
-                    "X-Content-Type-Options"
-                ] = "nosniff"
+                # -----------------------------------------
+                # Baseline policy
+                # -----------------------------------------
 
-                # Prevent the API/docs from being
-                # embedded in arbitrary frames.
-                headers[
-                    "X-Frame-Options"
-                ] = "DENY"
-
-                # Limit referrer information sent
-                # across origins.
-                headers[
-                    "Referrer-Policy"
-                ] = (
-                    "strict-origin-when-cross-origin"
-                )
-
-                # OpsFlow currently has no reason to
-                # expose these browser capabilities.
-                headers[
-                    "Permissions-Policy"
-                ] = (
-                    "camera=(), "
-                    "microphone=(), "
-                    "geolocation=()"
-                )
-
-                # Prevent Adobe/legacy cross-domain
-                # policy files from relaxing access.
-                headers[
-                    "X-Permitted-Cross-Domain-Policies"
-                ] = "none"
-
-                # HSTS belongs on HTTPS production
-                # responses, not localhost HTTP.
-                if settings.is_production:
+                for (
+                    header_name,
+                    header_value,
+                ) in BASE_SECURITY_HEADERS:
                     headers[
-                        "Strict-Transport-Security"
+                        header_name
+                    ] = header_value
+
+                # -----------------------------------------
+                # Production HTTPS policy
+                # -----------------------------------------
+                #
+                # Do not emit HSTS during localhost HTTP
+                # development.
+                #
+                # settings.is_production is the existing
+                # authoritative environment switch.
+
+                if (
+                    settings.is_production
+                ):
+                    headers[
+                        HSTS_HEADER_NAME
                     ] = (
-                        "max-age=31536000; "
-                        "includeSubDomains"
+                        HSTS_HEADER_VALUE
                     )
 
             await send(

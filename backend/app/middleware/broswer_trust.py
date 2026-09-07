@@ -32,6 +32,14 @@ class BrowserTrustBoundaryMiddleware(BaseHTTPMiddleware):
     ) -> None:
         super().__init__(app)
 
+        if isinstance(
+            allowed_origins,
+            str,
+        ):
+            allowed_origins = [
+                allowed_origins
+            ]
+
         self.allowed_origins = {
             origin.rstrip("/")
             for origin in allowed_origins

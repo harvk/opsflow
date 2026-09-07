@@ -44,6 +44,14 @@ from tests.constants import (
     THIRD_INCIDENT_ID,
 )
 
+from app.api.dependencies import (
+    get_login_throttle,
+)
+
+from app.core.login_throttle import (
+    InMemoryLoginThrottle,
+)
+
 
 test_engine = create_engine(
     settings.test_database_url,
@@ -431,3 +439,34 @@ def admin_headers(
     return headers_for_user(
         admin_user
     )
+    
+@pytest.fixture(
+    autouse=True
+)
+def reset_login_throttle_state():
+    """
+    Keep authentication throttle state isolated between
+    tests.
+
+    Production application state is intentionally shared
+    between requests; pytest tests must not share it between
+    test cases.
+    """
+
+    throttle = (
+        get_login_throttle()
+    )
+
+    if isinstance(
+        throttle,
+        InMemoryLoginThrottle,
+    ):
+        throttle.reset()
+
+    yield
+
+    if isinstance(
+        throttle,
+        InMemoryLoginThrottle,
+    ):
+        throttle.reset()

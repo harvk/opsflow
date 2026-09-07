@@ -67,6 +67,75 @@ class Settings(BaseSettings):
         ge=1,
         le=30,
     )
+    
+    # ---------------------------------------------------------
+    # Security event logging
+    # ---------------------------------------------------------
+
+    # Dedicated key used only to pseudonymize identifiers
+    # written to security logs.
+    #
+    # Do not reuse JWT, refresh-token, CSRF, or login-throttle
+    # secrets here.
+    security_event_hmac_key: SecretStr
+    
+        # ---------------------------------------------------------
+    # Login abuse protection
+    # ---------------------------------------------------------
+
+    # Dedicated secret used to pseudonymize throttle keys.
+    #
+    # This should remain separate from:
+    #
+    #   jwt_secret_key
+    #   jwt_refresh_secret_key
+    #   csrf_secret_key
+    #
+    # A separate key limits the blast radius if one
+    # credential is ever exposed.
+    auth_throttle_secret_key: SecretStr
+
+    # Maximum number of authentication submissions allowed
+    # from one source address during the IP window.
+    login_ip_max_attempts: int = Field(
+        default=20,
+        ge=5,
+        le=500,
+    )
+
+    # Length of the source-address sliding window.
+    login_ip_window_seconds: int = Field(
+        default=60,
+        ge=10,
+        le=3600,
+    )
+
+    # Maximum number of failed login attempts allowed against
+    # one normalized account identifier.
+    login_account_max_failures: int = Field(
+        default=8,
+        ge=3,
+        le=100,
+    )
+
+    # How long failed account attempts remain in the
+    # sliding-window history.
+    login_account_window_seconds: int = Field(
+        default=900,
+        ge=60,
+        le=86400,
+    )
+
+    # ---------------------------------------------------------
+    # Security event logging
+    # ---------------------------------------------------------
+
+    # Dedicated HMAC key used to create stable pseudonymous
+    # identifiers in security/audit logs.
+    #
+    # Raw user email addresses should not be written to
+    # authentication-failure logs.
+    security_event_hmac_key: SecretStr
 
     # ---------------------------------------------------------
     # Refresh-cookie settings

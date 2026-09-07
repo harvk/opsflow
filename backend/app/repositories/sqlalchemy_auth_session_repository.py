@@ -1,14 +1,31 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import (
+    Any,
+    cast,
+)
 from uuid import UUID
 
-from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy import (
+    select,
+    update,
+)
 
-from app.models.auth_session import (
-    AuthSessionModel,
+from sqlalchemy.engine import (
+    CursorResult,
+)
+
+from sqlalchemy.orm import (
+    Session,
 )
 
 from app.domain.auth_session import (
     AuthSession,
+)
+
+from app.models.auth_session import (
+    AuthSessionModel,
 )
 
 from app.repositories.auth_session_repository import (
@@ -19,46 +36,76 @@ from app.repositories.auth_session_repository import (
 class SqlAlchemyAuthSessionRepository(
     AuthSessionRepository
 ):
+    """
+    SQLAlchemy/PostgreSQL implementation of the
+    AuthSessionRepository contract.
+
+    Repository methods deliberately flush rather than commit.
+
+    Transaction ownership remains outside the repository so
+    later refresh-token rotation and reuse-detection logic can
+    control commit/rollback behavior explicitly.
+    """
+
     def __init__(
         self,
-        db: Session,
+        session: Session,
     ) -> None:
-        self.db = db
+        self.session = session
+
+    # =====================================================
+    # CREATE
+    # =====================================================
 
     def create(
         self,
-        session: AuthSession,
+        auth_session: AuthSession,
     ) -> AuthSession:
         model = AuthSessionModel(
-            id=session.id,
-            user_id=session.user_id,
-            current_refresh_jti=(
-                session.current_refresh_jti
+            id=(
+                auth_session.id
             ),
-            created_at=session.created_at,
-            expires_at=session.expires_at,
-            last_refreshed_at=(
-                session.last_refreshed_at
+            user_id=(
+                auth_session.user_id
             ),
-            revoked_at=session.revoked_at,
+            current_jti=(
+                auth_session.current_jti
+            ),
+            created_at=(
+                auth_session.created_at
+            ),
+            last_used_at=(
+                auth_session.last_used_at
+            ),
+            expires_at=(
+                auth_session.expires_at
+            ),
+            revoked_at=(
+                auth_session.revoked_at
+            ),
             revocation_reason=(
-                session.revocation_reason
+                auth_session
+                .revocation_reason
             ),
         )
 
-        self.db.add(
+        self.session.add(
             model
         )
 
-        self.db.flush()
+        self.session.flush()
 
-        return session
+        return self._to_domain(
+            model
+        )
+
+    # =====================================================
+    # READ
+    # =====================================================
 
     def get_by_id(
         self,
         session_id: UUID,
-        *,
-        for_update: bool = False,
     ) -> AuthSession | None:
         statement = (
             select(
@@ -70,13 +117,9 @@ class SqlAlchemyAuthSessionRepository(
             )
         )
 
-        if for_update:
-            statement = (
-                statement.with_for_update()
-            )
-
         model = (
-            self.db.execute(
+            self.session
+            .execute(
                 statement
             )
             .scalar_one_or_none()
@@ -89,57 +132,191 @@ class SqlAlchemyAuthSessionRepository(
             model
         )
 
-    def update(
+    def get_by_id_for_update(
         self,
-        session: AuthSession,
-    ) -> AuthSession:
-        model = self.db.get(
-            AuthSessionModel,
-            session.id,
+        session_id: UUID,
+    ) -> AuthSession | None:
+        statement = (
+            select(
+                AuthSessionModel
+            )
+            .where(
+                AuthSessionModel.id
+                == session_id
+            )
+            .with_for_update()
+        )
+
+        model = (
+            self.session
+            .execute(
+                statement
+            )
+            .scalar_one_or_none()
         )
 
         if model is None:
-            raise LookupError(
-                "Authentication session "
-                "does not exist."
+            return None
+
+        return self._to_domain(
+            model
+        )
+
+    # =====================================================
+    # ROTATION
+    # =====================================================
+
+    def update_current_token(
+        self,
+        *,
+        session_id: UUID,
+        current_jti: UUID,
+        last_used_at: datetime,
+    ) -> None:
+        statement = (
+            update(
+                AuthSessionModel
             )
-
-        model.current_refresh_jti = (
-            session.current_refresh_jti
+            .where(
+                AuthSessionModel.id
+                == session_id
+            )
+            .values(
+                current_jti=(
+                    current_jti
+                ),
+                last_used_at=(
+                    last_used_at
+                ),
+            )
         )
 
-        model.last_refreshed_at = (
-            session.last_refreshed_at
+        self.session.execute(
+            statement
         )
 
-        model.revoked_at = (
-            session.revoked_at
+        self.session.flush()
+
+    # =====================================================
+    # REVOCATION
+    # =====================================================
+
+    def revoke(
+        self,
+        *,
+        session_id: UUID,
+        revoked_at: datetime,
+        reason: str,
+    ) -> None:
+        statement = (
+            update(
+                AuthSessionModel
+            )
+            .where(
+                AuthSessionModel.id
+                == session_id
+            )
+            .where(
+                AuthSessionModel.revoked_at
+                .is_(None)
+            )
+            .values(
+                revoked_at=(
+                    revoked_at
+                ),
+                revocation_reason=(
+                    reason
+                ),
+            )
         )
 
-        model.revocation_reason = (
-            session.revocation_reason
+        self.session.execute(
+            statement
         )
 
-        self.db.flush()
+        self.session.flush()
 
-        return session
+    def revoke_all_for_user(
+        self,
+        *,
+        user_id: UUID,
+        revoked_at: datetime,
+        reason: str,
+    ) -> int:
+        statement = (
+            update(
+                AuthSessionModel
+            )
+            .where(
+                AuthSessionModel.user_id
+                == user_id
+            )
+            .where(
+                AuthSessionModel.revoked_at
+                .is_(None)
+            )
+            .values(
+                revoked_at=(
+                    revoked_at
+                ),
+                revocation_reason=(
+                    reason
+                ),
+            )
+        )
+
+        # Session.execute() is typed by SQLAlchemy as a
+        # general Result even though UPDATE operations return
+        # a CursorResult at runtime.
+        #
+        # The explicit cast lets the type checker correctly
+        # recognize the rowcount attribute without suppressing
+        # type checking.
+        result = cast(
+            CursorResult[Any],
+            self.session.execute(
+                statement
+            ),
+        )
+
+        self.session.flush()
+
+        return (
+            result.rowcount
+            if result.rowcount >= 0
+            else 0
+        )
+
+    # =====================================================
+    # DOMAIN MAPPING
+    # =====================================================
 
     @staticmethod
     def _to_domain(
         model: AuthSessionModel,
     ) -> AuthSession:
         return AuthSession(
-            id=model.id,
-            user_id=model.user_id,
-            current_refresh_jti=(
-                model.current_refresh_jti
+            id=(
+                model.id
             ),
-            created_at=model.created_at,
-            expires_at=model.expires_at,
-            last_refreshed_at=(
-                model.last_refreshed_at
+            user_id=(
+                model.user_id
             ),
-            revoked_at=model.revoked_at,
+            current_jti=(
+                model.current_jti
+            ),
+            created_at=(
+                model.created_at
+            ),
+            last_used_at=(
+                model.last_used_at
+            ),
+            expires_at=(
+                model.expires_at
+            ),
+            revoked_at=(
+                model.revoked_at
+            ),
             revocation_reason=(
                 model.revocation_reason
             ),
