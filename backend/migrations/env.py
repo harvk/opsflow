@@ -6,7 +6,7 @@ from sqlalchemy import pool
 from alembic import context
 
 from app.core.config import settings
-from app.db.base import Base
+from app.db.base_metadata import Base
 from app.models.service import ServiceModel, ServiceDependencyModel
 from app.models.incident import IncidentModel
 from app.models.user import UserModel

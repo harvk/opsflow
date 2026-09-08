@@ -1,4 +1,4 @@
-import { NavLink } from "react-router";
+import { NavLink } from "react-router-dom";
 
 interface AppSidebarProps {
   isOpen: boolean;
@@ -6,74 +6,77 @@ interface AppSidebarProps {
 }
 
 export default function AppSidebar({ isOpen, onClose }: AppSidebarProps) {
-  const navLinkClass = ({ isActive }: { isActive: boolean }) =>
-    ["ops-sidebar-link", isActive ? "ops-sidebar-link--active" : ""]
-      .filter(Boolean)
-      .join(" ");
-
   return (
     <>
-      <aside
-        id="primary-navigation"
-        className={["ops-sidebar", isOpen ? "ops-sidebar--open" : ""]
-          .filter(Boolean)
-          .join(" ")}
-        aria-label="Application navigation"
-      >
-        <div className="ops-sidebar__header">
-          <NavLink
-            to="/"
-            className="ops-brand text-decoration-none"
-            onClick={onClose}
-          >
-            <span className="ops-brand-mark" aria-hidden="true">
-              O
-            </span>
+      <div
+        className={`ops-nav-overlay ${isOpen ? "ops-nav-overlay--open" : ""}`}
+        onClick={onClose}
+        aria-hidden="true"
+      />
 
-            <span className="fw-bold fs-4">OpsFlow</span>
-          </NavLink>
+      <aside
+        id="mobile-navigation"
+        className={`ops-mobile-nav ${isOpen ? "ops-mobile-nav--open" : ""}`}
+        aria-label="Mobile navigation"
+      >
+        <div className="ops-mobile-nav__header">
+          <div>
+            <strong>OpsFlow</strong>
+
+            <span>Operations Platform</span>
+          </div>
 
           <button
             type="button"
-            className="btn-close d-lg-none"
-            aria-label="Close navigation"
             onClick={onClose}
-          />
+            className="ops-mobile-nav__close"
+            aria-label="Close navigation"
+          >
+            ×
+          </button>
         </div>
 
-        <nav className="ops-sidebar__nav" aria-label="Primary navigation">
-          <NavLink to="/" end className={navLinkClass} onClick={onClose}>
-            <span>Overview</span>
+        <nav className="ops-mobile-nav__links">
+          <NavLink
+            to="/"
+            end
+            onClick={onClose}
+            className={({ isActive }) =>
+              `ops-mobile-nav__link ${
+                isActive ? "ops-mobile-nav__link--active" : ""
+              }`
+            }
+          >
+            Overview
           </NavLink>
 
-          <NavLink to="/services" className={navLinkClass} onClick={onClose}>
-            <span>Services</span>
+          <NavLink
+            to="/services"
+            onClick={onClose}
+            className={({ isActive }) =>
+              `ops-mobile-nav__link ${
+                isActive ? "ops-mobile-nav__link--active" : ""
+              }`
+            }
+          >
+            Services
           </NavLink>
 
           <NavLink
             to="/incidents/new"
-            className={navLinkClass}
             onClick={onClose}
+            className={({ isActive }) =>
+              `ops-mobile-nav__link ${
+                isActive ? "ops-mobile-nav__link--active" : ""
+              }`
+            }
           >
-            <span>Report incident</span>
+            Report incident
           </NavLink>
         </nav>
 
-        <div className="ops-sidebar__footer">
-          <p className="small text-secondary mb-1">OpsFlow Platform</p>
-
-          <p className="small text-secondary mb-0">Frontend v1</p>
-        </div>
+        <footer className="ops-mobile-nav__footer">OpsFlow Frontend v1</footer>
       </aside>
-
-      {isOpen && (
-        <button
-          type="button"
-          className="ops-sidebar-backdrop d-lg-none"
-          aria-label="Close navigation"
-          onClick={onClose}
-        />
-      )}
     </>
   );
 }

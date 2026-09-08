@@ -14,6 +14,9 @@ from app.services.authentication_service import (
 from app.services.user_service import (
     UserService,
 )
+from app.repositories.sqlalchemy_auth_session_repository import (
+    SqlAlchemyAuthSessionRepository,
+)
 
 
 def test_authenticate_valid_credentials(
@@ -29,9 +32,18 @@ def test_authenticate_valid_credentials(
         repository
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 
@@ -73,9 +85,18 @@ def test_authenticate_normalizes_email(
         repository
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 
@@ -106,9 +127,18 @@ def test_wrong_password_is_rejected(
         repository
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 
@@ -136,9 +166,18 @@ def test_unknown_email_is_rejected(
         )
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 
@@ -170,9 +209,18 @@ def test_inactive_user_cannot_authenticate(
         is_active=False,
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 
@@ -198,9 +246,18 @@ def test_access_token_resolves_current_user(
         repository
     )
 
+    session_repository = (
+        SqlAlchemyAuthSessionRepository(
+            db_session
+        )
+    )
+
     authentication_service = (
         AuthenticationService(
-            repository
+            repository=repository,
+            auth_session_repository=(
+                session_repository
+            ),
         )
     )
 

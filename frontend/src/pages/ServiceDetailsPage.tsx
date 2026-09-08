@@ -1,4 +1,4 @@
-import { Link, useParams } from "react-router";
+import { Link, useParams } from "react-router-dom";
 
 import ErrorState from "../components/ui/ErrorState";
 import LoadingState from "../components/ui/LoadingState";
@@ -48,7 +48,10 @@ export default function ServiceDetailsPage() {
     <article>
       <div className="d-flex flex-column flex-lg-row justify-content-between gap-3 mb-4">
         <div>
-          <Link to="/services" className="small text-decoration-none">
+          <Link
+            to="/services"
+            className="small text-decoration-none service-details-actions"
+          >
             ← Back to services
           </Link>
 
