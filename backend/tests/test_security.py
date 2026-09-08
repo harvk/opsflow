@@ -105,7 +105,8 @@ def test_expired_access_token_is_rejected() -> None:
         )
 
 
-def test_tampered_access_token_is_rejected() -> None:
+def test_tampered_access_token_is_rejected(
+) -> None:
     user_id = uuid4()
 
     token = create_access_token(
@@ -116,21 +117,33 @@ def test_tampered_access_token_is_rejected() -> None:
         token.split(".")
     )
 
-    tampered_signature = (
-        (
-            "a"
-            if signature_segment[0] != "a"
-            else "b"
-        )
-        + signature_segment[1:]
+    tamper_index = (
+        len(payload_segment)
+        // 2
     )
 
-    tampered_token = ".".join(
-        [
-            header_segment,
-            payload_segment,
-            tampered_signature,
+    replacement = (
+        "A"
+        if payload_segment[
+            tamper_index
+        ] != "A"
+        else "B"
+    )
+
+    tampered_payload = (
+        payload_segment[
+            :tamper_index
         ]
+        + replacement
+        + payload_segment[
+            tamper_index + 1:
+        ]
+    )
+
+    tampered_token = (
+        f"{header_segment}."
+        f"{tampered_payload}."
+        f"{signature_segment}"
     )
 
     with pytest.raises(

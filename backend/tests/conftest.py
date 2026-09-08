@@ -46,10 +46,17 @@ from tests.constants import (
 
 from app.api.dependencies import (
     get_login_throttle,
+    get_password_reset_throttle,
+    get_password_reset_delivery,
+    get_password_reset_link_builder
 )
 
 from app.core.login_throttle import (
     InMemoryLoginThrottle,
+)
+
+from app.core.password_reset_throttle import (
+    InMemoryPasswordResetThrottle
 )
 
 
@@ -178,6 +185,21 @@ def db_session() -> Generator[
             )
             .scalar_one()
         )
+        
+        # -------------------------------------------------
+        # password reset tokens
+        # -------------------------------------------------
+        
+        password_reset_tokens_table = (
+            session.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.password_reset_tokens'"
+                    ")"
+                )
+            )
+            .scalar_one()
+        )
 
         # -------------------------------------------------
         # auth_sessions
@@ -229,6 +251,15 @@ def db_session() -> Generator[
             raise RuntimeError(
                 "public.incidents is missing "
                 "from opsflow_test."
+            )
+            
+        if (
+            password_reset_tokens_table
+            is None
+        ):
+            raise RuntimeError(
+                "public.password_reset_tokens "
+                "is missing from opsflow_test."
             )
 
         if (
@@ -675,3 +706,67 @@ def reset_login_throttle_state():
         InMemoryLoginThrottle,
     ):
         throttle.reset()
+        
+@pytest.fixture(
+    autouse=True
+)
+def clear_process_local_login_throttle(
+):
+    get_login_throttle.cache_clear()
+
+    yield
+
+    get_login_throttle.cache_clear()
+    
+@pytest.fixture(
+    autouse=True
+)
+def isolate_password_reset_throttle(
+):
+    """
+    Give every test its own password-reset throttle state.
+
+    TestClient requests all originate from the same synthetic
+    client address, so allowing the production lru-cached
+    limiter to survive between tests would make unrelated
+    API tests consume one another's IP quota.
+    """
+
+    throttle = (
+        InMemoryPasswordResetThrottle(
+            secret_key=(
+                settings
+                .auth_throttle_secret_key
+                .get_secret_value()
+            ),
+            ip_max_requests=(
+                settings
+                .password_reset_ip_max_requests
+            ),
+            ip_window_seconds=(
+                settings
+                .password_reset_ip_window_seconds
+            ),
+            account_max_requests=(
+                settings
+                .password_reset_account_max_requests
+            ),
+            account_window_seconds=(
+                settings
+                .password_reset_account_window_seconds
+            ),
+        )
+    )
+
+    app.dependency_overrides[
+        get_password_reset_throttle
+    ] = lambda: throttle
+
+    yield
+
+    app.dependency_overrides.pop(
+        get_password_reset_throttle,
+        None,
+    )
+
+    get_password_reset_throttle.cache_clear()

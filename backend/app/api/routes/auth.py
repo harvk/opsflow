@@ -23,7 +23,9 @@ from app.api.dependencies import (
     CurrentUser,
     LoginThrottleDependency,
     PasswordResetServiceDependency,
+    PasswordResetThrottleDependency,
     get_authentication_service,
+    PasswordResetDeliveryCoordinatorDependency
 )
 
 from app.core.auth_cookies import (
@@ -67,6 +69,14 @@ from app.services.authentication_service import (
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
+)
+
+from app.core.password_reset_messages import (
+    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
+)
+
+from app.services.password_reset_delivery import (
+    PasswordResetDeliveryError,
 )
 
 
@@ -659,27 +669,113 @@ def request_password_reset(
     password_reset_service: (
         PasswordResetServiceDependency
     ),
+    password_reset_throttle: (
+        PasswordResetThrottleDependency
+    ),
+    password_reset_delivery_coordinator: (
+        PasswordResetDeliveryCoordinatorDependency
+    )
 ) -> PasswordResetRequestResponse:
     """
     Begin anonymous password recovery.
 
-    Account enumeration is deliberately resisted:
+    Enumeration resistance:
 
         existing active account
         nonexistent account
         inactive account
 
-    all receive the exact same external response.
+    all receive the same normal 202 response.
 
-    The raw reset credential is never included in this HTTP
-    response and is never logged.
+    Abuse protection occurs before reset credential creation.
     """
 
-    # PasswordResetService may internally create a credential
-    # for an eligible account.
+    client_address = (
+        request.client.host
+        if request.client is not None
+        else "unknown"
+    )
+
+    throttle_decision = (
+        password_reset_throttle
+        .check_and_record(
+            client_address=(
+                client_address
+            ),
+            account_identifier=(
+                payload.email
+            ),
+        )
+    )
+
+    if not throttle_decision.allowed:
+        security_event_logger.emit(
+            event=(
+                "auth.password_reset.throttled"
+            ),
+            outcome="blocked",
+            level=logging.WARNING,
+            request=request,
+            account_identifier=(
+                payload.email
+            ),
+            reason=(
+                throttle_decision
+                .blocked_by
+                or "unknown"
+            ),
+            details={
+                "retry_after_seconds": (
+                    throttle_decision
+                    .retry_after_seconds
+                ),
+            },
+        )
+
+        headers: dict[
+            str,
+            str,
+        ] = {
+            "Cache-Control": (
+                "no-store"
+            ),
+            "Pragma": (
+                "no-cache"
+            ),
+        }
+
+        if (
+            throttle_decision
+            .retry_after_seconds
+            is not None
+        ):
+            headers[
+                "Retry-After"
+            ] = str(
+                throttle_decision
+                .retry_after_seconds
+            )
+
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_429_TOO_MANY_REQUESTS
+            ),
+            detail=(
+                "Too many password reset "
+                "requests. Please try again later."
+            ),
+            headers=(
+                headers
+            ),
+        )
+
+    # Deliberately ignore the internal issuance result.
     #
-    # Do not branch the HTTP response based on the result.
-    (
+    # The public API must never expose the raw reset
+    # credential or reveal whether this email maps to an
+    # eligible account.
+    issuance = (
         password_reset_service
         .request_reset(
             email=(
@@ -687,6 +783,45 @@ def request_password_reset(
             ),
         )
     )
+
+    if issuance is not None:
+        try:
+            (
+                password_reset_delivery_coordinator
+                .deliver(
+                    issuance
+                )
+            )
+
+        except PasswordResetDeliveryError:
+            security_event_logger.emit(
+                event=(
+                    "auth.password_reset.delivery_failed"
+                ),
+                outcome="failure",
+                level=logging.ERROR,
+                request=request,
+                user_id=(
+                    issuance.user_id
+                ),
+                reason=(
+                    "delivery_provider_failure"
+                ),
+            )
+
+            # IMPORTANT:
+            #
+            # Do not convert this exception to an HTTP response
+            # here.
+            #
+            # It must leave the route so the database dependency
+            # sees the failure and rolls back the reset-token
+            # transaction.
+            #
+            # The application-level exception handler converts
+            # the failure into the same externally visible 202
+            # response afterward.
+            raise
 
     security_event_logger.emit(
         event=(
@@ -707,9 +842,7 @@ def request_password_reset(
     return (
         PasswordResetRequestResponse(
             message=(
-                "If an eligible account exists, "
-                "password reset instructions will "
-                "be sent."
+                PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE
             )
         )
     )

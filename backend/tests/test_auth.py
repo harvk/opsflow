@@ -446,17 +446,41 @@ def test_me_rejects_tampered_token(
         user.id
     )
 
+    header_segment, payload_segment, signature_segment = (
+        token.split(".")
+    )
+
+    tamper_index = (
+        len(payload_segment)
+        // 2
+    )
+
+    replacement = (
+        "A"
+        if payload_segment[
+            tamper_index
+        ] != "A"
+        else "B"
+    )
+
+    tampered_payload = (
+        payload_segment[
+            :tamper_index
+        ]
+        + replacement
+        + payload_segment[
+            tamper_index + 1:
+        ]
+    )
+
     tampered_token = (
-        token[:-1]
-        + (
-            "a"
-            if token[-1] != "a"
-            else "b"
-        )
+        f"{header_segment}."
+        f"{tampered_payload}."
+        f"{signature_segment}"
     )
 
     response = client.get(
-        AUTH_ME_PATH,
+        "/api/v1/auth/me",
         headers={
             "Authorization": (
                 f"Bearer {tampered_token}"
@@ -464,7 +488,10 @@ def test_me_rejects_tampered_token(
         },
     )
 
-    assert response.status_code == 401
+    assert (
+        response.status_code
+        == 401
+    )
 
 
 def test_me_rejects_expired_token(

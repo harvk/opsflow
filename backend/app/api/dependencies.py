@@ -1,11 +1,28 @@
+from __future__ import annotations
+
+import logging
+
 from collections.abc import (
     Callable,
 )
+
 from functools import (
     lru_cache,
 )
+
 from typing import (
     Annotated,
+    cast,
+)
+
+import boto3
+
+from botocore.config import (
+    Config,
+)
+
+from botocore.exceptions import (
+    BotoCoreError,
 )
 
 from fastapi import (
@@ -32,6 +49,19 @@ from app.core.login_throttle import (
     LoginThrottle,
 )
 
+from app.core.password_reset_links import (
+    PasswordResetLinkBuilder,
+)
+
+from app.core.password_reset_throttle import (
+    InMemoryPasswordResetThrottle,
+    PasswordResetThrottle,
+)
+
+from app.core.security_events import (
+    security_event_logger,
+)
+
 from app.db.session import (
     get_db_session,
 )
@@ -44,12 +74,21 @@ from app.domain.user import (
     User,
 )
 
+from app.infrastructure.aws.ses_password_reset_delivery import (
+    SesClient,
+    SesPasswordResetDelivery,
+)
+
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
 
 from app.repositories.incident_repository import (
     IncidentRepository,
+)
+
+from app.repositories.password_reset_token_repository import (
+    PasswordResetTokenRepository,
 )
 
 from app.repositories.service_repository import (
@@ -62,6 +101,10 @@ from app.repositories.sqlalchemy_auth_session_repository import (
 
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
+)
+
+from app.repositories.sqlalchemy_password_reset_token_repository import (
+    SqlAlchemyPasswordResetTokenRepository,
 )
 
 from app.repositories.sqlalchemy_service_repository import (
@@ -86,26 +129,21 @@ from app.services.incident_service import (
     IncidentService,
 )
 
-from app.services.service_service import (
-    ServiceService,
+from app.services.password_reset_delivery import (
+    PasswordResetDelivery,
+    PasswordResetDeliveryError,
 )
 
-import logging
-
-from app.core.security_events import (
-    security_event_logger,
-)
-
-from app.repositories.password_reset_token_repository import (
-    PasswordResetTokenRepository,
-)
-
-from app.repositories.sqlalchemy_password_reset_token_repository import (
-    SqlAlchemyPasswordResetTokenRepository,
+from app.services.password_reset_delivery_coordinator import (
+    PasswordResetDeliveryCoordinator,
 )
 
 from app.services.password_reset_service import (
     PasswordResetService,
+)
+
+from app.services.service_service import (
+    ServiceService,
 )
 
 
@@ -117,6 +155,7 @@ authorization_service = (
 # =========================================================
 # SHARED DATABASE DEPENDENCY
 # =========================================================
+
 
 DbSession = Annotated[
     Session,
@@ -130,6 +169,7 @@ DbSession = Annotated[
 # OAUTH2
 # =========================================================
 
+
 oauth2_scheme = (
     OAuth2PasswordBearer(
         tokenUrl=(
@@ -142,6 +182,7 @@ oauth2_scheme = (
 # =========================================================
 # PERMISSIONS
 # =========================================================
+
 
 def require_permission(
     permission: Permission,
@@ -184,6 +225,7 @@ def require_permission(
 # SERVICE DEPENDENCIES
 # =========================================================
 
+
 def get_service_repository(
     session: DbSession,
 ) -> ServiceRepository:
@@ -209,8 +251,10 @@ def get_service_service(
         ServiceRepositoryDependency
     ),
 ) -> ServiceService:
-    return ServiceService(
-        repository
+    return (
+        ServiceService(
+            repository
+        )
     )
 
 
@@ -227,6 +271,7 @@ ServiceServiceDependency = (
 # =========================================================
 # INCIDENT DEPENDENCIES
 # =========================================================
+
 
 def get_incident_repository(
     session: DbSession,
@@ -256,13 +301,15 @@ def get_incident_service(
         ServiceRepositoryDependency
     ),
 ) -> IncidentService:
-    return IncidentService(
-        incident_repository=(
-            incident_repository
-        ),
-        service_repository=(
-            service_repository
-        ),
+    return (
+        IncidentService(
+            incident_repository=(
+                incident_repository
+            ),
+            service_repository=(
+                service_repository
+            ),
+        )
     )
 
 
@@ -280,6 +327,7 @@ IncidentServiceDependency = (
 # LOGIN ABUSE PROTECTION
 # =========================================================
 
+
 @lru_cache(
     maxsize=1
 )
@@ -293,28 +341,30 @@ def get_login_throttle(
     every request.
     """
 
-    return InMemoryLoginThrottle(
-        secret_key=(
-            settings
-            .auth_throttle_secret_key
-            .get_secret_value()
-        ),
-        ip_max_attempts=(
-            settings
-            .login_ip_max_attempts
-        ),
-        ip_window_seconds=(
-            settings
-            .login_ip_window_seconds
-        ),
-        account_max_failures=(
-            settings
-            .login_account_max_failures
-        ),
-        account_window_seconds=(
-            settings
-            .login_account_window_seconds
-        ),
+    return (
+        InMemoryLoginThrottle(
+            secret_key=(
+                settings
+                .auth_throttle_secret_key
+                .get_secret_value()
+            ),
+            ip_max_attempts=(
+                settings
+                .login_ip_max_attempts
+            ),
+            ip_window_seconds=(
+                settings
+                .login_ip_window_seconds
+            ),
+            account_max_failures=(
+                settings
+                .login_account_max_failures
+            ),
+            account_window_seconds=(
+                settings
+                .login_account_window_seconds
+            ),
+        )
     )
 
 
@@ -329,8 +379,69 @@ LoginThrottleDependency = (
 
 
 # =========================================================
+# PASSWORD RESET ABUSE PROTECTION
+# =========================================================
+
+
+@lru_cache(
+    maxsize=1
+)
+def get_password_reset_throttle(
+) -> PasswordResetThrottle:
+    """
+    Construct the process-local password-reset throttle.
+
+    The same limiter instance must survive across requests;
+    otherwise every request would receive fresh, empty
+    throttle state.
+
+    Password-reset requests count immediately against both:
+
+        source IP
+        normalized account identifier
+    """
+
+    return (
+        InMemoryPasswordResetThrottle(
+            secret_key=(
+                settings
+                .auth_throttle_secret_key
+                .get_secret_value()
+            ),
+            ip_max_requests=(
+                settings
+                .password_reset_ip_max_requests
+            ),
+            ip_window_seconds=(
+                settings
+                .password_reset_ip_window_seconds
+            ),
+            account_max_requests=(
+                settings
+                .password_reset_account_max_requests
+            ),
+            account_window_seconds=(
+                settings
+                .password_reset_account_window_seconds
+            ),
+        )
+    )
+
+
+PasswordResetThrottleDependency = (
+    Annotated[
+        PasswordResetThrottle,
+        Depends(
+            get_password_reset_throttle
+        ),
+    ]
+)
+
+
+# =========================================================
 # AUTH SESSION REPOSITORY
 # =========================================================
+
 
 def get_auth_session_repository(
     session: DbSession,
@@ -342,16 +453,18 @@ def get_auth_session_repository(
     )
 
 
-AuthSessionRepositoryDependency = Annotated[
-    AuthSessionRepository,
-    Depends(
-        get_auth_session_repository
-    ),
-]
+AuthSessionRepositoryDependency = (
+    Annotated[
+        AuthSessionRepository,
+        Depends(
+            get_auth_session_repository
+        ),
+    ]
+)
 
 
 # =========================================================
-# PASSWORD RESET DEPENDENCIES
+# PASSWORD RESET PERSISTENCE
 # =========================================================
 
 
@@ -375,6 +488,11 @@ PasswordResetTokenRepositoryDependency = (
 )
 
 
+# =========================================================
+# PASSWORD RESET SERVICE
+# =========================================================
+
+
 def get_password_reset_service(
     db: DbSession,
     password_reset_repository: (
@@ -390,16 +508,18 @@ def get_password_reset_service(
         )
     )
 
-    return PasswordResetService(
-        user_repository=(
-            user_repository
-        ),
-        password_reset_repository=(
-            password_reset_repository
-        ),
-        auth_session_repository=(
-            auth_session_repository
-        ),
+    return (
+        PasswordResetService(
+            user_repository=(
+                user_repository
+            ),
+            password_reset_repository=(
+                password_reset_repository
+            ),
+            auth_session_repository=(
+                auth_session_repository
+            ),
+        )
     )
 
 
@@ -414,8 +534,196 @@ PasswordResetServiceDependency = (
 
 
 # =========================================================
+# AWS SES
+# =========================================================
+
+
+@lru_cache(
+    maxsize=1
+)
+def get_ses_client(
+) -> SesClient:
+    """
+    Construct the shared AWS SES client.
+
+    boto3 uses the normal AWS credential provider chain.
+
+    AWS credentials are therefore not embedded in application
+    source code.
+
+    A shared client is appropriate because boto3 clients are
+    designed to be reused between requests.
+
+    Relatively short connection/read timeouts prevent an SES
+    outage from holding a password-reset request open for an
+    excessive amount of time.
+    """
+
+    try:
+        client = (
+            boto3.client(
+                "ses",
+                region_name=(
+                    settings
+                    .aws_region
+                ),
+                config=(
+                    Config(
+                        connect_timeout=3,
+                        read_timeout=5,
+                        retries={
+                            "mode": (
+                                "standard"
+                            ),
+                            "total_max_attempts": (
+                                3
+                            ),
+                        },
+                    )
+                ),
+            )
+        )
+
+    except BotoCoreError as exc:
+        raise (
+            PasswordResetDeliveryError(
+                "Password reset email "
+                "delivery is unavailable."
+            )
+        ) from exc
+
+    return cast(
+        SesClient,
+        client,
+    )
+
+
+SesClientDependency = (
+    Annotated[
+        SesClient,
+        Depends(
+            get_ses_client
+        ),
+    ]
+)
+
+
+# =========================================================
+# PASSWORD RESET DELIVERY
+# =========================================================
+
+
+@lru_cache(
+    maxsize=1
+)
+def get_password_reset_link_builder(
+) -> PasswordResetLinkBuilder:
+    """
+    Construct the frontend password-reset link builder from
+    application configuration.
+
+    PasswordResetLinkBuilder validates the configured URL
+    when this dependency is first created.
+    """
+
+    return (
+        PasswordResetLinkBuilder(
+            reset_url=(
+                settings
+                .password_reset_url
+            ),
+        )
+    )
+
+
+PasswordResetLinkBuilderDependency = (
+    Annotated[
+        PasswordResetLinkBuilder,
+        Depends(
+            get_password_reset_link_builder
+        ),
+    ]
+)
+
+
+def get_password_reset_delivery(
+    ses_client: SesClientDependency,
+) -> PasswordResetDelivery:
+    """
+    Construct the password-reset delivery adapter backed by
+    AWS SES.
+
+    The boto3 SES client itself is cached separately. This
+    adapter is intentionally lightweight and therefore does
+    not need its own lru_cache.
+    """
+
+    return (
+        SesPasswordResetDelivery(
+            client=(
+                ses_client
+            ),
+            sender_email=(
+                settings
+                .ses_from_email
+            ),
+            configuration_set_name=(
+                settings
+                .ses_configuration_set_name
+            ),
+        )
+    )
+
+
+PasswordResetDeliveryDependency = (
+    Annotated[
+        PasswordResetDelivery,
+        Depends(
+            get_password_reset_delivery
+        ),
+    ]
+)
+
+
+def get_password_reset_delivery_coordinator(
+    link_builder: (
+        PasswordResetLinkBuilderDependency
+    ),
+    delivery: (
+        PasswordResetDeliveryDependency
+    ),
+) -> PasswordResetDeliveryCoordinator:
+    """
+    Compose password-reset link generation with the currently
+    configured delivery infrastructure.
+    """
+
+    return (
+        PasswordResetDeliveryCoordinator(
+            link_builder=(
+                link_builder
+            ),
+            delivery=(
+                delivery
+            ),
+        )
+    )
+
+
+PasswordResetDeliveryCoordinatorDependency = (
+    Annotated[
+        PasswordResetDeliveryCoordinator,
+        Depends(
+            get_password_reset_delivery_coordinator
+        ),
+    ]
+)
+
+
+# =========================================================
 # AUTHENTICATION DEPENDENCIES
 # =========================================================
+
 
 def get_authentication_service(
     db: DbSession,
@@ -429,13 +737,15 @@ def get_authentication_service(
         )
     )
 
-    return AuthenticationService(
-        repository=(
-            user_repository
-        ),
-        auth_session_repository=(
-            auth_session_repository
-        ),
+    return (
+        AuthenticationService(
+            repository=(
+                user_repository
+            ),
+            auth_session_repository=(
+                auth_session_repository
+            ),
+        )
     )
 
 

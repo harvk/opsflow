@@ -1,9 +1,15 @@
 from fastapi import (
     FastAPI,
+    Request,
+    status
 )
 
 from fastapi.middleware.cors import (
     CORSMiddleware,
+)
+
+from fastapi.responses import (
+    JSONResponse
 )
 
 from app.api.router import (
@@ -26,8 +32,56 @@ from app.core.logging_config import (
     configure_security_logging,
 )
 
+from app.core.auth_cookies import (
+    prevent_auth_response_caching,
+)
+
+from app.core.password_reset_messages import (
+    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
+)
+
+from app.services.password_reset_delivery import (
+    PasswordResetDeliveryError,
+)
+
 
 configure_security_logging()
+
+
+async def password_reset_delivery_exception_handler(
+    request: Request,
+    exc: Exception,
+) -> JSONResponse:
+    """
+    Preserve password-reset enumeration resistance when the
+    delivery provider is unavailable.
+
+    The PasswordResetDeliveryError has already escaped the
+    route, allowing the request database transaction to roll
+    back before this response is produced.
+
+    No AWS/provider details or reset credential information
+    are exposed.
+    """
+
+    response = (
+        JSONResponse(
+            status_code=(
+                status.HTTP_202_ACCEPTED
+            ),
+            content={
+                "message": (
+                    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE
+                )
+            },
+        )
+    )
+
+    prevent_auth_response_caching(
+        response
+    )
+
+    return response
 
 
 # =========================================================
@@ -64,6 +118,11 @@ def create_app() -> FastAPI:
         ),
         docs_url="/docs",
         redoc_url="/redoc",
+    )
+    
+    application.add_exception_handler(
+        PasswordResetDeliveryError,
+        password_reset_delivery_exception_handler,
     )
 
     # =====================================================

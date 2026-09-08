@@ -145,6 +145,69 @@ class Settings(
         ge=60,
         le=86400,
     )
+    
+    # ---------------------------------------------------------
+    # Password-reset abuse protection
+    # ---------------------------------------------------------
+
+    password_reset_ip_max_requests: int = Field(
+        default=10,
+        ge=1,
+        le=1000,
+    )
+
+    password_reset_ip_window_seconds: int = Field(
+        default=900,
+        ge=1,
+        le=86400,
+    )
+
+    password_reset_account_max_requests: int = Field(
+        default=3,
+        ge=1,
+        le=100,
+    )
+
+    password_reset_account_window_seconds: int = Field(
+        default=3600,
+        ge=1,
+        le=86400,
+    )
+    
+    # =========================================================
+    # PASSWORD RESET DELIVERY
+    # =========================================================
+
+    password_reset_url: str = Field(
+        default=(
+            "http://localhost:5173/"
+            "reset-password"
+        ),
+        min_length=1,
+        max_length=2048,
+    )
+    
+    # =========================================================
+    # AWS / SES PASSWORD RESET DELIVERY
+    # =========================================================
+
+    aws_region: str = Field(
+        default="us-east-1",
+        min_length=1,
+        max_length=64,
+    )
+
+    ses_from_email: str = Field(
+        default=(
+            "no-reply@example.com"
+        ),
+        min_length=3,
+        max_length=320,
+    )
+
+    ses_configuration_set_name: (
+        str | None
+    ) = None
 
     # =====================================================
     # SECURITY EVENT LOGGING
