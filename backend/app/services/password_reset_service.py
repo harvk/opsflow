@@ -10,20 +10,22 @@ from datetime import (
     timezone,
 )
 
+import hashlib
 import hmac
+import secrets
 
 from uuid import (
     UUID,
     uuid4,
 )
 
-from app.core.password_reset_tokens import (
-    create_password_reset_credential_fingerprint,
-    digest_password_reset_token,
-    generate_password_reset_token,
+from app.core.password_policy import (
+    PasswordPolicyViolation,
+    validate_new_password,
 )
 
 from app.core.security import (
+    create_reauthentication_fingerprint,
     hash_password,
     verify_password,
 )
@@ -64,8 +66,8 @@ class PasswordResetIssueResult:
         logged
         returned by the public API
 
-    The later notification/delivery layer will be the only
-    production consumer of this value.
+    The delivery layer is the only production consumer of
+    this value.
     """
 
     user_id: UUID
@@ -213,17 +215,19 @@ class PasswordResetService:
         )
 
         raw_token = (
-            generate_password_reset_token()
+            secrets.token_urlsafe(
+                48
+            )
         )
 
         token_digest = (
-            digest_password_reset_token(
+            self._digest_token(
                 raw_token
             )
         )
 
         credential_fingerprint = (
-            create_password_reset_credential_fingerprint(
+            create_reauthentication_fingerprint(
                 auth_record
                 .hashed_password
             )
@@ -305,7 +309,7 @@ class PasswordResetService:
         """
 
         token_digest = (
-            digest_password_reset_token(
+            self._digest_token(
                 raw_token
             )
         )
@@ -380,18 +384,21 @@ class PasswordResetService:
         )
 
         expected_fingerprint = (
-            create_password_reset_credential_fingerprint(
+            create_reauthentication_fingerprint(
                 current_hashed_password
             )
         )
 
         if not hmac.compare_digest(
-            expected_fingerprint,
+            expected_fingerprint.encode(
+                "utf-8"
+            ),
             reset_token
-            .credential_fingerprint,
+            .credential_fingerprint
+            .encode(
+                "utf-8"
+            ),
         ):
-            # Password changed after this reset credential
-            # was issued.
             raise (
                 InvalidPasswordResetCredentialError(
                     "Password reset credential "
@@ -399,9 +406,17 @@ class PasswordResetService:
                 )
             )
 
+        # -------------------------------------------------
+        # SHARED SERVER-SIDE PASSWORD POLICY
+        # -------------------------------------------------
+
         self._validate_new_password(
             new_password
         )
+
+        # -------------------------------------------------
+        # CANNOT REUSE CURRENT PASSWORD
+        # -------------------------------------------------
 
         if verify_password(
             new_password,
@@ -417,6 +432,10 @@ class PasswordResetService:
                 new_password
             )
         )
+
+        # -------------------------------------------------
+        # ATOMIC PASSWORD UPDATE
+        # -------------------------------------------------
 
         password_updated = (
             self.user_repository
@@ -441,6 +460,10 @@ class PasswordResetService:
                 )
             )
 
+        # -------------------------------------------------
+        # CONSUME RESET CREDENTIAL
+        # -------------------------------------------------
+
         token_consumed = (
             self.password_reset_repository
             .mark_used(
@@ -460,8 +483,10 @@ class PasswordResetService:
                 )
             )
 
-        # Defensive cleanup. Once the password is changed,
-        # no sibling reset credential should survive.
+        # -------------------------------------------------
+        # INVALIDATE SIBLING RESET CREDENTIALS
+        # -------------------------------------------------
+
         (
             self.password_reset_repository
             .invalidate_active_for_user(
@@ -475,6 +500,10 @@ class PasswordResetService:
                 ),
             )
         )
+
+        # -------------------------------------------------
+        # REVOKE EVERY PERSISTENT SESSION
+        # -------------------------------------------------
 
         revoked_sessions = (
             self.auth_session_repository
@@ -503,6 +532,19 @@ class PasswordResetService:
     # =====================================================
     # SECURITY HELPERS
     # =====================================================
+
+    @staticmethod
+    def _digest_token(
+        raw_token: str,
+    ) -> str:
+        return (
+            hashlib.sha256(
+                raw_token.encode(
+                    "utf-8"
+                )
+            )
+            .hexdigest()
+        )
 
     @staticmethod
     def _require_usable_token(
@@ -543,29 +585,28 @@ class PasswordResetService:
                 )
             )
 
+    # =====================================================
+    # PASSWORD POLICY TRANSLATION
+    # =====================================================
+
     @staticmethod
     def _validate_new_password(
         password: str,
     ) -> None:
         """
-        Mirrors the server-side password-change rule.
-
-        We will extract this into one shared password-policy
-        component in the next cleanup slice.
+        Apply the canonical core password policy while
+        preserving PasswordResetService's established domain
+        exception contract.
         """
 
-        if len(
-            password
-        ) < 15:
-            raise PasswordResetPasswordError(
-                "The new password must contain "
-                "at least 15 characters."
+        try:
+            validate_new_password(
+                password
             )
 
-        if len(
-            password
-        ) > 128:
+        except PasswordPolicyViolation as exc:
             raise PasswordResetPasswordError(
-                "The new password must not exceed "
-                "128 characters."
-            )
+                str(
+                    exc
+                )
+            ) from exc

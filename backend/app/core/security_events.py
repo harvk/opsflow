@@ -1,23 +1,63 @@
 from __future__ import annotations
 
-from collections.abc import Mapping
-from datetime import datetime, timezone
-from hashlib import sha256
+from collections.abc import (
+    Mapping,
+)
+
+from datetime import (
+    datetime,
+    timezone,
+)
+
+from hashlib import (
+    sha256,
+)
+
 import hmac
 import json
 import logging
-from typing import Literal
-from uuid import UUID, uuid4
 
-from fastapi import Request
+from typing import (
+    Literal,
+)
 
-from app.core.config import settings
+from uuid import (
+    UUID,
+    uuid4,
+)
+
+from fastapi import (
+    Request,
+)
+
+from app.core.config import (
+    settings,
+)
+
+
+# =========================================================
+# SECURITY EVENT TYPES
+# =========================================================
 
 
 SecurityOutcome = Literal[
     "success",
     "failure",
     "blocked",
+]
+
+
+SecurityDetailValue = (
+    str
+    | int
+    | bool
+    | None
+)
+
+
+SecurityDetails = Mapping[
+    str,
+    SecurityDetailValue,
 ]
 
 
@@ -33,19 +73,77 @@ class SecurityEventLogger:
     The logger deliberately records only metadata required
     for security monitoring and investigation.
 
-    It must never receive or record:
+    Callers should never intentionally supply:
 
         passwords
         access tokens
         refresh tokens
+        reset tokens
         CSRF tokens
+        reauthentication tokens
         Authorization headers
         Cookie headers
+        API keys
+        client secrets
         cryptographic keys
         complete request bodies
+
+    This class nevertheless treats the logging boundary as
+    defense in depth.
+
+    If a future caller accidentally places a credential in a
+    recognized sensitive details field, the value is replaced
+    before serialization and therefore cannot reach the
+    underlying logging sink.
     """
 
-    LOGGER_NAME = "opsflow.security"
+    LOGGER_NAME = (
+        "opsflow.security"
+    )
+
+    REDACTED_DETAIL_VALUE = (
+        "[REDACTED]"
+    )
+
+
+    # =====================================================
+    # SENSITIVE DETAIL-KEY MARKERS
+    # =====================================================
+    #
+    # Detail keys are normalized before comparison:
+    #
+    #     access_token
+    #     access-token
+    #     accessToken
+    #     ACCESS_TOKEN
+    #
+    # all become:
+    #
+    #     accesstoken
+    #
+    # This makes simple casing or punctuation differences
+    # unable to bypass the defensive redaction boundary.
+    #
+    # We deliberately use security-oriented fragments rather
+    # than requiring callers to use one exact spelling.
+    # =====================================================
+
+
+    SENSITIVE_DETAIL_KEY_MARKERS = (
+        "password",
+        "passwd",
+        "token",
+        "secret",
+        "authorization",
+        "cookie",
+        "apikey",
+        "privatekey",
+        "signingkey",
+        "hmackey",
+        "bearer",
+        "credential",
+    )
+
 
     def __init__(
         self,
@@ -58,8 +156,10 @@ class SecurityEventLogger:
                 "A security-event HMAC key is required."
             )
 
-        self._hmac_key = hmac_key.encode(
-            "utf-8"
+        self._hmac_key = (
+            hmac_key.encode(
+                "utf-8"
+            )
         )
 
         self._logger = (
@@ -72,13 +172,16 @@ class SecurityEventLogger:
 
         # INFO is necessary because successful authentication
         # events are intentionally auditable.
+
         self._logger.setLevel(
             logging.INFO
         )
 
+
     # =====================================================
     # PUBLIC EVENT API
     # =====================================================
+
 
     def emit(
         self,
@@ -90,11 +193,7 @@ class SecurityEventLogger:
         user_id: UUID | str | None = None,
         account_identifier: str | None = None,
         reason: str | None = None,
-        details: Mapping[
-            str,
-            str | int | bool | None,
-        ]
-        | None = None,
+        details: SecurityDetails | None = None,
     ) -> None:
         """
         Emit one structured security event.
@@ -102,6 +201,17 @@ class SecurityEventLogger:
         Logging failures must never turn a successful or
         intentionally rejected authentication request into
         an application failure.
+
+        Structured details remain deliberately limited to
+        flat scalar metadata:
+
+            str
+            int
+            bool
+            None
+
+        Arbitrary nested structures and request objects do
+        not belong in the security-event details contract.
         """
 
         try:
@@ -109,54 +219,120 @@ class SecurityEventLogger:
                 str,
                 object,
             ] = {
-                "event_id": str(
-                    uuid4()
+                "event_id": (
+                    str(
+                        uuid4()
+                    )
                 ),
                 "occurred_at": (
                     datetime.now(
                         timezone.utc
-                    ).isoformat()
+                    )
+                    .isoformat()
                 ),
-                "event": self._clean_text(
-                    event
+                "event": (
+                    self._clean_text(
+                        event
+                    )
                 ),
-                "outcome": outcome,
+                "outcome": (
+                    outcome
+                ),
                 "severity": (
-                    logging.getLevelName(
+                    logging
+                    .getLevelName(
                         level
-                    ).lower()
+                    )
+                    .lower()
                 ),
             }
 
-            if request is not None:
+
+            # =================================================
+            # SAFE REQUEST METADATA
+            # =================================================
+            #
+            # Do not serialize:
+            #
+            #     request.headers
+            #     Authorization
+            #     Cookie
+            #     request.url.query
+            #     request.scope
+            #     request body
+            #
+            # Only explicitly selected metadata crosses the
+            # security-event boundary.
+            # =================================================
+
+
+            if (
+                request
+                is not None
+            ):
                 payload[
                     "client_address"
-                ] = self._client_address(
-                    request
+                ] = (
+                    self._client_address(
+                        request
+                    )
                 )
 
                 payload[
                     "http_method"
-                ] = request.method
-
-                # Deliberately log the route path only.
-                #
-                # Query strings can contain sensitive
-                # information and are unnecessary here.
-                payload[
-                    "http_path"
-                ] = request.url.path
-
-            if user_id is not None:
-                payload[
-                    "user_id"
-                ] = self._clean_text(
-                    str(
-                        user_id
+                ] = (
+                    self._clean_text(
+                        request.method
                     )
                 )
 
-            if account_identifier is not None:
+                # Deliberately log the route path only.
+                #
+                # Query strings can contain recovery bearer
+                # credentials and are unnecessary here.
+
+                payload[
+                    "http_path"
+                ] = (
+                    self._clean_text(
+                        request.url.path
+                    )
+                )
+
+
+            # =================================================
+            # USER IDENTIFIER
+            # =================================================
+
+
+            if (
+                user_id
+                is not None
+            ):
+                payload[
+                    "user_id"
+                ] = (
+                    self._clean_text(
+                        str(
+                            user_id
+                        )
+                    )
+                )
+
+
+            # =================================================
+            # ACCOUNT IDENTIFIER
+            # =================================================
+            #
+            # Email/account identifiers are pseudonymized
+            # before entering logs.
+            # =================================================
+
+
+            if (
+                account_identifier
+                is not None
+            ):
                 payload[
                     "account_fingerprint"
                 ] = (
@@ -165,39 +341,67 @@ class SecurityEventLogger:
                     )
                 )
 
-            if reason is not None:
+
+            # =================================================
+            # FAILURE REASON
+            # =================================================
+
+
+            if (
+                reason
+                is not None
+            ):
                 payload[
                     "reason"
-                ] = self._clean_text(
-                    reason
+                ] = (
+                    self._clean_text(
+                        reason
+                    )
                 )
 
-            if details:
+
+            # =================================================
+            # STRUCTURED DETAILS
+            # =================================================
+            #
+            # Every key crosses the sensitive-field classifier
+            # before its value can be serialized.
+            # =================================================
+
+
+            if (
+                details
+            ):
                 payload[
                     "details"
-                ] = {
-                    self._clean_text(
-                        str(key)
-                    ): self._clean_value(
-                        value
+                ] = (
+                    self._sanitize_details(
+                        details
                     )
-                    for key, value
-                    in details.items()
-                }
+                )
 
-            serialized = json.dumps(
-                payload,
-                separators=(
-                    ",",
-                    ":",
-                ),
-                sort_keys=True,
+
+            # =================================================
+            # SERIALIZATION
+            # =================================================
+
+
+            serialized = (
+                json.dumps(
+                    payload,
+                    separators=(
+                        ",",
+                        ":",
+                    ),
+                    sort_keys=True,
+                )
             )
 
             self._logger.log(
                 level,
                 serialized,
             )
+
 
         except Exception:
             # Security telemetry is extremely important,
@@ -207,11 +411,14 @@ class SecurityEventLogger:
             #
             # A production monitoring layer should separately
             # detect unavailable log delivery.
+
             return
+
 
     # =====================================================
     # IDENTIFIER PSEUDONYMIZATION
     # =====================================================
+
 
     def account_fingerprint(
         self,
@@ -243,15 +450,20 @@ class SecurityEventLogger:
             )
         )
 
-        return hmac.new(
-            self._hmac_key,
-            message,
-            sha256,
-        ).hexdigest()
+        return (
+            hmac.new(
+                self._hmac_key,
+                message,
+                sha256,
+            )
+            .hexdigest()
+        )
+
 
     # =====================================================
     # REQUEST METADATA
     # =====================================================
+
 
     @staticmethod
     def _client_address(
@@ -264,14 +476,189 @@ class SecurityEventLogger:
         Do not trust X-Forwarded-For directly here.
         """
 
-        if request.client is None:
-            return "unknown"
+        if (
+            request.client
+            is None
+        ):
+            return (
+                "unknown"
+            )
 
-        return request.client.host
+        return (
+            request.client.host
+        )
+
+
+    # =====================================================
+    # STRUCTURED DETAIL SANITIZATION
+    # =====================================================
+
+
+    @classmethod
+    def _sanitize_details(
+        cls,
+        details: SecurityDetails,
+    ) -> dict[
+        str,
+        SecurityDetailValue,
+    ]:
+        """
+        Sanitize one flat structured-details mapping.
+
+        Sensitive fields retain their key so operators can
+        still understand which category of information was
+        attempted, but the original value is replaced with a
+        constant redaction marker.
+
+        Example:
+
+            {
+                "refresh_token": "secret",
+                "sessions_revoked": 3,
+            }
+
+        becomes:
+
+            {
+                "refresh_token": "[REDACTED]",
+                "sessions_revoked": 3,
+            }
+        """
+
+        sanitized: dict[
+            str,
+            SecurityDetailValue,
+        ] = {}
+
+        for (
+            key,
+            value,
+        ) in details.items():
+            cleaned_key = (
+                cls._clean_text(
+                    str(
+                        key
+                    )
+                )
+            )
+
+            if (
+                cls._is_sensitive_detail_key(
+                    cleaned_key
+                )
+            ):
+                sanitized[
+                    cleaned_key
+                ] = (
+                    cls
+                    .REDACTED_DETAIL_VALUE
+                )
+
+                continue
+
+            sanitized[
+                cleaned_key
+            ] = (
+                cls._clean_value(
+                    value
+                )
+            )
+
+        return (
+            sanitized
+        )
+
+
+    # =====================================================
+    # SENSITIVE DETAIL DETECTION
+    # =====================================================
+
+
+    @classmethod
+    def _is_sensitive_detail_key(
+        cls,
+        key: str,
+    ) -> bool:
+        """
+        Determine whether a structured-detail key represents
+        credential-bearing material.
+
+        Key normalization deliberately ignores:
+
+            capitalization
+            underscores
+            hyphens
+            whitespace
+            other punctuation
+
+        so naming variations do not bypass the protection.
+        """
+
+        normalized_key = (
+            cls._normalize_detail_key(
+                key
+            )
+        )
+
+        if (
+            not normalized_key
+        ):
+            return (
+                False
+            )
+
+        return any(
+            marker
+            in normalized_key
+            for marker
+            in (
+                cls
+                .SENSITIVE_DETAIL_KEY_MARKERS
+            )
+        )
+
+
+    # =====================================================
+    # DETAIL KEY NORMALIZATION
+    # =====================================================
+
+
+    @staticmethod
+    def _normalize_detail_key(
+        key: str,
+    ) -> str:
+        """
+        Convert a detail key to a comparison form.
+
+        Examples:
+
+            access_token
+                -> accesstoken
+
+            Access-Token
+                -> accesstoken
+
+            accessToken
+                -> accesstoken
+
+            CLIENT_SECRET
+                -> clientsecret
+        """
+
+        return (
+            "".join(
+                character.lower()
+                for character
+                in key
+                if character.isalnum()
+            )
+        )
+
 
     # =====================================================
     # LOG INJECTION / SIZE DEFENSE
     # =====================================================
+
 
     @staticmethod
     def _clean_text(
@@ -291,36 +678,54 @@ class SecurityEventLogger:
             value
             .replace(
                 "\r",
-                " "
+                " ",
             )
             .replace(
                 "\n",
-                " "
+                " ",
             )
             .replace(
                 "\t",
-                " "
+                " ",
             )
         )
 
-        return cleaned[
-            :max_length
-        ]
+        return (
+            cleaned[
+                :max_length
+            ]
+        )
+
 
     @classmethod
     def _clean_value(
         cls,
-        value: str | int | bool | None,
-    ) -> str | int | bool | None:
+        value: SecurityDetailValue,
+    ) -> SecurityDetailValue:
+        """
+        Sanitize allowed scalar detail values.
+
+        Numeric, boolean, and None values can pass through
+        unchanged.
+
+        String values receive the same control-character and
+        size normalization used by other attacker-influenced
+        textual fields.
+        """
+
         if isinstance(
             value,
             str,
         ):
-            return cls._clean_text(
-                value
+            return (
+                cls._clean_text(
+                    value
+                )
             )
 
-        return value
+        return (
+            value
+        )
 
 
 # =========================================================

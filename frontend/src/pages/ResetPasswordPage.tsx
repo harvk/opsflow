@@ -4,6 +4,14 @@ import { Link, useNavigate, useSearchParams } from "react-router-dom";
 
 import { confirmPasswordReset } from "../api/authApi";
 
+import {
+  PASSWORD_MAX_LENGTH,
+  PASSWORD_MIN_LENGTH,
+  PASSWORD_TOO_LONG_MESSAGE,
+  PASSWORD_TOO_SHORT_MESSAGE,
+  evaluatePasswordLength,
+} from "../auth/passwordPolicy";
+
 import "../styles/login.css";
 
 export function ResetPasswordPage() {
@@ -18,7 +26,7 @@ export function ResetPasswordPage() {
    *
    * The reset token is bearer authentication material.
    *
-   * Capture it once from the URL, then keep it only in
+   * Capture it once from the URL and retain it only in
    * component memory.
    */
 
@@ -44,8 +52,17 @@ export function ResetPasswordPage() {
 
   /*
    * =======================================================
-   * REMOVE TOKEN FROM VISIBLE URL
+   * REMOVE RESET TOKEN FROM VISIBLE URL
    * =======================================================
+   *
+   * Query-string credentials can otherwise remain in:
+   *
+   *     browser history
+   *     copied URLs
+   *     screenshots
+   *     referrer data
+   *
+   * Capture first, then replace the visible route.
    */
 
   useEffect(() => {
@@ -65,19 +82,37 @@ export function ResetPasswordPage() {
    * =======================================================
    */
 
-  const passwordLength = newPassword.length;
+  const passwordPolicy = evaluatePasswordLength(newPassword);
 
-  const meetsMinimumLength = passwordLength >= 15;
+  const {
+    length: passwordLength,
 
-  const withinMaximumLength = passwordLength <= 128;
+    meetsMinimumLength,
 
-  const passwordLengthValid = meetsMinimumLength && withinMaximumLength;
+    withinMaximumLength,
+
+    isValid: passwordLengthValid,
+
+    progressPercent: passwordProgressPercent,
+  } = passwordPolicy;
+
+  /*
+   * =======================================================
+   * PASSWORD CONFIRMATION STATE
+   * =======================================================
+   */
 
   const confirmationStarted = confirmPassword.length > 0;
 
   const passwordsMatch = confirmationStarted && newPassword === confirmPassword;
 
   const formIsValid = passwordLengthValid && passwordsMatch;
+
+  /*
+   * =======================================================
+   * RESET-CREDENTIAL STATE
+   * =======================================================
+   */
 
   const hasResetToken =
     resetTokenRef.current !== null && resetTokenRef.current.length > 0;
@@ -108,15 +143,13 @@ export function ResetPasswordPage() {
     }
 
     if (!meetsMinimumLength) {
-      setErrorMessage(
-        "Your new password must contain " + "at least 15 characters.",
-      );
+      setErrorMessage(PASSWORD_TOO_SHORT_MESSAGE);
 
       return;
     }
 
     if (!withinMaximumLength) {
-      setErrorMessage("Your new password must not exceed " + "128 characters.");
+      setErrorMessage(PASSWORD_TOO_LONG_MESSAGE);
 
       return;
     }
@@ -133,9 +166,10 @@ export function ResetPasswordPage() {
       await confirmPasswordReset(resetToken, newPassword);
 
       /*
-       * The one-time credential has been consumed.
+       * The one-time credential has now been consumed.
        *
-       * Destroy our remaining reference immediately.
+       * Destroy our remaining in-memory reference before
+       * navigating away.
        */
 
       resetTokenRef.current = null;
@@ -176,9 +210,19 @@ export function ResetPasswordPage() {
         <section className="login-shell">
           <aside className="login-brand-panel" aria-hidden="true">
             <div className="brand-orbit">
-              <div className="brand-orbit-ring brand-orbit-ring-one" />
+              <div
+                className="
+                  brand-orbit-ring
+                  brand-orbit-ring-one
+                "
+              />
 
-              <div className="brand-orbit-ring brand-orbit-ring-two" />
+              <div
+                className="
+                  brand-orbit-ring
+                  brand-orbit-ring-two
+                "
+              />
 
               <div className="brand-orbit-core">OF</div>
             </div>
@@ -260,16 +304,38 @@ export function ResetPasswordPage() {
 
       <div className="login-ambient-glow" aria-hidden="true" />
 
-      <div className="floating-shape floating-shape-one" aria-hidden="true" />
+      <div
+        className="
+          floating-shape
+          floating-shape-one
+        "
+        aria-hidden="true"
+      />
 
-      <div className="floating-shape floating-shape-two" aria-hidden="true" />
+      <div
+        className="
+          floating-shape
+          floating-shape-two
+        "
+        aria-hidden="true"
+      />
 
       <section className="login-shell">
         <aside className="login-brand-panel" aria-hidden="true">
           <div className="brand-orbit">
-            <div className="brand-orbit-ring brand-orbit-ring-one" />
+            <div
+              className="
+                brand-orbit-ring
+                brand-orbit-ring-one
+              "
+            />
 
-            <div className="brand-orbit-ring brand-orbit-ring-two" />
+            <div
+              className="
+                brand-orbit-ring
+                brand-orbit-ring-two
+              "
+            />
 
             <div className="brand-orbit-core">OF</div>
           </div>
@@ -329,11 +395,11 @@ export function ResetPasswordPage() {
                     type={showNewPassword ? "text" : "password"}
                     autoComplete="new-password"
                     required
-                    minLength={15}
-                    maxLength={128}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     value={newPassword}
                     disabled={isSubmitting}
-                    aria-describedby={"new-password-policy"}
+                    aria-describedby="new-password-policy"
                     onChange={(event) => {
                       setNewPassword(event.target.value);
 
@@ -350,6 +416,7 @@ export function ResetPasswordPage() {
                         : "Show new password"
                     }
                     aria-pressed={showNewPassword}
+                    disabled={isSubmitting}
                     onClick={() => {
                       setShowNewPassword((current) => !current);
                     }}
@@ -366,7 +433,9 @@ export function ResetPasswordPage() {
                   <div className="password-policy-heading">
                     <span>Password length</span>
 
-                    <span>{passwordLength}/128</span>
+                    <span>
+                      {passwordLength}/{PASSWORD_MAX_LENGTH}
+                    </span>
                   </div>
 
                   <div className="password-policy-track" aria-hidden="true">
@@ -376,7 +445,7 @@ export function ResetPasswordPage() {
                         (passwordLengthValid ? "is-valid" : "")
                       }
                       style={{
-                        width: `${Math.min((passwordLength / 15) * 100, 100)}%`,
+                        width: `${passwordProgressPercent}%`,
                       }}
                     />
                   </div>
@@ -390,7 +459,7 @@ export function ResetPasswordPage() {
                     <span aria-hidden="true">
                       {meetsMinimumLength ? "✓" : "○"}
                     </span>
-                    At least 15 characters
+                    At least {PASSWORD_MIN_LENGTH} characters
                   </div>
 
                   <div
@@ -402,7 +471,7 @@ export function ResetPasswordPage() {
                     <span aria-hidden="true">
                       {withinMaximumLength ? "✓" : "!"}
                     </span>
-                    No more than 128 characters
+                    No more than {PASSWORD_MAX_LENGTH} characters
                   </div>
                 </div>
               </div>
@@ -417,11 +486,11 @@ export function ResetPasswordPage() {
                     type={showConfirmPassword ? "text" : "password"}
                     autoComplete="new-password"
                     required
-                    minLength={15}
-                    maxLength={128}
+                    minLength={PASSWORD_MIN_LENGTH}
+                    maxLength={PASSWORD_MAX_LENGTH}
                     value={confirmPassword}
                     disabled={isSubmitting}
-                    aria-describedby={"password-match-status"}
+                    aria-describedby="password-match-status"
                     onChange={(event) => {
                       setConfirmPassword(event.target.value);
 
@@ -438,6 +507,7 @@ export function ResetPasswordPage() {
                         : "Show password confirmation"
                     }
                     aria-pressed={showConfirmPassword}
+                    disabled={isSubmitting}
                     onClick={() => {
                       setShowConfirmPassword((current) => !current);
                     }}

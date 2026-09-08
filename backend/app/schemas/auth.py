@@ -9,6 +9,11 @@ from pydantic import (
     SecretStr,
 )
 
+from app.core.password_policy import (
+    PASSWORD_MAX_LENGTH,
+    PASSWORD_MIN_LENGTH,
+)
+
 
 # =========================================================
 # ORDINARY AUTHENTICATION
@@ -56,8 +61,12 @@ class ReauthenticationResponse(
 NewPassword = Annotated[
     SecretStr,
     Field(
-        min_length=15,
-        max_length=128,
+        min_length=(
+            PASSWORD_MIN_LENGTH
+        ),
+        max_length=(
+            PASSWORD_MAX_LENGTH
+        ),
     ),
 ]
 
@@ -73,8 +82,8 @@ class PasswordChangeRequest(
     """
     Password changes require both:
 
-        - recent reauthentication proof
-        - a replacement password
+        recent reauthentication proof
+        replacement password
 
     SecretStr prevents normal Pydantic repr/debug output from
     displaying either sensitive value.
@@ -86,7 +95,7 @@ class PasswordChangeRequest(
 
 
 # =========================================================
-# PASSWORD RESET
+# PASSWORD RESET REQUEST
 # =========================================================
 
 
@@ -120,6 +129,11 @@ class PasswordResetRequestResponse(
     message: str
 
 
+# =========================================================
+# PASSWORD RESET CREDENTIAL
+# =========================================================
+
+
 ResetToken = Annotated[
     SecretStr,
     Field(
@@ -129,6 +143,11 @@ ResetToken = Annotated[
 ]
 
 
+# =========================================================
+# PASSWORD RESET CONFIRMATION
+# =========================================================
+
+
 class PasswordResetConfirmRequest(
     BaseModel
 ):
@@ -136,8 +155,8 @@ class PasswordResetConfirmRequest(
     Consume an opaque password-reset credential and replace
     the account password.
 
-    Neither sensitive field is rendered as plaintext through
-    ordinary Pydantic repr/debug output.
+    Both fields are SecretStr-backed so ordinary Pydantic
+    repr/debug output does not reveal either credential.
     """
 
     token: ResetToken

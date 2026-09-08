@@ -1,7 +1,3 @@
-from __future__ import annotations
-
-import logging
-
 from collections.abc import (
     Callable,
 )
@@ -9,6 +5,8 @@ from collections.abc import (
 from functools import (
     lru_cache,
 )
+
+import logging
 
 from typing import (
     Annotated,
@@ -156,7 +154,6 @@ authorization_service = (
 # SHARED DATABASE DEPENDENCY
 # =========================================================
 
-
 DbSession = Annotated[
     Session,
     Depends(
@@ -168,7 +165,6 @@ DbSession = Annotated[
 # =========================================================
 # OAUTH2
 # =========================================================
-
 
 oauth2_scheme = (
     OAuth2PasswordBearer(
@@ -182,7 +178,6 @@ oauth2_scheme = (
 # =========================================================
 # PERMISSIONS
 # =========================================================
-
 
 def require_permission(
     permission: Permission,
@@ -224,7 +219,6 @@ def require_permission(
 # =========================================================
 # SERVICE DEPENDENCIES
 # =========================================================
-
 
 def get_service_repository(
     session: DbSession,
@@ -271,7 +265,6 @@ ServiceServiceDependency = (
 # =========================================================
 # INCIDENT DEPENDENCIES
 # =========================================================
-
 
 def get_incident_repository(
     session: DbSession,
@@ -327,7 +320,6 @@ IncidentServiceDependency = (
 # LOGIN ABUSE PROTECTION
 # =========================================================
 
-
 @lru_cache(
     maxsize=1
 )
@@ -336,9 +328,9 @@ def get_login_throttle(
     """
     Construct the process-local login throttle.
 
-    lru_cache gives the application one shared throttle
-    instance rather than creating a new empty limiter for
-    every request.
+    One shared limiter instance must survive across requests.
+    Otherwise each request would begin with an empty throttle
+    state and abuse protection would be ineffective.
     """
 
     return (
@@ -382,7 +374,6 @@ LoginThrottleDependency = (
 # PASSWORD RESET ABUSE PROTECTION
 # =========================================================
 
-
 @lru_cache(
     maxsize=1
 )
@@ -391,14 +382,14 @@ def get_password_reset_throttle(
     """
     Construct the process-local password-reset throttle.
 
-    The same limiter instance must survive across requests;
-    otherwise every request would receive fresh, empty
-    throttle state.
-
-    Password-reset requests count immediately against both:
+    Password-reset requests are constrained independently by
+    both:
 
         source IP
         normalized account identifier
+
+    The shared process-local instance preserves limiter state
+    between requests.
     """
 
     return (
@@ -442,7 +433,6 @@ PasswordResetThrottleDependency = (
 # AUTH SESSION REPOSITORY
 # =========================================================
 
-
 def get_auth_session_repository(
     session: DbSession,
 ) -> AuthSessionRepository:
@@ -464,9 +454,8 @@ AuthSessionRepositoryDependency = (
 
 
 # =========================================================
-# PASSWORD RESET PERSISTENCE
+# PASSWORD RESET TOKEN REPOSITORY
 # =========================================================
-
 
 def get_password_reset_token_repository(
     session: DbSession,
@@ -491,7 +480,6 @@ PasswordResetTokenRepositoryDependency = (
 # =========================================================
 # PASSWORD RESET SERVICE
 # =========================================================
-
 
 def get_password_reset_service(
     db: DbSession,
@@ -534,196 +522,8 @@ PasswordResetServiceDependency = (
 
 
 # =========================================================
-# AWS SES
+# AUTHENTICATION SERVICE
 # =========================================================
-
-
-@lru_cache(
-    maxsize=1
-)
-def get_ses_client(
-) -> SesClient:
-    """
-    Construct the shared AWS SES client.
-
-    boto3 uses the normal AWS credential provider chain.
-
-    AWS credentials are therefore not embedded in application
-    source code.
-
-    A shared client is appropriate because boto3 clients are
-    designed to be reused between requests.
-
-    Relatively short connection/read timeouts prevent an SES
-    outage from holding a password-reset request open for an
-    excessive amount of time.
-    """
-
-    try:
-        client = (
-            boto3.client(
-                "ses",
-                region_name=(
-                    settings
-                    .aws_region
-                ),
-                config=(
-                    Config(
-                        connect_timeout=3,
-                        read_timeout=5,
-                        retries={
-                            "mode": (
-                                "standard"
-                            ),
-                            "total_max_attempts": (
-                                3
-                            ),
-                        },
-                    )
-                ),
-            )
-        )
-
-    except BotoCoreError as exc:
-        raise (
-            PasswordResetDeliveryError(
-                "Password reset email "
-                "delivery is unavailable."
-            )
-        ) from exc
-
-    return cast(
-        SesClient,
-        client,
-    )
-
-
-SesClientDependency = (
-    Annotated[
-        SesClient,
-        Depends(
-            get_ses_client
-        ),
-    ]
-)
-
-
-# =========================================================
-# PASSWORD RESET DELIVERY
-# =========================================================
-
-
-@lru_cache(
-    maxsize=1
-)
-def get_password_reset_link_builder(
-) -> PasswordResetLinkBuilder:
-    """
-    Construct the frontend password-reset link builder from
-    application configuration.
-
-    PasswordResetLinkBuilder validates the configured URL
-    when this dependency is first created.
-    """
-
-    return (
-        PasswordResetLinkBuilder(
-            reset_url=(
-                settings
-                .password_reset_url
-            ),
-        )
-    )
-
-
-PasswordResetLinkBuilderDependency = (
-    Annotated[
-        PasswordResetLinkBuilder,
-        Depends(
-            get_password_reset_link_builder
-        ),
-    ]
-)
-
-
-def get_password_reset_delivery(
-    ses_client: SesClientDependency,
-) -> PasswordResetDelivery:
-    """
-    Construct the password-reset delivery adapter backed by
-    AWS SES.
-
-    The boto3 SES client itself is cached separately. This
-    adapter is intentionally lightweight and therefore does
-    not need its own lru_cache.
-    """
-
-    return (
-        SesPasswordResetDelivery(
-            client=(
-                ses_client
-            ),
-            sender_email=(
-                settings
-                .ses_from_email
-            ),
-            configuration_set_name=(
-                settings
-                .ses_configuration_set_name
-            ),
-        )
-    )
-
-
-PasswordResetDeliveryDependency = (
-    Annotated[
-        PasswordResetDelivery,
-        Depends(
-            get_password_reset_delivery
-        ),
-    ]
-)
-
-
-def get_password_reset_delivery_coordinator(
-    link_builder: (
-        PasswordResetLinkBuilderDependency
-    ),
-    delivery: (
-        PasswordResetDeliveryDependency
-    ),
-) -> PasswordResetDeliveryCoordinator:
-    """
-    Compose password-reset link generation with the currently
-    configured delivery infrastructure.
-    """
-
-    return (
-        PasswordResetDeliveryCoordinator(
-            link_builder=(
-                link_builder
-            ),
-            delivery=(
-                delivery
-            ),
-        )
-    )
-
-
-PasswordResetDeliveryCoordinatorDependency = (
-    Annotated[
-        PasswordResetDeliveryCoordinator,
-        Depends(
-            get_password_reset_delivery_coordinator
-        ),
-    ]
-)
-
-
-# =========================================================
-# AUTHENTICATION DEPENDENCIES
-# =========================================================
-
 
 def get_authentication_service(
     db: DbSession,
@@ -749,6 +549,10 @@ def get_authentication_service(
     )
 
 
+# =========================================================
+# CURRENT USER
+# =========================================================
+
 def get_current_user(
     request: Request,
     token: Annotated[
@@ -765,10 +569,11 @@ def get_current_user(
     ],
 ) -> User:
     """
-    Resolve the bearer access JWT into an active user.
+    Resolve a bearer access JWT into the active application
+    user represented by that credential.
 
-    Failed access-token validation is recorded as a security
-    event, but the token itself is never logged.
+    Access-token validation failures are recorded as security
+    events without ever logging the bearer token itself.
     """
 
     credentials_exception = (
@@ -821,9 +626,217 @@ def get_current_user(
         ) from exc
 
 
-CurrentUser = Annotated[
-    User,
-    Depends(
-        get_current_user
+CurrentUser = (
+    Annotated[
+        User,
+        Depends(
+            get_current_user
+        ),
+    ]
+)
+
+
+# =========================================================
+# PASSWORD RESET LINK BUILDER
+# =========================================================
+
+@lru_cache(
+    maxsize=1
+)
+def get_password_reset_link_builder(
+) -> PasswordResetLinkBuilder:
+    """
+    Construct the application password-reset link builder.
+
+    The builder owns creation of the frontend recovery URL.
+    The raw recovery credential is handed to it only while
+    constructing the outbound recovery message.
+    """
+
+    return (
+        PasswordResetLinkBuilder(
+            reset_url=(
+                settings
+                .password_reset_url
+            ),
+        )
+    )
+
+
+PasswordResetLinkBuilderDependency = (
+    Annotated[
+        PasswordResetLinkBuilder,
+        Depends(
+            get_password_reset_link_builder
+        ),
+    ]
+)
+
+
+# =========================================================
+# AWS SES CLIENT
+# =========================================================
+
+@lru_cache(
+    maxsize=1
+)
+def get_ses_client(
+) -> SesClient:
+    """
+    Construct the process-wide AWS SES v2 client.
+
+    boto3 resolves credentials through its normal AWS
+    credential provider chain.
+
+    AWS credentials must never be embedded in application
+    source code.
+
+    Conservative network timeouts keep an unavailable email
+    provider from holding password-reset requests open for an
+    excessive amount of time.
+    """
+
+    try:
+        client = (
+            boto3.client(
+                "sesv2",
+                region_name=(
+                    settings
+                    .aws_region
+                ),
+                config=(
+                    Config(
+                        connect_timeout=3,
+                        read_timeout=5,
+                        retries={
+                            "mode": (
+                                "standard"
+                            ),
+                            "total_max_attempts": (
+                                3
+                            ),
+                        },
+                    )
+                ),
+            )
+        )
+
+    except BotoCoreError as exc:
+        raise (
+            PasswordResetDeliveryError(
+                "Password reset email "
+                "delivery is unavailable."
+            )
+        ) from exc
+
+    return (
+        cast(
+            SesClient,
+            client,
+        )
+    )
+
+
+SesClientDependency = (
+    Annotated[
+        SesClient,
+        Depends(
+            get_ses_client
+        ),
+    ]
+)
+
+
+# =========================================================
+# PASSWORD RESET DELIVERY
+# =========================================================
+
+def get_password_reset_delivery(
+    ses_client: SesClientDependency,
+) -> PasswordResetDelivery:
+    """
+    Construct the production password-reset delivery adapter.
+
+    This is intentionally the single delivery factory in the
+    dependency graph.
+
+    There is no second discard-delivery definition below or
+    above this function. As a result, FastAPI cannot capture
+    an obsolete dependency alias while the module is being
+    imported.
+    """
+
+    return (
+        SesPasswordResetDelivery(
+            client=(
+                ses_client
+            ),
+            sender_email=(
+                settings
+                .ses_from_email
+            ),
+            configuration_set_name=(
+                settings
+                .ses_configuration_set_name
+            ),
+        )
+    )
+
+
+PasswordResetDeliveryDependency = (
+    Annotated[
+        PasswordResetDelivery,
+        Depends(
+            get_password_reset_delivery
+        ),
+    ]
+)
+
+
+# =========================================================
+# PASSWORD RESET DELIVERY COORDINATOR
+# =========================================================
+
+def get_password_reset_delivery_coordinator(
+    link_builder: (
+        PasswordResetLinkBuilderDependency
     ),
-]
+    delivery: (
+        PasswordResetDeliveryDependency
+    ),
+) -> PasswordResetDeliveryCoordinator:
+    """
+    Combine recovery-link construction with the configured
+    outbound delivery adapter.
+
+    Dependency chain:
+
+        PasswordResetDeliveryCoordinator
+            |
+            +-- PasswordResetLinkBuilder
+            |
+            +-- SesPasswordResetDelivery
+                    |
+                    +-- boto3 SES v2 client
+    """
+
+    return (
+        PasswordResetDeliveryCoordinator(
+            link_builder=(
+                link_builder
+            ),
+            delivery=(
+                delivery
+            ),
+        )
+    )
+
+
+PasswordResetDeliveryCoordinatorDependency = (
+    Annotated[
+        PasswordResetDeliveryCoordinator,
+        Depends(
+            get_password_reset_delivery_coordinator
+        ),
+    ]
+)

@@ -1,6 +1,8 @@
 import logging
 
-from typing import Annotated
+from typing import (
+    Annotated,
+)
 
 from fastapi import (
     APIRouter,
@@ -22,10 +24,10 @@ from fastapi.security import (
 from app.api.dependencies import (
     CurrentUser,
     LoginThrottleDependency,
+    PasswordResetDeliveryCoordinatorDependency,
     PasswordResetServiceDependency,
     PasswordResetThrottleDependency,
     get_authentication_service,
-    PasswordResetDeliveryCoordinatorDependency
 )
 
 from app.core.auth_cookies import (
@@ -37,6 +39,10 @@ from app.core.auth_cookies import (
 
 from app.core.config import (
     settings,
+)
+
+from app.core.password_reset_messages import (
+    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
 
 from app.core.security_events import (
@@ -66,21 +72,19 @@ from app.services.authentication_service import (
     RefreshTokenReuseError,
 )
 
+from app.services.password_reset_delivery import (
+    PasswordResetDeliveryError,
+)
+
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
 )
 
-from app.core.password_reset_messages import (
-    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
+
+router = (
+    APIRouter()
 )
-
-from app.services.password_reset_delivery import (
-    PasswordResetDeliveryError,
-)
-
-
-router = APIRouter()
 
 
 # =========================================================
@@ -226,7 +230,9 @@ def _clear_auth_cookies(
 
 @router.post(
     "/token",
-    response_model=TokenResponse,
+    response_model=(
+        TokenResponse
+    ),
     status_code=(
         status.HTTP_200_OK
     ),
@@ -527,24 +533,6 @@ def change_current_user_password(
         ),
     ],
 ) -> None:
-    """
-    Change the authenticated user's password.
-
-    This endpoint does not use the refresh cookie as its
-    authentication mechanism.
-
-    Required proof:
-
-        bearer access JWT
-            +
-        recent reauthentication JWT
-            +
-        replacement password
-
-    On success every persistent refresh session is revoked
-    and this browser's authentication cookies are removed.
-    """
-
     try:
         result = (
             authentication_service
@@ -617,10 +605,6 @@ def change_current_user_password(
             },
         ) from exc
 
-    # Password mutation and persistent-session revocation
-    # have now succeeded in this request transaction.
-    #
-    # Remove this browser's cookie credentials as well.
     _clear_auth_cookies(
         response
     )
@@ -646,8 +630,8 @@ def change_current_user_password(
             ),
         },
     )
-    
-    
+
+
 # =========================================================
 # PASSWORD RESET REQUEST
 # =========================================================
@@ -674,22 +658,8 @@ def request_password_reset(
     ),
     password_reset_delivery_coordinator: (
         PasswordResetDeliveryCoordinatorDependency
-    )
+    ),
 ) -> PasswordResetRequestResponse:
-    """
-    Begin anonymous password recovery.
-
-    Enumeration resistance:
-
-        existing active account
-        nonexistent account
-        inactive account
-
-    all receive the same normal 202 response.
-
-    Abuse protection occurs before reset credential creation.
-    """
-
     client_address = (
         request.client.host
         if request.client is not None
@@ -765,16 +735,9 @@ def request_password_reset(
                 "Too many password reset "
                 "requests. Please try again later."
             ),
-            headers=(
-                headers
-            ),
+            headers=headers,
         )
 
-    # Deliberately ignore the internal issuance result.
-    #
-    # The public API must never expose the raw reset
-    # credential or reveal whether this email maps to an
-    # eligible account.
     issuance = (
         password_reset_service
         .request_reset(
@@ -809,18 +772,6 @@ def request_password_reset(
                 ),
             )
 
-            # IMPORTANT:
-            #
-            # Do not convert this exception to an HTTP response
-            # here.
-            #
-            # It must leave the route so the database dependency
-            # sees the failure and rolls back the reset-token
-            # transaction.
-            #
-            # The application-level exception handler converts
-            # the failure into the same externally visible 202
-            # response afterward.
             raise
 
     security_event_logger.emit(
@@ -867,18 +818,6 @@ def confirm_password_reset(
         PasswordResetServiceDependency
     ),
 ) -> None:
-    """
-    Consume a one-time password-reset credential.
-
-    Success does NOT:
-
-        issue an access token
-        issue a refresh token
-        establish an authenticated session
-
-    The user must sign in again with the new password.
-    """
-
     try:
         result = (
             password_reset_service
@@ -963,9 +902,6 @@ def confirm_password_reset(
             },
         ) from exc
 
-    # Every persistent session was revoked by the service.
-    #
-    # Also remove any stale credentials held by this browser.
     _clear_auth_cookies(
         response
     )
@@ -1000,7 +936,9 @@ def confirm_password_reset(
 
 @router.post(
     "/refresh",
-    response_model=TokenResponse,
+    response_model=(
+        TokenResponse
+    ),
     status_code=(
         status.HTTP_200_OK
     ),
@@ -1377,7 +1315,9 @@ def logout_all(
 
 @router.get(
     "/me",
-    response_model=UserRead,
+    response_model=(
+        UserRead
+    ),
     status_code=(
         status.HTTP_200_OK
     ),
@@ -1385,6 +1325,8 @@ def logout_all(
 def read_current_user(
     current_user: CurrentUser,
 ) -> UserRead:
-    return UserRead.model_validate(
-        current_user
+    return (
+        UserRead.model_validate(
+            current_user
+        )
     )
