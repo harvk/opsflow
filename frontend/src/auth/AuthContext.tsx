@@ -83,6 +83,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
    *
    * Do not submit the initial refresh operation twice.
    */
+
   const hasInitializedRef = useRef(false);
 
   /*
@@ -135,23 +136,25 @@ export function AuthProvider({ children }: AuthProviderProps) {
          * Resolve the authoritative user identity using
          * the newly issued bearer access token.
          */
+
         const authenticatedUser = await getCurrentUserRequest();
 
         setUser(authenticatedUser);
       } catch (error) {
         /*
          * Login itself succeeded, meaning the browser may
-         * already possess its refresh and CSRF cookies.
+         * already possess refresh and CSRF cookies.
          *
-         * If user resolution fails, attempt to clean that
-         * server/browser session up as well.
+         * If resolving the user fails, attempt to clean
+         * the server/browser session up too.
          */
+
         try {
           await logoutRequest();
         } catch {
           /*
-           * Local logout must still proceed even if the
-           * cleanup request itself fails.
+           * Local cleanup must still proceed even if
+           * server cleanup fails.
            */
         }
 
@@ -168,16 +171,21 @@ export function AuthProvider({ children }: AuthProviderProps) {
    * LOGOUT
    * =======================================================
    *
-   * logoutRequest() uses apiFetch().
+   * logoutRequest() deliberately uses direct fetch().
    *
-   * apiFetch supplies:
+   * It supplies:
    *
-   *   HttpOnly refresh cookie automatically through fetch
-   *   credentials
+   *   HttpOnly refresh cookie
+   *       automatically through credentials: "include"
    *
-   *   CSRF cookie automatically through the browser
+   *   readable CSRF cookie
+   *       automatically through browser cookie handling
    *
-   *   X-CSRF-Token deliberately through JavaScript
+   *   X-CSRF-Token
+   *       explicitly through addCsrfHeader()
+   *
+   * It does not use apiFetch() because logout should not
+   * enter the access-token refresh/retry cycle.
    */
 
   const logout = useCallback(async () => {
@@ -188,9 +196,9 @@ export function AuthProvider({ children }: AuthProviderProps) {
        * The user explicitly requested logout.
        *
        * Local UI authentication state should therefore
-       * always end even if the network request itself
-       * fails.
+       * always end even if the network request fails.
        */
+
       clearLocalAuthentication();
     }
   }, [clearLocalAuthentication]);
@@ -231,7 +239,8 @@ export function AuthProvider({ children }: AuthProviderProps) {
     async function restoreAuthentication() {
       try {
         /*
-         * refreshAccessToken() never reads the refresh JWT.
+         * refreshAccessToken() never reads the refresh
+         * JWT.
          *
          * The browser attaches that HttpOnly cookie
          * automatically.
@@ -239,6 +248,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
          * apiClient reads only the CSRF cookie and copies
          * its value into X-CSRF-Token.
          */
+
         const token = await refreshAccessToken();
 
         if (!token) {
@@ -253,6 +263,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
          *
          * Resolve the authoritative user.
          */
+
         const authenticatedUser = await getCurrentUserRequest();
 
         setUser(authenticatedUser);

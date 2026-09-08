@@ -1,6 +1,11 @@
 import { type FormEvent, useEffect, useState } from "react";
 
-import { Navigate, useLocation, useNavigate } from "react-router-dom";
+import {
+  Link,
+  useLocation,
+  useNavigate,
+  useSearchParams,
+} from "react-router-dom";
 
 import { useAuth } from "../auth/useAuth";
 
@@ -13,25 +18,19 @@ interface LoginLocationState {
 }
 
 export function LoginPage() {
-  /*
-   * --------------------------------------------------
-   * HOOKS
-   * --------------------------------------------------
-   *
-   * Every hook stays at the top of the component.
-   *
-   * There must be NO:
-   *
-   *   if (...)
-   *   return ...
-   *
-   * before these hooks finish executing.
-   */
+  const { login, isAuthenticated } = useAuth();
 
   const navigate = useNavigate();
+
   const location = useLocation();
 
-  const { login, isAuthenticated, isInitializing } = useAuth();
+  const [searchParams, setSearchParams] = useSearchParams();
+
+  /*
+   * =======================================================
+   * FORM STATE
+   * =======================================================
+   */
 
   const [email, setEmail] = useState("");
 
@@ -39,55 +38,114 @@ export function LoginPage() {
 
   const [showPassword, setShowPassword] = useState(false);
 
-  const [error, setError] = useState<string | null>(null);
-
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  useEffect(() => {
-    document.title = "Sign In | OpsFlow";
-
-    return () => {
-      document.title = "OpsFlow";
-    };
-  }, []);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   /*
-   * --------------------------------------------------
-   * DERIVED VALUES
-   * --------------------------------------------------
+   * =======================================================
+   * PASSWORD RESET SUCCESS
+   * =======================================================
    *
-   * These are NOT hooks.
+   * ResetPasswordPage redirects to:
    *
-   * They are safe to calculate after our hooks.
+   *   /login?passwordReset=success
+   *
+   * Capture the value once, then remove the query
+   * parameter from browser history.
+   */
+
+  const [passwordResetSucceeded] = useState(
+    () => searchParams.get("passwordReset") === "success",
+  );
+
+  /*
+   * =======================================================
+   * ORIGINAL PROTECTED DESTINATION
+   * =======================================================
    */
 
   const locationState = location.state as LoginLocationState | null;
 
-  const destination = locationState?.from?.pathname ?? "/services";
+  const destination = locationState?.from?.pathname ?? "/";
 
   /*
-   * --------------------------------------------------
-   * EVENT HANDLERS
-   * --------------------------------------------------
+   * =======================================================
+   * CLEAN PASSWORD RESET QUERY PARAMETER
+   * =======================================================
+   */
+
+  useEffect(() => {
+    if (!searchParams.has("passwordReset")) {
+      return;
+    }
+
+    setSearchParams(
+      {},
+      {
+        replace: true,
+      },
+    );
+  }, [searchParams, setSearchParams]);
+
+  /*
+   * =======================================================
+   * AUTHENTICATED USER REDIRECT
+   * =======================================================
+   */
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      return;
+    }
+
+    navigate(destination, {
+      replace: true,
+    });
+  }, [destination, isAuthenticated, navigate]);
+
+  /*
+   * =======================================================
+   * LOGIN
+   * =======================================================
    */
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    setError(null);
+    if (isSubmitting) {
+      return;
+    }
+
+    setErrorMessage(null);
+
+    const normalizedEmail = email.trim().toLowerCase();
+
+    if (normalizedEmail.length === 0) {
+      setErrorMessage("Enter your email address.");
+
+      return;
+    }
+
+    if (password.length === 0) {
+      setErrorMessage("Enter your password.");
+
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
-      await login(email.trim(), password);
+      await login(normalizedEmail, password);
 
       navigate(destination, {
         replace: true,
       });
-    } catch (caughtError) {
-      if (caughtError instanceof Error) {
-        setError(caughtError.message);
+    } catch (error) {
+      if (error instanceof Error) {
+        setErrorMessage(error.message);
       } else {
-        setError("Unable to sign in. Please try again.");
+        setErrorMessage("Unable to sign in. Please try again.");
       }
     } finally {
       setIsSubmitting(false);
@@ -95,36 +153,20 @@ export function LoginPage() {
   }
 
   /*
-   * --------------------------------------------------
-   * CONDITIONAL RETURNS
-   * --------------------------------------------------
-   *
-   * These deliberately come AFTER every hook.
-   */
-
-  if (isInitializing) {
-    return (
-      <main className="login-loading">
-        <div className="spinner-border text-primary" role="status">
-          <span className="visually-hidden">Loading authentication</span>
-        </div>
-      </main>
-    );
-  }
-
-  if (isAuthenticated) {
-    return <Navigate to="/services" replace />;
-  }
-
-  /*
-   * --------------------------------------------------
-   * NORMAL LOGIN UI
-   * --------------------------------------------------
+   * =======================================================
+   * PAGE
+   * =======================================================
    */
 
   return (
     <main className="login-page">
-      {/* Ambient background lighting */}
+      {/*
+       * ===================================================
+       * BACKGROUND DECORATION
+       * ===================================================
+       */}
+
+      <div className="login-grid" aria-hidden="true" />
 
       <div
         className="
@@ -141,12 +183,6 @@ export function LoginPage() {
         "
         aria-hidden="true"
       />
-
-      {/* Technical grid */}
-
-      <div className="login-grid" aria-hidden="true" />
-
-      {/* Floating shapes */}
 
       <div
         className="
@@ -181,50 +217,51 @@ export function LoginPage() {
       />
 
       <section className="login-shell">
-        {/* ==============================
-            LEFT BRAND PANEL
-            ============================== */}
+        {/*
+         * =================================================
+         * BRAND PANEL
+         * =================================================
+         */}
 
-        <div className="login-brand-panel">
+        <aside className="login-brand-panel" aria-hidden="true">
           <div className="login-brand-content">
             <div className="brand-mark">
-              <span className="brand-mark-inner">O</span>
+              <span className="brand-mark-inner">OF</span>
             </div>
 
             <p className="brand-eyebrow">OPERATIONS INTELLIGENCE</p>
 
             <h1 className="login-brand-title">
-              Keep operations
-              <span> moving forward.</span>
+              Command your
+              <span>operational flow.</span>
             </h1>
 
             <p className="login-brand-description">
-              Monitor services, coordinate incidents, and maintain operational
-              visibility through one secure workspace.
+              Monitor services, coordinate incidents, and maintain visibility
+              across your operational environment from one secure workspace.
             </p>
 
             <div className="system-status-card">
-              <span
-                className="
-                  system-status-indicator
-                "
-                aria-hidden="true"
-              />
+              <span className="system-status-indicator" aria-hidden="true" />
 
               <div>
-                <span className="system-status-label">PLATFORM STATUS</span>
+                <span className="system-status-label">SYSTEM STATUS</span>
 
-                <strong>Operational</strong>
+                <strong>Secure authentication gateway</strong>
               </div>
             </div>
           </div>
+
+          {/*
+           * Decorative orbit rings are siblings of the
+           * actual content. They must not wrap the content.
+           */}
 
           <div
             className="
               brand-orbit
               brand-orbit-one
             "
-            aria-hidden="true"
           />
 
           <div
@@ -232,61 +269,112 @@ export function LoginPage() {
               brand-orbit
               brand-orbit-two
             "
-            aria-hidden="true"
           />
-        </div>
+        </aside>
 
-        {/* ==============================
-            RIGHT LOGIN PANEL
-            ============================== */}
+        {/*
+         * =================================================
+         * FORM PANEL
+         * =================================================
+         */}
 
-        <div className="login-form-panel">
+        <section className="login-form-panel">
           <div className="login-form-container">
-            <header className="login-header">
-              <div className="mobile-brand">
-                <span>O</span>
-                OpsFlow
-              </div>
+            {/*
+             * Mobile identity.
+             *
+             * Only the OF mark belongs in the span because
+             * the responsive CSS styles .mobile-brand span
+             * as the gradient badge.
+             */}
 
+            <div className="mobile-brand">
+              <span>OF</span>
+              OpsFlow
+            </div>
+
+            <header className="login-header">
               <p className="login-kicker">SECURE ACCESS</p>
 
               <h2>Welcome back</h2>
 
-              <p>Sign in to continue to your operations workspace.</p>
+              <p>Sign in to continue to your OpsFlow workspace.</p>
             </header>
 
-            {/* Authentication error */}
+            {/*
+             * =================================================
+             * RESET SUCCESS
+             * =================================================
+             */}
 
-            {error && (
-              <div className="login-alert" role="alert">
+            {passwordResetSucceeded && (
+              <div
+                className="
+                  login-alert
+                  login-alert-success
+                "
+                role="status"
+                aria-live="polite"
+              >
                 <span
                   className="
                     login-alert-icon
+                    login-alert-success-icon
                   "
                   aria-hidden="true"
                 >
-                  !
+                  ✓
                 </span>
 
-                <span>{error}</span>
+                <div className="login-alert-copy">
+                  <strong>Password reset complete</strong>
+
+                  <span>Sign in again using your new password.</span>
+                </div>
               </div>
             )}
 
-            {/* Login form */}
+            {/*
+             * =================================================
+             * LOGIN ERROR
+             * =================================================
+             */}
 
-            <form className="login-form" onSubmit={handleSubmit}>
-              {/* Email */}
+            {errorMessage !== null && (
+              <div
+                className="
+                  login-alert
+                  login-alert-error
+                "
+                role="alert"
+                aria-live="assertive"
+              >
+                <span className="login-alert-icon" aria-hidden="true">
+                  !
+                </span>
+
+                <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/*
+             * =================================================
+             * LOGIN FORM
+             * =================================================
+             */}
+
+            <form className="login-form" onSubmit={handleSubmit} noValidate>
+              {/*
+               * -------------------------------------------------
+               * EMAIL
+               * -------------------------------------------------
+               */}
 
               <div className="login-field">
                 <label htmlFor="email">Email address</label>
 
                 <div className="login-input-wrapper">
-                  <span
-                    className="
-                      login-input-icon
-                    "
-                    aria-hidden="true"
-                  >
+                  <span className="login-input-icon" aria-hidden="true">
                     @
                   </span>
 
@@ -294,117 +382,117 @@ export function LoginPage() {
                     id="email"
                     name="email"
                     type="email"
-                    value={email}
-                    onChange={(event) => setEmail(event.target.value)}
-                    placeholder="
-                      name@company.com
-                    "
+                    inputMode="email"
                     autoComplete="email"
-                    autoFocus
+                    placeholder="name@example.com"
                     required
+                    maxLength={320}
+                    value={email}
                     disabled={isSubmitting}
+                    onChange={(event) => {
+                      setEmail(event.target.value);
+
+                      setErrorMessage(null);
+                    }}
                   />
                 </div>
               </div>
 
-              {/* Password */}
+              {/*
+               * -------------------------------------------------
+               * PASSWORD
+               * -------------------------------------------------
+               */}
 
               <div className="login-field">
                 <div className="login-label-row">
                   <label htmlFor="password">Password</label>
+
+                  <Link to="/forgot-password" className="login-forgot-link">
+                    Forgot password?
+                  </Link>
                 </div>
 
                 <div className="login-input-wrapper">
-                  <span
-                    className="
-                      login-input-icon
-                    "
-                    aria-hidden="true"
-                  >
-                    ●
+                  <span className="login-input-icon" aria-hidden="true">
+                    ◆
                   </span>
 
                   <input
                     id="password"
                     name="password"
                     type={showPassword ? "text" : "password"}
-                    value={password}
-                    onChange={(event) => setPassword(event.target.value)}
-                    placeholder="
-                      Enter your password
-                    "
-                    autoComplete="
-                      current-password
-                    "
+                    autoComplete="current-password"
+                    placeholder="Enter your password"
                     required
+                    value={password}
                     disabled={isSubmitting}
+                    onChange={(event) => {
+                      setPassword(event.target.value);
+
+                      setErrorMessage(null);
+                    }}
                   />
 
                   <button
                     type="button"
-                    className="
-                      password-toggle
-                    "
-                    onClick={() => setShowPassword((current) => !current)}
+                    className="password-toggle"
+                    disabled={isSubmitting}
                     aria-label={
                       showPassword ? "Hide password" : "Show password"
                     }
+                    aria-pressed={showPassword}
+                    onClick={() => {
+                      setShowPassword((current) => !current);
+                    }}
                   >
                     {showPassword ? "Hide" : "Show"}
                   </button>
                 </div>
               </div>
 
-              {/* Submit */}
+              {/*
+               * -------------------------------------------------
+               * SUBMIT
+               * -------------------------------------------------
+               */}
 
               <button
-                className="
-                  login-submit-button
-                "
                 type="submit"
+                className="login-submit-button"
                 disabled={isSubmitting}
               >
-                <span>
-                  {isSubmitting ? "Authenticating..." : "Sign in to OpsFlow"}
-                </span>
+                <span>{isSubmitting ? "Signing in..." : "Sign in"}</span>
 
-                {!isSubmitting && (
-                  <span
-                    className="
-                      login-button-arrow
-                    "
-                    aria-hidden="true"
-                  >
+                {isSubmitting ? (
+                  <span className="login-button-spinner" aria-hidden="true" />
+                ) : (
+                  <span className="login-button-arrow" aria-hidden="true">
                     →
                   </span>
-                )}
-
-                {isSubmitting && (
-                  <span
-                    className="
-                      login-button-spinner
-                    "
-                    aria-hidden="true"
-                  />
                 )}
               </button>
             </form>
 
-            {/* Security footer */}
+            {/*
+             * =================================================
+             * SECURITY MESSAGE
+             * =================================================
+             */}
 
             <div className="login-security-message">
               <span className="security-icon" aria-hidden="true">
-                ◆
+                ●
               </span>
-
-              <span>Protected by secure token-based authentication</span>
+              Protected by secure session management and short-lived access
+              credentials.
             </div>
 
             <footer className="login-footer">
-              OpsFlow Operations Platform
+              OpsFlow secure operations platform
             </footer>
           </div>
-        </div>
+        </section>
       </section>
     </main>
   );

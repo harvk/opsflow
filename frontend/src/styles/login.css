@@ -1,9 +1,14 @@
 /*
- * OpsFlow Login
+ * OpsFlow Authentication
  * --------------------------------------------------
- * The login screen intentionally uses custom CSS so
- * we can explore transitions, transforms, gradients,
- * animations, layering, and responsive design.
+ * Shared visual system for:
+ *
+ *   LoginPage
+ *   ForgotPasswordPage
+ *   ResetPasswordPage
+ *
+ * This stylesheet intentionally uses handwritten CSS
+ * alongside Bootstrap elsewhere in the application.
  */
 
 :root {
@@ -42,13 +47,6 @@
   align-items: center;
   justify-content: center;
 
-  /*
-   * FULL-BLEED VIEWPORT
-   *
-   * 100vw gives the page the physical viewport width.
-   * The calculated margins pull it out of any centered,
-   * width-constrained ancestor.
-   */
   width: 100vw;
   max-width: none;
 
@@ -63,6 +61,7 @@
   overflow: clip;
 
   isolation: isolate;
+
   box-sizing: border-box;
 
   background:
@@ -116,10 +115,10 @@
 
   inset: 0;
 
+  z-index: -4;
+
   width: 100%;
   height: 100%;
-
-  z-index: -4;
 
   pointer-events: none;
 
@@ -142,6 +141,7 @@
   z-index: -3;
 
   width: clamp(24rem, 40vw, 48rem);
+
   aspect-ratio: 1;
 
   border-radius: 50%;
@@ -153,24 +153,6 @@
   filter: blur(100px);
 
   will-change: transform;
-}
-
-.login-ambient-glow-one {
-  top: -18%;
-  left: -12%;
-
-  background: rgba(13, 110, 253, 0.95);
-
-  animation: ambientDriftOne 16s ease-in-out infinite alternate;
-}
-
-.login-ambient-glow-two {
-  right: -15%;
-  bottom: -22%;
-
-  background: rgba(32, 199, 220, 0.88);
-
-  animation: ambientDriftTwo 19s ease-in-out infinite alternate;
 }
 
 .login-ambient-glow-one {
@@ -227,6 +209,7 @@
   left: 3%;
 
   width: clamp(52px, 5vw, 82px);
+
   aspect-ratio: 1;
 
   border-radius: 22px;
@@ -240,6 +223,7 @@
   right: 4%;
 
   width: clamp(64px, 6vw, 104px);
+
   aspect-ratio: 1;
 
   border-radius: 50%;
@@ -253,6 +237,7 @@
   left: 5%;
 
   width: clamp(44px, 4vw, 66px);
+
   aspect-ratio: 1;
 
   border-radius: 16px;
@@ -266,6 +251,7 @@
   bottom: 8%;
 
   width: clamp(76px, 8vw, 132px);
+
   aspect-ratio: 1;
 
   border-radius: 34px;
@@ -345,6 +331,7 @@
 
 .login-brand-content {
   position: relative;
+
   z-index: 4;
 
   max-width: 470px;
@@ -385,8 +372,11 @@
 }
 
 .brand-mark-inner {
+  color: white;
+
   font-size: 1.45rem;
   font-weight: 800;
+
   letter-spacing: -0.05em;
 }
 
@@ -397,6 +387,7 @@
 
   font-size: 0.69rem;
   font-weight: 700;
+
   letter-spacing: 0.19em;
 }
 
@@ -404,6 +395,8 @@
   max-width: 470px;
 
   margin-bottom: 1.4rem;
+
+  color: white;
 
   font-size: clamp(2.5rem, 4vw, 4rem);
 
@@ -428,12 +421,14 @@
   color: rgba(225, 234, 245, 0.72);
 
   font-size: 1rem;
+
   line-height: 1.75;
 }
 
 .system-status-card {
   display: inline-flex;
   align-items: center;
+
   gap: 0.9rem;
 
   padding: 0.85rem 1.05rem;
@@ -445,6 +440,7 @@
   background: rgba(255, 255, 255, 0.055);
 
   backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
 }
 
 .system-status-indicator {
@@ -452,6 +448,8 @@
 
   width: 9px;
   height: 9px;
+
+  flex: 0 0 auto;
 
   border-radius: 50%;
 
@@ -472,11 +470,14 @@
 
   font-size: 0.6rem;
   font-weight: 700;
+
   letter-spacing: 0.13em;
 }
 
 .system-status-card strong {
   margin-top: 0.1rem;
+
+  color: white;
 
   font-size: 0.83rem;
   font-weight: 600;
@@ -497,21 +498,21 @@
 }
 
 .brand-orbit-one {
-  width: 440px;
-  height: 440px;
-
   right: -235px;
   bottom: -190px;
+
+  width: 440px;
+  height: 440px;
 
   animation: orbitRotate 30s linear infinite;
 }
 
 .brand-orbit-two {
-  width: 580px;
-  height: 580px;
-
   right: -300px;
   bottom: -260px;
+
+  width: 580px;
+  height: 580px;
 
   border-style: dashed;
 
@@ -577,12 +578,13 @@
 }
 
 /* ==================================================
-   ERROR MESSAGE
+   ALERTS
    ================================================== */
 
 .login-alert {
   display: flex;
   align-items: center;
+
   gap: 0.7rem;
 
   margin-bottom: 1.4rem;
@@ -621,6 +623,49 @@
   font-weight: 800;
 }
 
+.login-alert-copy {
+  display: flex;
+  flex-direction: column;
+
+  gap: 0.18rem;
+}
+
+.login-alert-success {
+  border: 1px solid rgba(49, 164, 111, 0.24);
+
+  color: #236946;
+
+  background: linear-gradient(
+    135deg,
+    rgba(70, 210, 147, 0.11),
+    rgba(49, 164, 111, 0.07)
+  );
+
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+}
+
+.login-alert-success strong {
+  color: #17633e;
+
+  font-size: 0.86rem;
+}
+
+.login-alert-success span {
+  line-height: 1.45;
+}
+
+.login-alert-success-icon {
+  background: #31a46f;
+}
+
+.login-alert-error {
+  border: 1px solid rgba(201, 54, 79, 0.18);
+
+  color: #a62e42;
+
+  background: rgba(201, 54, 79, 0.055);
+}
+
 /* ==================================================
    FORM
    ================================================== */
@@ -639,12 +684,18 @@
   gap: 0.48rem;
 }
 
-.login-label-row {
+.login-label-row,
+.login-field-heading {
   display: flex;
+  align-items: center;
   justify-content: space-between;
+
+  gap: 1rem;
 }
 
 .login-field label {
+  margin: 0;
+
   color: var(--ops-text-700);
 
   font-size: 0.82rem;
@@ -685,6 +736,8 @@
   display: grid;
   place-items: center;
 
+  flex: 0 0 46px;
+
   width: 46px;
 
   color: var(--ops-text-500);
@@ -701,6 +754,8 @@
 
 .login-input-wrapper input {
   width: 100%;
+
+  min-width: 0;
 
   padding: 0.85rem 0.8rem 0.85rem 0;
 
@@ -721,10 +776,17 @@
 
 .login-input-wrapper input:disabled {
   cursor: not-allowed;
+
   opacity: 0.65;
 }
 
+/* ==================================================
+   PASSWORD VISIBILITY
+   ================================================== */
+
 .password-toggle {
+  flex: 0 0 auto;
+
   margin-right: 0.65rem;
 
   padding: 0.4rem;
@@ -743,7 +805,7 @@
     transform 160ms ease;
 }
 
-.password-toggle:hover {
+.password-toggle:hover:not(:disabled) {
   color: var(--ops-navy-900);
 
   transform: translateY(-1px);
@@ -757,6 +819,67 @@
   border-radius: 5px;
 }
 
+.password-toggle:disabled {
+  cursor: not-allowed;
+
+  opacity: 0.55;
+}
+
+/* ==================================================
+   RECOVERY NAVIGATION
+   ================================================== */
+
+.login-forgot-link,
+.login-secondary-link {
+  color: var(--ops-blue-600);
+
+  font-size: 0.8rem;
+  font-weight: 650;
+
+  text-decoration: none;
+
+  transition:
+    color 160ms ease,
+    text-shadow 160ms ease;
+}
+
+.login-forgot-link:hover,
+.login-secondary-link:hover {
+  color: var(--ops-navy-900);
+
+  text-shadow: 0 0 14px rgba(72, 178, 255, 0.22);
+}
+
+.login-forgot-link:focus-visible,
+.login-secondary-link:focus-visible {
+  outline: 2px solid rgba(98, 196, 255, 0.95);
+
+  outline-offset: 4px;
+
+  border-radius: 4px;
+}
+
+.login-recovery-navigation {
+  display: flex;
+  justify-content: center;
+
+  margin-top: 1.35rem;
+}
+
+/* ==================================================
+   FORM HELP TEXT
+   ================================================== */
+
+.login-field-hint {
+  margin: 0.55rem 0 0;
+
+  color: var(--ops-text-500);
+
+  font-size: 0.78rem;
+
+  line-height: 1.5;
+}
+
 /* ==================================================
    PRIMARY BUTTON
    ================================================== */
@@ -768,6 +891,8 @@
   align-items: center;
   justify-content: center;
 
+  width: 100%;
+
   min-height: 49px;
 
   margin-top: 0.3rem;
@@ -777,6 +902,7 @@
   overflow: hidden;
 
   border: 0;
+
   border-radius: 12px;
 
   color: white;
@@ -793,6 +919,8 @@
   font-size: 0.9rem;
   font-weight: 700;
 
+  text-decoration: none;
+
   transition:
     transform 180ms ease,
     box-shadow 180ms ease,
@@ -803,6 +931,7 @@
   content: "";
 
   position: absolute;
+
   inset: 0;
 
   transform: translateX(-120%);
@@ -818,6 +947,8 @@
 }
 
 .login-submit-button:hover:not(:disabled) {
+  color: white;
+
   transform: translateY(-2px);
 
   box-shadow: 0 13px 30px rgba(13, 110, 253, 0.3);
@@ -841,11 +972,15 @@
 
 .login-submit-button:disabled {
   cursor: wait;
+
   opacity: 0.72;
+
+  transform: none;
 }
 
 .login-button-arrow {
   position: absolute;
+
   right: 1.25rem;
 
   font-size: 1.15rem;
@@ -859,6 +994,7 @@
 
 .login-button-spinner {
   position: absolute;
+
   right: 1.15rem;
 
   width: 17px;
@@ -889,12 +1025,31 @@
   color: var(--ops-text-500);
 
   font-size: 0.7rem;
+
+  line-height: 1.45;
 }
 
 .security-icon {
-  color: var(--ops-blue-500);
+  color: #48c994;
 
-  font-size: 0.5rem;
+  font-size: 0.55rem;
+
+  text-shadow: 0 0 8px rgba(72, 201, 148, 0.5);
+}
+
+.login-security-indicator {
+  display: inline-block;
+
+  flex: 0 0 auto;
+
+  width: 7px;
+  height: 7px;
+
+  border-radius: 50%;
+
+  background: #60e6ad;
+
+  box-shadow: 0 0 8px rgba(96, 230, 173, 0.85);
 }
 
 .login-footer {
@@ -903,9 +1058,141 @@
   color: #a2aab6;
 
   font-size: 0.68rem;
+
   text-align: center;
 
   letter-spacing: 0.02em;
+}
+
+/* ==================================================
+   PASSWORD POLICY
+   ================================================== */
+
+.password-policy {
+  display: grid;
+
+  gap: 0.55rem;
+
+  margin-top: 0.75rem;
+
+  color: var(--ops-text-500);
+
+  font-size: 0.78rem;
+}
+
+.password-policy-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+
+  gap: 1rem;
+
+  color: var(--ops-text-700);
+}
+
+.password-policy-track {
+  position: relative;
+
+  width: 100%;
+  height: 4px;
+
+  overflow: hidden;
+
+  border-radius: 999px;
+
+  background: #e7edf5;
+}
+
+.password-policy-progress {
+  display: block;
+
+  height: 100%;
+
+  border-radius: inherit;
+
+  background: linear-gradient(
+    90deg,
+    rgba(71, 149, 255, 0.82),
+    rgba(91, 196, 255, 0.95)
+  );
+
+  box-shadow: 0 0 12px rgba(68, 180, 255, 0.22);
+
+  transition:
+    width 180ms ease,
+    background 180ms ease,
+    box-shadow 180ms ease;
+}
+
+.password-policy-progress.is-valid {
+  background: linear-gradient(
+    90deg,
+    rgba(55, 206, 141, 0.86),
+    rgba(100, 244, 180, 0.96)
+  );
+
+  box-shadow: 0 0 12px rgba(76, 225, 161, 0.3);
+}
+
+.password-requirement {
+  display: flex;
+  align-items: center;
+
+  gap: 0.45rem;
+
+  transition: color 150ms ease;
+}
+
+.password-requirement.is-valid {
+  color: #27865c;
+}
+
+.password-requirement.is-invalid {
+  color: var(--ops-danger);
+}
+
+/* ==================================================
+   PASSWORD CONFIRMATION
+   ================================================== */
+
+.password-match-status {
+  min-height: 1.25rem;
+
+  margin: 0.55rem 0 0;
+
+  color: var(--ops-text-500);
+
+  font-size: 0.78rem;
+
+  transition: color 150ms ease;
+}
+
+.password-match-status.is-valid {
+  color: #27865c;
+}
+
+.password-match-status.is-invalid {
+  color: var(--ops-danger);
+}
+
+/* ==================================================
+   LINKS PRESENTED AS PRIMARY BUTTONS
+   ================================================== */
+
+.login-button-link {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  width: 100%;
+
+  color: white;
+
+  text-decoration: none;
+}
+
+.login-button-link:hover {
+  color: white;
 }
 
 /* ==================================================
@@ -1285,6 +1572,21 @@
 
     background-size: 34px 34px;
   }
+
+  .login-label-row,
+  .login-field-heading {
+    align-items: center;
+  }
+
+  .login-forgot-link {
+    white-space: nowrap;
+
+    font-size: 0.76rem;
+  }
+
+  .password-policy-heading {
+    font-size: 0.75rem;
+  }
 }
 
 @media (max-width: 380px) {
@@ -1340,5 +1642,109 @@
     animation-iteration-count: 1 !important;
 
     transition-duration: 0.01ms !important;
+  }
+}
+
+/* =========================================================
+   AUTHENTICATION RECOVERY NAVIGATION
+   ========================================================= */
+
+.login-forgot-link,
+.login-secondary-link {
+  color: var(--ops-blue-600);
+
+  font-size: 0.82rem;
+  font-weight: 700;
+
+  text-decoration: none;
+
+  transition:
+    color 160ms ease,
+    transform 160ms ease,
+    text-shadow 160ms ease;
+}
+
+.login-forgot-link:hover,
+.login-secondary-link:hover {
+  color: var(--ops-navy-900);
+
+  text-shadow: 0 0 16px rgba(39, 124, 255, 0.14);
+}
+
+.login-forgot-link:focus-visible,
+.login-secondary-link:focus-visible {
+  outline: 2px solid rgba(39, 124, 255, 0.6);
+
+  outline-offset: 4px;
+
+  border-radius: 4px;
+}
+
+.login-recovery-navigation {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  margin-top: 1.35rem;
+}
+
+/* =========================================================
+   RECOVERY FORM HELP TEXT
+   ========================================================= */
+
+.login-field-hint {
+  margin: 0.15rem 0 0;
+
+  color: var(--ops-text-500);
+
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
+/* =========================================================
+   PASSWORD RESET SUCCESS MESSAGE
+   ========================================================= */
+
+.login-alert-success {
+  border-color: rgba(32, 160, 108, 0.2);
+
+  color: #176b4c;
+
+  background: rgba(32, 160, 108, 0.065);
+}
+
+.login-alert-success strong {
+  display: block;
+
+  margin-bottom: 0.18rem;
+
+  color: #126241;
+
+  font-size: 0.84rem;
+}
+
+.login-alert-success div {
+  line-height: 1.45;
+}
+
+/* =========================================================
+   RECOVERY RESPONSIVENESS
+   ========================================================= */
+
+@media (max-width: 520px) {
+  .login-label-row {
+    align-items: center;
+
+    gap: 0.75rem;
+  }
+
+  .login-forgot-link {
+    white-space: nowrap;
+
+    font-size: 0.78rem;
+  }
+
+  .login-recovery-navigation {
+    margin-top: 1.15rem;
   }
 }

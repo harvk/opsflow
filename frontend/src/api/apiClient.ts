@@ -92,9 +92,11 @@ export function clearAccessToken(): void {
  */
 
 function getCookie(name: string): string | null {
-  const cookies = document.cookie.split("; ");
+  const cookies = document.cookie.split(";");
 
-  for (const cookie of cookies) {
+  for (const rawCookie of cookies) {
+    const cookie = rawCookie.trim();
+
     const separatorIndex = cookie.indexOf("=");
 
     if (separatorIndex === -1) {
@@ -103,10 +105,24 @@ function getCookie(name: string): string | null {
 
     const cookieName = cookie.slice(0, separatorIndex);
 
+    if (cookieName !== name) {
+      continue;
+    }
+
     const cookieValue = cookie.slice(separatorIndex + 1);
 
-    if (cookieName === name) {
+    if (cookieValue.length === 0) {
+      return null;
+    }
+
+    try {
       return decodeURIComponent(cookieValue);
+    } catch {
+      /*
+       * A malformed cookie must never crash the entire
+       * authentication client.
+       */
+      return null;
     }
   }
 
@@ -115,8 +131,17 @@ function getCookie(name: string): string | null {
 
 /*
  * =========================================================
- * CSRF TOKEN ACCESS
+ * CSRF TOKEN
  * =========================================================
+ *
+ * The refresh JWT is HttpOnly and cannot be read by
+ * JavaScript.
+ *
+ * The CSRF cookie is intentionally readable. For unsafe
+ * cookie-authenticated requests, the frontend copies the
+ * cookie value into:
+ *
+ *   X-CSRF-Token
  */
 
 export function getCsrfToken(): string | null {
@@ -125,8 +150,12 @@ export function getCsrfToken(): string | null {
 
 /*
  * =========================================================
- * CSRF HEADER APPLICATION
+ * PRIVATE CSRF HEADER APPLICATION
  * =========================================================
+ *
+ * apiFetch() uses this helper automatically.
+ *
+ * It mutates the supplied Headers instance.
  */
 
 function applyCsrfHeader(headers: Headers, method: string | undefined): void {
@@ -142,16 +171,39 @@ function applyCsrfHeader(headers: Headers, method: string | undefined): void {
     /*
      * Never fabricate a CSRF value.
      *
-     * A cookie-authenticated backend endpoint that requires
-     * CSRF validation will correctly reject the request
-     * with HTTP 403.
+     * A cookie-authenticated backend endpoint requiring
+     * CSRF validation should reject the request rather than
+     * receive a made-up value.
      */
+
     headers.delete(CSRF_HEADER_NAME);
 
     return;
   }
 
   headers.set(CSRF_HEADER_NAME, csrfToken);
+}
+
+/*
+ * =========================================================
+ * PUBLIC CSRF HEADER HELPER
+ * =========================================================
+ *
+ * Some authentication calls intentionally bypass apiFetch()
+ * because they have special lifecycle behavior.
+ *
+ * Examples:
+ *
+ *   POST /auth/refresh
+ *   POST /auth/logout
+ *
+ * These calls still require the double-submit CSRF header.
+ */
+
+export function addCsrfHeader(headers: Headers, method = "POST"): Headers {
+  applyCsrfHeader(headers, method);
+
+  return headers;
 }
 
 /*
@@ -188,29 +240,26 @@ function dispatchUnauthorized(): void {
 
 async function performAccessTokenRefresh(): Promise<string | null> {
   try {
-    const headers = new Headers({
-      Accept: "application/json",
-    });
-
-    /*
-     * /auth/refresh is cookie-authenticated.
-     *
-     * Copy the readable CSRF cookie into the required custom
-     * request header.
-     */
-    applyCsrfHeader(headers, "POST");
+    const headers = addCsrfHeader(
+      new Headers({
+        Accept: "application/json",
+      }),
+      "POST",
+    );
 
     const response = await fetch(`${API_BASE_URL}/auth/refresh`, {
       method: "POST",
 
       /*
-       * The refresh JWT is an HttpOnly browser cookie.
-       *
-       * Because React and FastAPI use different origins
-       * during development, credentials must explicitly
-       * be included.
+       * Sends the HttpOnly refresh cookie.
        */
+
       credentials: "include",
+
+      /*
+       * Sends the matching readable CSRF value through
+       * X-CSRF-Token.
+       */
 
       headers,
     });
@@ -279,8 +328,11 @@ async function executeRequest(
   const headers = new Headers(options.headers);
 
   /*
-   * Bearer authentication.
+   * -------------------------------------------------------
+   * Bearer authentication
+   * -------------------------------------------------------
    */
+
   if (token) {
     headers.set("Authorization", `Bearer ${token}`);
   } else {
@@ -288,12 +340,17 @@ async function executeRequest(
   }
 
   /*
+   * -------------------------------------------------------
+   * CSRF
+   * -------------------------------------------------------
+   *
    * Add the CSRF header to unsafe HTTP methods whenever the
-   * signed CSRF cookie exists.
+   * signed readable CSRF cookie exists.
    *
    * Bearer-only API routes may simply ignore this extra
    * header.
    */
+
   applyCsrfHeader(headers, options.method);
 
   return fetch(`${API_BASE_URL}${path}`, {
@@ -306,6 +363,7 @@ async function executeRequest(
      *
      * JavaScript never obtains the HttpOnly refresh JWT.
      */
+
     credentials: "include",
   });
 }
@@ -323,6 +381,7 @@ export async function apiFetch(
   /*
    * Snapshot the token used by this particular request.
    */
+
   const currentToken = getAccessToken();
 
   const response = await executeRequest(path, options, currentToken);
@@ -333,6 +392,7 @@ export async function apiFetch(
    *   - the response is not 401
    *   - or there was no access token in the first place
    */
+
   if (response.status !== 401 || !currentToken) {
     return response;
   }
@@ -345,6 +405,7 @@ export async function apiFetch(
    *
    * Attempt exactly one coordinated refresh.
    */
+
   const replacementToken = await refreshAccessToken();
 
   if (!replacementToken) {
@@ -359,6 +420,7 @@ export async function apiFetch(
    * Retry the original request exactly once using the new
    * bearer credential.
    */
+
   const retryResponse = await executeRequest(path, options, replacementToken);
 
   /*
@@ -367,6 +429,7 @@ export async function apiFetch(
    *
    * Do not enter another refresh cycle.
    */
+
   if (retryResponse.status === 401) {
     clearAccessToken();
 
