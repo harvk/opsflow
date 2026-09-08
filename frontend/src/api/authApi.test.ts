@@ -6,6 +6,12 @@ import {
   requestPasswordReset,
 } from "./authApi";
 
+import {
+  AUTH_ERROR_CODE_HEADER,
+  AuthApiError,
+  AuthErrorCode,
+} from "./authErrors";
+
 /*
  * =========================================================
  * TEST CONFIGURATION
@@ -57,6 +63,19 @@ function jsonResponse(
   });
 }
 
+function authErrorResponse(
+  body: unknown,
+  status: number,
+  code: AuthErrorCode,
+  headers?: HeadersInit,
+): Response {
+  const responseHeaders = new Headers(headers);
+
+  responseHeaders.set(AUTH_ERROR_CODE_HEADER, code);
+
+  return jsonResponse(body, status, responseHeaders);
+}
+
 /*
  * =========================================================
  * TEST LIFECYCLE
@@ -85,7 +104,8 @@ describe("requestPasswordReset", () => {
       jsonResponse(
         {
           message:
-            "If an account exists for that email, password reset instructions have been sent.",
+            "If an account exists for that email, " +
+            "password reset instructions have been sent.",
         },
         202,
       ),
@@ -115,7 +135,8 @@ describe("requestPasswordReset", () => {
 
   it("returns the generic message from a successful response", async () => {
     const expectedMessage =
-      "If an account exists for that email, password reset instructions have been sent.";
+      "If an account exists for that email, " +
+      "password reset instructions have been sent.";
 
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -148,13 +169,14 @@ describe("requestPasswordReset", () => {
     });
   });
 
-  it("throws PasswordResetThrottleError for HTTP 429", async () => {
+  it("throws PasswordResetThrottleError for typed HTTP 429", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(
+      authErrorResponse(
         {
-          detail: "Too many requests.",
+          detail: "BACKEND THROTTLE TEXT",
         },
         429,
+        AuthErrorCode.PASSWORD_RESET_THROTTLED,
         {
           "Retry-After": "120",
         },
@@ -171,22 +193,35 @@ describe("requestPasswordReset", () => {
       if (error instanceof PasswordResetThrottleError) {
         expect(error.name).toBe("PasswordResetThrottleError");
 
+        /*
+         * Frontend-controlled message.
+         *
+         * Backend detail must not control browser text.
+         */
+
         expect(error.message).toBe(
-          "Too many password reset requests. Please try again later.",
+          "Too many password reset requests. " + "Please try again later.",
         );
 
+        expect(error.message).not.toContain("BACKEND THROTTLE TEXT");
+
         expect(error.retryAfterSeconds).toBe(120);
+
+        expect(error.code).toBe(AuthErrorCode.PASSWORD_RESET_THROTTLED);
+
+        expect(error.status).toBe(429);
       }
     }
   });
 
   it("uses null retryAfterSeconds when Retry-After is missing", async () => {
     fetchMock.mockResolvedValueOnce(
-      jsonResponse(
+      authErrorResponse(
         {
           detail: "Too many requests.",
         },
         429,
+        AuthErrorCode.PASSWORD_RESET_THROTTLED,
       ),
     );
 
@@ -199,6 +234,8 @@ describe("requestPasswordReset", () => {
 
       if (error instanceof PasswordResetThrottleError) {
         expect(error.retryAfterSeconds).toBeNull();
+
+        expect(error.code).toBe(AuthErrorCode.PASSWORD_RESET_THROTTLED);
       }
     }
   });
@@ -207,11 +244,12 @@ describe("requestPasswordReset", () => {
     "uses null retryAfterSeconds for invalid Retry-After value %j",
     async (retryAfterValue) => {
       fetchMock.mockResolvedValueOnce(
-        jsonResponse(
+        authErrorResponse(
           {
             detail: "Too many requests.",
           },
           429,
+          AuthErrorCode.PASSWORD_RESET_THROTTLED,
           {
             "Retry-After": retryAfterValue,
           },
@@ -232,6 +270,40 @@ describe("requestPasswordReset", () => {
     },
   );
 
+  it("does not infer password-reset throttling from an untyped HTTP 429", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          detail: "Too many requests.",
+        },
+        429,
+        {
+          "Retry-After": "120",
+        },
+      ),
+    );
+
+    try {
+      await requestPasswordReset("user@example.com");
+
+      throw new Error("Expected requestPasswordReset to throw.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthApiError);
+
+      expect(error).not.toBeInstanceOf(PasswordResetThrottleError);
+
+      if (error instanceof AuthApiError) {
+        expect(error.code).toBeNull();
+
+        expect(error.status).toBe(429);
+
+        expect(error.message).toBe(
+          "Unable to request a password reset. " + "Please try again.",
+        );
+      }
+    }
+  });
+
   it("throws a generic reset-request error for unexpected non-success responses", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
@@ -243,7 +315,7 @@ describe("requestPasswordReset", () => {
     );
 
     await expect(requestPasswordReset("user@example.com")).rejects.toThrow(
-      "Unable to request a password reset. Please try again.",
+      "Unable to request a password reset. " + "Please try again.",
     );
   });
 
@@ -251,7 +323,7 @@ describe("requestPasswordReset", () => {
     fetchMock.mockResolvedValueOnce(jsonResponse({}, 202));
 
     await expect(requestPasswordReset("user@example.com")).rejects.toThrow(
-      "The password reset service returned an invalid response.",
+      "The password reset service returned " + "an invalid response.",
     );
   });
 
@@ -266,7 +338,7 @@ describe("requestPasswordReset", () => {
     );
 
     await expect(requestPasswordReset("user@example.com")).rejects.toThrow(
-      "The password reset service returned an invalid response.",
+      "The password reset service returned " + "an invalid response.",
     );
   });
 
@@ -281,7 +353,7 @@ describe("requestPasswordReset", () => {
     );
 
     await expect(requestPasswordReset("user@example.com")).rejects.toThrow(
-      "The password reset service returned an invalid response.",
+      "The password reset service returned " + "an invalid response.",
     );
   });
 });
@@ -352,7 +424,114 @@ describe("confirmPasswordReset", () => {
     ).resolves.toBeUndefined();
   });
 
-  it("surfaces the backend detail for an invalid or expired token", async () => {
+  it("does not surface backend detail for an invalid or expired reset credential", async () => {
+    const backendSentinel = "INTERNAL_RESET_STATE_SENTINEL";
+
+    fetchMock.mockResolvedValueOnce(
+      authErrorResponse(
+        {
+          detail: backendSentinel,
+        },
+        400,
+        AuthErrorCode.PASSWORD_RESET_CREDENTIAL_INVALID,
+      ),
+    );
+
+    try {
+      await confirmPasswordReset("expired-token", "NewSecurePassword123!");
+
+      throw new Error("Expected confirmPasswordReset to throw.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthApiError);
+
+      if (error instanceof AuthApiError) {
+        expect(error.code).toBe(
+          AuthErrorCode.PASSWORD_RESET_CREDENTIAL_INVALID,
+        );
+
+        expect(error.status).toBe(400);
+
+        expect(error.message).toBe(
+          "The password reset link is invalid or expired.",
+        );
+
+        expect(error.message).not.toContain(backendSentinel);
+      }
+    }
+  });
+
+  it("uses the generic invalid-or-expired message when the typed HTTP 400 body has no string detail", async () => {
+    fetchMock.mockResolvedValueOnce(
+      authErrorResponse(
+        {
+          detail: 12345,
+        },
+        400,
+        AuthErrorCode.PASSWORD_RESET_CREDENTIAL_INVALID,
+      ),
+    );
+
+    await expect(
+      confirmPasswordReset("invalid-token", "NewSecurePassword123!"),
+    ).rejects.toThrow("The password reset link is invalid or expired.");
+  });
+
+  it("uses the generic invalid-or-expired message when a typed HTTP 400 body is malformed JSON", async () => {
+    const headers = new Headers({
+      "Content-Type": "application/json",
+    });
+
+    headers.set(
+      AUTH_ERROR_CODE_HEADER,
+      AuthErrorCode.PASSWORD_RESET_CREDENTIAL_INVALID,
+    );
+
+    fetchMock.mockResolvedValueOnce(
+      new Response("this-is-not-json", {
+        status: 400,
+
+        headers,
+      }),
+    );
+
+    await expect(
+      confirmPasswordReset("invalid-token", "NewSecurePassword123!"),
+    ).rejects.toThrow("The password reset link is invalid or expired.");
+  });
+
+  it("maps a typed replacement-password rejection to frontend-controlled text", async () => {
+    const backendSentinel = "INTERNAL_PASSWORD_RULE_SENTINEL";
+
+    fetchMock.mockResolvedValueOnce(
+      authErrorResponse(
+        {
+          detail: backendSentinel,
+        },
+        400,
+        AuthErrorCode.PASSWORD_RESET_PASSWORD_REJECTED,
+      ),
+    );
+
+    try {
+      await confirmPasswordReset("reset-token-value", "NewSecurePassword123!");
+
+      throw new Error("Expected confirmPasswordReset to throw.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(AuthApiError);
+
+      if (error instanceof AuthApiError) {
+        expect(error.code).toBe(AuthErrorCode.PASSWORD_RESET_PASSWORD_REJECTED);
+
+        expect(error.status).toBe(400);
+
+        expect(error.message).toBe("The new password could not be accepted.");
+
+        expect(error.message).not.toContain(backendSentinel);
+      }
+    }
+  });
+
+  it("does not infer invalid reset credentials from an untyped HTTP 400", async () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse(
         {
@@ -363,39 +542,8 @@ describe("confirmPasswordReset", () => {
     );
 
     await expect(
-      confirmPasswordReset("expired-token", "NewSecurePassword123!"),
-    ).rejects.toThrow("The password reset token has expired.");
-  });
-
-  it("uses the generic invalid-or-expired message when HTTP 400 has no string detail", async () => {
-    fetchMock.mockResolvedValueOnce(
-      jsonResponse(
-        {
-          detail: 12345,
-        },
-        400,
-      ),
-    );
-
-    await expect(
       confirmPasswordReset("invalid-token", "NewSecurePassword123!"),
-    ).rejects.toThrow("The password reset link is invalid or expired.");
-  });
-
-  it("uses the generic invalid-or-expired message when the HTTP 400 body is malformed JSON", async () => {
-    fetchMock.mockResolvedValueOnce(
-      new Response("this-is-not-json", {
-        status: 400,
-
-        headers: {
-          "Content-Type": "application/json",
-        },
-      }),
-    );
-
-    await expect(
-      confirmPasswordReset("invalid-token", "NewSecurePassword123!"),
-    ).rejects.toThrow("The password reset link is invalid or expired.");
+    ).rejects.toThrow("Unable to reset the password. " + "Please try again.");
   });
 
   it("maps HTTP 422 to the password-policy error", async () => {
@@ -411,7 +559,7 @@ describe("confirmPasswordReset", () => {
     await expect(
       confirmPasswordReset("reset-token-value", "short"),
     ).rejects.toThrow(
-      "The new password does not meet the required password policy.",
+      "The new password does not meet the " + "required password policy.",
     );
   });
 
@@ -429,7 +577,7 @@ describe("confirmPasswordReset", () => {
 
       await expect(
         confirmPasswordReset("reset-token-value", "NewSecurePassword123!"),
-      ).rejects.toThrow("Unable to reset the password. Please try again.");
+      ).rejects.toThrow("Unable to reset the password. " + "Please try again.");
     },
   );
 });

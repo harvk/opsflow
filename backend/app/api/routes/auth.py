@@ -31,10 +31,29 @@ from app.api.dependencies import (
 )
 
 from app.core.auth_cookies import (
-    clear_refresh_cookie,
+    clear_auth_cookies,
+    get_csrf_cookie,
     get_refresh_cookie,
-    prevent_auth_response_caching,
+    set_csrf_cookie,
     set_refresh_cookie,
+)
+
+from app.core.auth_error_codes import (
+    AuthErrorCode,
+    auth_error_headers,
+)
+
+from app.core.auth_response_messages import (
+    CSRF_VALIDATION_FAILED_MESSAGE,
+    LOGIN_CREDENTIALS_INVALID_MESSAGE,
+    LOGIN_THROTTLED_MESSAGE,
+    PASSWORD_CHANGE_REJECTED_MESSAGE,
+    PASSWORD_RESET_CREDENTIAL_INVALID_MESSAGE,
+    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
+    PASSWORD_RESET_THROTTLED_MESSAGE,
+    REAUTHENTICATION_FAILED_MESSAGE,
+    REAUTHENTICATION_REQUIRED_MESSAGE,
+    REFRESH_CREDENTIALS_INVALID_MESSAGE,
 )
 
 from app.core.config import (
@@ -92,26 +111,27 @@ router = (
 # =========================================================
 
 
-def _credentials_exception(
-    detail: str,
+def _refresh_credentials_exception(
 ) -> HTTPException:
     return HTTPException(
         status_code=(
             status
             .HTTP_401_UNAUTHORIZED
         ),
-        detail=detail,
-        headers={
-            "WWW-Authenticate": (
-                "Bearer"
-            ),
-            "Cache-Control": (
-                "no-store"
-            ),
-            "Pragma": (
-                "no-cache"
-            ),
-        },
+        detail=(
+            REFRESH_CREDENTIALS_INVALID_MESSAGE
+        ),
+        headers=(
+            auth_error_headers(
+                AuthErrorCode
+                .REFRESH_CREDENTIALS_INVALID,
+                additional_headers={
+                    "WWW-Authenticate": (
+                        "Bearer"
+                    ),
+                },
+            )
+        ),
     )
 
 
@@ -123,16 +143,14 @@ def _csrf_exception(
             .HTTP_403_FORBIDDEN
         ),
         detail=(
-            "CSRF validation failed."
+            CSRF_VALIDATION_FAILED_MESSAGE
         ),
-        headers={
-            "Cache-Control": (
-                "no-store"
-            ),
-            "Pragma": (
-                "no-cache"
-            ),
-        },
+        headers=(
+            auth_error_headers(
+                AuthErrorCode
+                .CSRF_VALIDATION_FAILED
+            )
+        ),
     )
 
 
@@ -144,17 +162,14 @@ def _reauthentication_exception(
             .HTTP_403_FORBIDDEN
         ),
         detail=(
-            "Valid recent reauthentication "
-            "is required."
+            REAUTHENTICATION_REQUIRED_MESSAGE
         ),
-        headers={
-            "Cache-Control": (
-                "no-store"
-            ),
-            "Pragma": (
-                "no-cache"
-            ),
-        },
+        headers=(
+            auth_error_headers(
+                AuthErrorCode
+                .REAUTHENTICATION_REQUIRED
+            )
+        ),
     )
 
 
@@ -163,63 +178,11 @@ def _reauthentication_exception(
 # =========================================================
 
 
-def _get_csrf_cookie(
-    request: Request,
-) -> str | None:
-    return request.cookies.get(
-        settings.csrf_cookie_name
-    )
-
-
 def _get_csrf_header(
     request: Request,
 ) -> str | None:
     return request.headers.get(
         settings.csrf_header_name
-    )
-
-
-def _set_csrf_cookie(
-    response: Response,
-    csrf_token: str,
-) -> None:
-    response.set_cookie(
-        key=(
-            settings.csrf_cookie_name
-        ),
-        value=csrf_token,
-        httponly=False,
-        secure=(
-            settings.is_production
-        ),
-        samesite=(
-            settings
-            .refresh_cookie_samesite
-        ),
-        path="/",
-    )
-
-
-def _clear_csrf_cookie(
-    response: Response,
-) -> None:
-    response.delete_cookie(
-        key=(
-            settings.csrf_cookie_name
-        ),
-        path="/",
-    )
-
-
-def _clear_auth_cookies(
-    response: Response,
-) -> None:
-    clear_refresh_cookie(
-        response
-    )
-
-    _clear_csrf_cookie(
-        response
     )
 
 
@@ -295,17 +258,14 @@ def login_for_access_token(
                 .HTTP_429_TOO_MANY_REQUESTS
             ),
             detail=(
-                "Too many authentication "
-                "attempts. Please try again later."
+                LOGIN_THROTTLED_MESSAGE
             ),
-            headers={
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .LOGIN_THROTTLED
+                )
+            ),
         )
 
     try:
@@ -349,19 +309,19 @@ def login_for_access_token(
                 .HTTP_401_UNAUTHORIZED
             ),
             detail=(
-                "Incorrect email or password."
+                LOGIN_CREDENTIALS_INVALID_MESSAGE
             ),
-            headers={
-                "WWW-Authenticate": (
-                    "Bearer"
-                ),
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .LOGIN_CREDENTIALS_INVALID,
+                    additional_headers={
+                        "WWW-Authenticate": (
+                            "Bearer"
+                        ),
+                    },
+                )
+            ),
         ) from exc
 
     login_throttle.record_success(
@@ -382,7 +342,7 @@ def login_for_access_token(
         result.refresh_token,
     )
 
-    _set_csrf_cookie(
+    set_csrf_cookie(
         response,
         result.csrf_token,
     )
@@ -397,10 +357,6 @@ def login_for_access_token(
         user_id=(
             user.id
         ),
-    )
-
-    prevent_auth_response_caching(
-        response
     )
 
     return TokenResponse(
@@ -471,16 +427,14 @@ def reauthenticate_current_user(
                 .HTTP_401_UNAUTHORIZED
             ),
             detail=(
-                "Reauthentication failed."
+                REAUTHENTICATION_FAILED_MESSAGE
             ),
-            headers={
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .REAUTHENTICATION_FAILED
+                )
+            ),
         ) from exc
 
     security_event_logger.emit(
@@ -493,10 +447,6 @@ def reauthenticate_current_user(
         user_id=(
             current_user.id
         ),
-    )
-
-    prevent_auth_response_caching(
-        response
     )
 
     return ReauthenticationResponse(
@@ -592,24 +542,18 @@ def change_current_user_password(
                 status
                 .HTTP_400_BAD_REQUEST
             ),
-            detail=str(
-                exc
+            detail=(
+                PASSWORD_CHANGE_REJECTED_MESSAGE
             ),
-            headers={
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .PASSWORD_CHANGE_REJECTED
+                )
+            ),
         ) from exc
 
-    _clear_auth_cookies(
-        response
-    )
-
-    prevent_auth_response_caching(
+    clear_auth_cookies(
         response
     )
 
@@ -702,40 +646,26 @@ def request_password_reset(
             },
         )
 
-        headers: dict[
-            str,
-            str,
-        ] = {
-            "Cache-Control": (
-                "no-store"
-            ),
-            "Pragma": (
-                "no-cache"
-            ),
-        }
-
-        if (
-            throttle_decision
-            .retry_after_seconds
-            is not None
-        ):
-            headers[
-                "Retry-After"
-            ] = str(
-                throttle_decision
-                .retry_after_seconds
-            )
-
         raise HTTPException(
             status_code=(
                 status
                 .HTTP_429_TOO_MANY_REQUESTS
             ),
             detail=(
-                "Too many password reset "
-                "requests. Please try again later."
+                PASSWORD_RESET_THROTTLED_MESSAGE
             ),
-            headers=headers,
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .PASSWORD_RESET_THROTTLED,
+                    additional_headers={
+                        "Retry-After": str(
+                            throttle_decision
+                            .retry_after_seconds
+                        ),
+                    },
+                )
+            ),
         )
 
     issuance = (
@@ -784,10 +714,6 @@ def request_password_reset(
         account_identifier=(
             payload.email
         ),
-    )
-
-    prevent_auth_response_caching(
-        response
     )
 
     return (
@@ -856,17 +782,14 @@ def confirm_password_reset(
                 .HTTP_400_BAD_REQUEST
             ),
             detail=(
-                "The password reset credential "
-                "is invalid or expired."
+                PASSWORD_RESET_CREDENTIAL_INVALID_MESSAGE
             ),
-            headers={
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .PASSWORD_RESET_CREDENTIAL_INVALID
+                )
+            ),
         ) from exc
 
     except (
@@ -889,24 +812,18 @@ def confirm_password_reset(
                 status
                 .HTTP_400_BAD_REQUEST
             ),
-            detail=str(
-                exc
+            detail=(
+                PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE
             ),
-            headers={
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .PASSWORD_RESET_PASSWORD_REJECTED
+                )
+            ),
         ) from exc
 
-    _clear_auth_cookies(
-        response
-    )
-
-    prevent_auth_response_caching(
+    clear_auth_cookies(
         response
     )
 
@@ -972,12 +889,12 @@ def refresh_access_token(
             ),
         )
 
-        raise _credentials_exception(
-            "Could not refresh credentials."
+        raise (
+            _refresh_credentials_exception()
         )
 
     csrf_cookie = (
-        _get_csrf_cookie(
+        get_csrf_cookie(
             request
         )
     )
@@ -1015,7 +932,9 @@ def refresh_access_token(
             ),
         )
 
-        raise _csrf_exception() from exc
+        raise (
+            _csrf_exception()
+        ) from exc
 
     except RefreshTokenReuseError as exc:
         security_event_logger.emit(
@@ -1041,25 +960,24 @@ def refresh_access_token(
                 ),
                 content={
                     "detail": (
-                        "Could not refresh "
-                        "credentials."
+                        REFRESH_CREDENTIALS_INVALID_MESSAGE
                     )
                 },
-                headers={
-                    "WWW-Authenticate": (
-                        "Bearer"
-                    ),
-                    "Cache-Control": (
-                        "no-store"
-                    ),
-                    "Pragma": (
-                        "no-cache"
-                    ),
-                },
+                headers=(
+                    auth_error_headers(
+                        AuthErrorCode
+                        .REFRESH_CREDENTIALS_INVALID,
+                        additional_headers={
+                            "WWW-Authenticate": (
+                                "Bearer"
+                            ),
+                        },
+                    )
+                ),
             )
         )
 
-        _clear_auth_cookies(
+        clear_auth_cookies(
             replay_response
         )
 
@@ -1078,8 +996,8 @@ def refresh_access_token(
             ),
         )
 
-        raise _credentials_exception(
-            "Could not refresh credentials."
+        raise (
+            _refresh_credentials_exception()
         ) from exc
 
     set_refresh_cookie(
@@ -1100,10 +1018,6 @@ def refresh_access_token(
         details={
             "refresh_rotated": True,
         },
-    )
-
-    prevent_auth_response_caching(
-        response
     )
 
     return TokenResponse(
@@ -1141,18 +1055,14 @@ def logout(
     )
 
     if refresh_token is None:
-        _clear_auth_cookies(
-            response
-        )
-
-        prevent_auth_response_caching(
+        clear_auth_cookies(
             response
         )
 
         return
 
     csrf_cookie = (
-        _get_csrf_cookie(
+        get_csrf_cookie(
             request
         )
     )
@@ -1190,7 +1100,9 @@ def logout(
             ),
         )
 
-        raise _csrf_exception() from exc
+        raise (
+            _csrf_exception()
+        ) from exc
 
     except RefreshTokenReuseError as exc:
         security_event_logger.emit(
@@ -1208,32 +1120,20 @@ def logout(
             ),
         )
 
-        _clear_auth_cookies(
-            response
-        )
-
-        prevent_auth_response_caching(
+        clear_auth_cookies(
             response
         )
 
         return
 
     except AuthenticationError:
-        _clear_auth_cookies(
-            response
-        )
-
-        prevent_auth_response_caching(
+        clear_auth_cookies(
             response
         )
 
         return
 
-    _clear_auth_cookies(
-        response
-    )
-
-    prevent_auth_response_caching(
+    clear_auth_cookies(
         response
     )
 
@@ -1282,11 +1182,7 @@ def logout_all(
         )
     )
 
-    _clear_auth_cookies(
-        response
-    )
-
-    prevent_auth_response_caching(
+    clear_auth_cookies(
         response
     )
 

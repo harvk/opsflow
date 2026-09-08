@@ -48,6 +48,10 @@ from app.services.user_service import (
     UserService,
 )
 
+from app.core.auth_response_messages import (
+    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
+)
+
 
 # =========================================================
 # TEST CONSTANTS
@@ -867,15 +871,11 @@ def test_current_password_reuse_does_not_consume_reset_token(
         == 400
     ), reuse_response.text
 
-    assert (
-        reuse_response.json()
-        == {
-            "detail": (
-                "The new password must differ "
-                "from the current password."
-            ),
-        }
-    )
+    assert reuse_response.json() == {
+        "detail": (
+            PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE
+        )
+    }
 
     # -----------------------------------------------------
     # SAME TOKEN MUST STILL BE USABLE

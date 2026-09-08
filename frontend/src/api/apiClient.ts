@@ -1,3 +1,5 @@
+import { AuthErrorCode, readAuthErrorCode } from "./authErrors";
+
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
 
@@ -45,8 +47,8 @@ let accessToken: string | null = null;
  * REFRESH COORDINATION
  * =========================================================
  *
- * Several protected requests may receive 401 at nearly the
- * same time when the current access token expires.
+ * Several protected requests may receive an access-token
+ * rejection at nearly the same time.
  *
  * refreshPromise ensures they share one refresh request:
  *
@@ -115,15 +117,7 @@ function getCookie(name: string): string | null {
       return null;
     }
 
-    try {
-      return decodeURIComponent(cookieValue);
-    } catch {
-      /*
-       * A malformed cookie must never crash the entire
-       * authentication client.
-       */
-      return null;
-    }
+    return decodeURIComponent(cookieValue);
   }
 
   return null;
@@ -137,11 +131,7 @@ function getCookie(name: string): string | null {
  * The refresh JWT is HttpOnly and cannot be read by
  * JavaScript.
  *
- * The CSRF cookie is intentionally readable. For unsafe
- * cookie-authenticated requests, the frontend copies the
- * cookie value into:
- *
- *   X-CSRF-Token
+ * The CSRF cookie is intentionally readable.
  */
 
 export function getCsrfToken(): string | null {
@@ -152,10 +142,6 @@ export function getCsrfToken(): string | null {
  * =========================================================
  * PRIVATE CSRF HEADER APPLICATION
  * =========================================================
- *
- * apiFetch() uses this helper automatically.
- *
- * It mutates the supplied Headers instance.
  */
 
 function applyCsrfHeader(headers: Headers, method: string | undefined): void {
@@ -171,9 +157,8 @@ function applyCsrfHeader(headers: Headers, method: string | undefined): void {
     /*
      * Never fabricate a CSRF value.
      *
-     * A cookie-authenticated backend endpoint requiring
-     * CSRF validation should reject the request rather than
-     * receive a made-up value.
+     * A backend endpoint requiring cookie-authenticated
+     * CSRF proof should reject the request itself.
      */
 
     headers.delete(CSRF_HEADER_NAME);
@@ -188,16 +173,6 @@ function applyCsrfHeader(headers: Headers, method: string | undefined): void {
  * =========================================================
  * PUBLIC CSRF HEADER HELPER
  * =========================================================
- *
- * Some authentication calls intentionally bypass apiFetch()
- * because they have special lifecycle behavior.
- *
- * Examples:
- *
- *   POST /auth/refresh
- *   POST /auth/logout
- *
- * These calls still require the double-submit CSRF header.
  */
 
 export function addCsrfHeader(headers: Headers, method = "POST"): Headers {
@@ -227,11 +202,11 @@ function dispatchUnauthorized(): void {
  *
  * protected request
  *      ↓
- *     401
+ * typed access rejection
  *      ↓
  * refresh
  *      ↓
- *     401
+ * refresh rejection
  *      ↓
  * refresh again
  *
@@ -272,6 +247,7 @@ async function performAccessTokenRefresh(): Promise<string | null> {
 
     const body = (await response.json()) as {
       access_token?: unknown;
+
       token_type?: unknown;
     };
 
@@ -329,7 +305,7 @@ async function executeRequest(
 
   /*
    * -------------------------------------------------------
-   * Bearer authentication
+   * BEARER AUTHENTICATION
    * -------------------------------------------------------
    */
 
@@ -343,12 +319,6 @@ async function executeRequest(
    * -------------------------------------------------------
    * CSRF
    * -------------------------------------------------------
-   *
-   * Add the CSRF header to unsafe HTTP methods whenever the
-   * signed readable CSRF cookie exists.
-   *
-   * Bearer-only API routes may simply ignore this extra
-   * header.
    */
 
   applyCsrfHeader(headers, options.method);
@@ -387,21 +357,55 @@ export async function apiFetch(
   const response = await executeRequest(path, options, currentToken);
 
   /*
-   * No authentication retry is necessary when:
+   * No local access credential was presented.
    *
-   *   - the response is not 401
-   *   - or there was no access token in the first place
+   * There is therefore nothing to refresh.
    */
 
-  if (response.status !== 401 || !currentToken) {
+  if (!currentToken) {
     return response;
   }
 
   /*
-   * FastAPI rejected an access token.
+   * Anything other than HTTP 401 is not an access-token
+   * authentication failure.
+   */
+
+  if (response.status !== 401) {
+    return response;
+  }
+
+  const authErrorCode = readAuthErrorCode(response);
+
+  /*
+   * =======================================================
+   * UNKNOWN 401 — FAIL CLOSED
+   * =======================================================
    *
-   * The normal legitimate explanation is that the
-   * short-lived token expired.
+   * A 401 with an unexpected or absent authentication code
+   * is not assumed to mean ordinary token expiration.
+   *
+   * Do not automatically send persistent refresh
+   * credentials in response to an ambiguous failure.
+   *
+   * Clear local identity and require a fresh login instead.
+   */
+
+  if (authErrorCode !== AuthErrorCode.ACCESS_CREDENTIALS_INVALID) {
+    clearAccessToken();
+
+    dispatchUnauthorized();
+
+    return response;
+  }
+
+  /*
+   * =======================================================
+   * TYPED ACCESS-CREDENTIAL FAILURE
+   * =======================================================
+   *
+   * FastAPI explicitly identified the rejected credential
+   * as the bearer access credential.
    *
    * Attempt exactly one coordinated refresh.
    */
@@ -417,15 +421,15 @@ export async function apiFetch(
   }
 
   /*
-   * Retry the original request exactly once using the new
-   * bearer credential.
+   * Retry the original request exactly once using the
+   * replacement bearer credential.
    */
 
   const retryResponse = await executeRequest(path, options, replacementToken);
 
   /*
-   * A second 401 means ordinary token expiration was not
-   * the problem.
+   * A second 401 after successful refresh means the local
+   * authenticated identity can no longer be trusted.
    *
    * Do not enter another refresh cycle.
    */

@@ -31,6 +31,10 @@ from app.services.user_service import (
     UserService,
 )
 
+from app.core.auth_response_messages import (
+    PASSWORD_CHANGE_REJECTED_MESSAGE,
+)
+
 
 OLD_PASSWORD = (
     "VerySecurePassword123!"
@@ -290,8 +294,7 @@ def test_change_password_rejects_current_password_as_new_password(
 
     assert response.json() == {
         "detail": (
-            "The new password must differ "
-            "from the current password."
+            PASSWORD_CHANGE_REJECTED_MESSAGE
         )
     }
 

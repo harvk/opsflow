@@ -15,83 +15,32 @@ from app.core.config import (
 )
 
 
-# =========================================================
-# BASELINE RESPONSE SECURITY POLICY
-# =========================================================
-
-
-BASE_SECURITY_HEADERS: tuple[
-    tuple[str, str],
-    ...,
-] = (
-    (
-        "X-Content-Type-Options",
-        "nosniff",
-    ),
-    (
-        "X-Frame-Options",
-        "DENY",
-    ),
-    (
-        "Referrer-Policy",
-        "strict-origin-when-cross-origin",
-    ),
-    (
-        "Permissions-Policy",
-        (
-            "camera=(), "
-            "microphone=(), "
-            "geolocation=()"
-        ),
-    ),
-    (
-        "X-Permitted-Cross-Domain-Policies",
-        "none",
-    ),
+AUTH_CACHE_CONTROL = (
+    "no-store, "
+    "no-cache, "
+    "must-revalidate"
 )
-
-
-HSTS_HEADER_NAME = (
-    "Strict-Transport-Security"
-)
-
-HSTS_HEADER_VALUE = (
-    "max-age=31536000; "
-    "includeSubDomains"
-)
-
-
-# =========================================================
-# SECURITY HEADERS MIDDLEWARE
-# =========================================================
 
 
 class SecurityHeadersMiddleware:
     """
-    Add baseline defensive HTTP response headers to OpsFlow
+    Apply baseline defensive HTTP headers to OpsFlow
     responses.
 
-    The middleware operates at the ASGI response boundary,
-    allowing the same policy to apply to responses produced
-    by:
+    Authentication responses receive an additional cache
+    boundary.
 
-        API routes
-        authentication failures
-        validation failures
-        CORS middleware
-        browser-trust middleware
-        framework-generated 404 responses
+    This is intentionally enforced at middleware level
+    rather than relying only on individual routes because
+    some responses can be generated before route code runs:
 
-    Content-Security-Policy is intentionally not added yet.
+        request-validation failures
+        authentication dependency failures
+        middleware rejections
+        framework-generated error responses
 
-    FastAPI's Swagger and ReDoc interfaces require a CSP
-    designed specifically for their scripts, styles, and
-    resources.
-
-    Strict-Transport-Security is enabled only when OpsFlow
-    runs in the production environment because HSTS applies
-    to HTTPS deployments and should not be forced onto local
-    HTTP development.
+    HSTS remains production-only because local development
+    uses plain HTTP.
     """
 
     def __init__(
@@ -106,13 +55,6 @@ class SecurityHeadersMiddleware:
         receive: Receive,
         send: Send,
     ) -> None:
-        """
-        Apply security headers to HTTP responses.
-
-        Non-HTTP ASGI scopes, such as WebSocket traffic, are
-        passed through unchanged.
-        """
-
         if (
             scope["type"]
             != "http"
@@ -125,14 +67,22 @@ class SecurityHeadersMiddleware:
 
             return
 
+        request_path = (
+            scope.get(
+                "path",
+                "",
+            )
+        )
+
+        auth_response = (
+            self._is_auth_path(
+                request_path
+            )
+        )
+
         async def send_with_security_headers(
             message: Message,
         ) -> None:
-            """
-            Intercept the response-start event before headers
-            are transmitted to the client.
-            """
-
             if (
                 message["type"]
                 == "http.response.start"
@@ -143,35 +93,81 @@ class SecurityHeadersMiddleware:
                     )
                 )
 
-                # -----------------------------------------
-                # Baseline policy
-                # -----------------------------------------
+                # =========================================
+                # BASELINE RESPONSE HARDENING
+                # =========================================
 
-                for (
-                    header_name,
-                    header_value,
-                ) in BASE_SECURITY_HEADERS:
+                headers[
+                    "X-Content-Type-Options"
+                ] = "nosniff"
+
+                headers[
+                    "X-Frame-Options"
+                ] = "DENY"
+
+                headers[
+                    "Referrer-Policy"
+                ] = (
+                    "strict-origin-when-cross-origin"
+                )
+
+                headers[
+                    "Permissions-Policy"
+                ] = (
+                    "camera=(), "
+                    "microphone=(), "
+                    "geolocation=()"
+                )
+
+                headers[
+                    "X-Permitted-Cross-Domain-Policies"
+                ] = "none"
+
+                # =========================================
+                # AUTHENTICATION CACHE BOUNDARY
+                # =========================================
+                #
+                # Every response under /api/v1/auth must be
+                # treated as authentication-sensitive.
+                #
+                # This includes:
+                #
+                #   2xx success responses
+                #   4xx credential failures
+                #   CSRF failures
+                #   throttle responses
+                #   FastAPI 422 validation failures
+                #   middleware-generated rejections
+                #
+                # Individual routes may still set these
+                # headers during this migration. This
+                # middleware intentionally normalizes them
+                # to one authoritative value.
+
+                if auth_response:
                     headers[
-                        header_name
-                    ] = header_value
+                        "Cache-Control"
+                    ] = (
+                        AUTH_CACHE_CONTROL
+                    )
 
-                # -----------------------------------------
-                # Production HTTPS policy
-                # -----------------------------------------
-                #
-                # Do not emit HSTS during localhost HTTP
-                # development.
-                #
-                # settings.is_production is the existing
-                # authoritative environment switch.
+                    headers[
+                        "Pragma"
+                    ] = "no-cache"
+
+                # =========================================
+                # PRODUCTION TRANSPORT SECURITY
+                # =========================================
 
                 if (
-                    settings.is_production
+                    settings
+                    .is_production
                 ):
                     headers[
-                        HSTS_HEADER_NAME
+                        "Strict-Transport-Security"
                     ] = (
-                        HSTS_HEADER_VALUE
+                        "max-age=31536000; "
+                        "includeSubDomains"
                     )
 
             await send(
@@ -182,4 +178,32 @@ class SecurityHeadersMiddleware:
             scope,
             receive,
             send_with_security_headers,
+        )
+
+    @staticmethod
+    def _is_auth_path(
+        path: str,
+    ) -> bool:
+        """
+        Return True only for the actual authentication
+        route boundary.
+
+        Avoid a broad startswith('/api/v1/auth') check,
+        because that would also match unrelated paths such
+        as:
+
+            /api/v1/authentication
+            /api/v1/author
+        """
+
+        auth_prefix = (
+            f"{settings.api_v1_prefix.rstrip('/')}"
+            "/auth"
+        )
+
+        return (
+            path == auth_prefix
+            or path.startswith(
+                f"{auth_prefix}/"
+            )
         )

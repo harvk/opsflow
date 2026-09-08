@@ -10,6 +10,8 @@ import {
   setAccessToken,
 } from "./apiClient";
 
+import { AUTH_ERROR_CODE_HEADER, AuthErrorCode } from "./authErrors";
+
 /*
  * =========================================================
  * TEST CONSTANTS
@@ -60,9 +62,29 @@ function jsonResponse(
   });
 }
 
-function emptyResponse(status: number): Response {
+function emptyResponse(status: number, headers?: HeadersInit): Response {
   return new Response(null, {
     status,
+    headers,
+  });
+}
+
+/*
+ * =========================================================
+ * TYPED ACCESS-CREDENTIAL FAILURE
+ * =========================================================
+ *
+ * apiFetch must refresh only when FastAPI explicitly
+ * identifies the rejected credential as the bearer access
+ * credential.
+ *
+ * A bare 401 is deliberately ambiguous and must not trigger
+ * persistent refresh-cookie use.
+ */
+
+function accessCredentialFailureResponse(): Response {
+  return emptyResponse(401, {
+    [AUTH_ERROR_CODE_HEADER]: AuthErrorCode.ACCESS_CREDENTIALS_INVALID,
   });
 }
 
@@ -73,11 +95,11 @@ function emptyResponse(status: number): Response {
  */
 
 function setTestCookie(name: string, value: string): void {
-  document.cookie = `${name}=${encodeURIComponent(value)}; Path=/`;
+  document.cookie = `${name}=` + `${encodeURIComponent(value)}; ` + "Path=/";
 }
 
 function clearTestCookie(name: string): void {
-  document.cookie = `${name}=; Max-Age=0; Path=/`;
+  document.cookie = `${name}=; ` + "Max-Age=0; " + "Path=/";
 }
 
 /*
@@ -193,7 +215,7 @@ describe("getCsrfToken", () => {
   });
 
   it("returns null for an empty CSRF cookie", () => {
-    document.cookie = `${CSRF_COOKIE_NAME}=; Path=/`;
+    document.cookie = `${CSRF_COOKIE_NAME}=; ` + "Path=/";
 
     expect(getCsrfToken()).toBeNull();
   });
@@ -264,6 +286,7 @@ describe("refreshAccessToken", () => {
     fetchMock.mockResolvedValueOnce(
       jsonResponse({
         access_token: "new-access-token",
+
         token_type: "bearer",
       }),
     );
@@ -520,7 +543,7 @@ describe("apiFetch", () => {
   });
 
   it("does not attempt refresh for a 401 when no access token was sent", async () => {
-    fetchMock.mockResolvedValueOnce(emptyResponse(401));
+    fetchMock.mockResolvedValueOnce(accessCredentialFailureResponse());
 
     const response = await apiFetch("/services");
 
@@ -531,16 +554,62 @@ describe("apiFetch", () => {
     expect(countRefreshCalls()).toBe(0);
   });
 
+  it("does not refresh an ambiguous 401 when an access token was sent", async () => {
+    setAccessToken("current-access-token");
+
+    const unauthorizedListener = vi.fn();
+
+    window.addEventListener("opsflow:unauthorized", unauthorizedListener);
+
+    fetchMock.mockResolvedValueOnce(emptyResponse(401));
+
+    try {
+      const response = await apiFetch("/services");
+
+      expect(response.status).toBe(401);
+
+      /*
+       * An untyped 401 is deliberately not assumed to
+       * mean that the bearer access token expired.
+       *
+       * Persistent refresh credentials must therefore
+       * not be sent.
+       */
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+
+      expect(countRefreshCalls()).toBe(0);
+
+      expect(getAccessToken()).toBeNull();
+
+      expect(unauthorizedListener).toHaveBeenCalledTimes(1);
+    } finally {
+      window.removeEventListener("opsflow:unauthorized", unauthorizedListener);
+    }
+  });
+
   it("refreshes an expired token and retries the original request once", async () => {
     setAccessToken("expired-access-token");
 
     fetchMock
-      .mockResolvedValueOnce(emptyResponse(401))
+      /*
+       * The backend explicitly identifies the first 401
+       * as an access-credential rejection.
+       */
+      .mockResolvedValueOnce(accessCredentialFailureResponse())
+
+      /*
+       * Refresh succeeds.
+       */
       .mockResolvedValueOnce(
         jsonResponse({
           access_token: "replacement-access-token",
         }),
       )
+
+      /*
+       * Original request succeeds when retried.
+       */
       .mockResolvedValueOnce(
         jsonResponse({
           ok: true,
@@ -596,7 +665,15 @@ describe("apiFetch", () => {
     window.addEventListener("opsflow:unauthorized", unauthorizedListener);
 
     fetchMock
-      .mockResolvedValueOnce(emptyResponse(401))
+      /*
+       * Original protected request is explicitly an
+       * access-token rejection.
+       */
+      .mockResolvedValueOnce(accessCredentialFailureResponse())
+
+      /*
+       * Refresh itself fails.
+       */
       .mockResolvedValueOnce(emptyResponse(401));
 
     try {
@@ -632,8 +709,11 @@ describe("apiFetch", () => {
     fetchMock
       /*
        * Original protected request.
+       *
+       * This must be explicitly identified as an access
+       * credential rejection to authorize one refresh.
        */
-      .mockResolvedValueOnce(emptyResponse(401))
+      .mockResolvedValueOnce(accessCredentialFailureResponse())
 
       /*
        * Successful refresh.
@@ -646,8 +726,11 @@ describe("apiFetch", () => {
 
       /*
        * Retried protected request still fails.
+       *
+       * apiFetch must not recurse into another refresh
+       * cycle after the one allowed retry.
        */
-      .mockResolvedValueOnce(emptyResponse(401));
+      .mockResolvedValueOnce(accessCredentialFailureResponse());
 
     try {
       const response = await apiFetch("/services");
@@ -658,9 +741,6 @@ describe("apiFetch", () => {
 
       /*
        * Crucially, there was only ONE refresh request.
-       *
-       * The second protected 401 must not recurse back
-       * through the refresh flow.
        */
 
       expect(countRefreshCalls()).toBe(1);
@@ -686,7 +766,8 @@ describe("concurrent refresh coordination", () => {
 
     /*
      * Hold the refresh response open long enough for
-     * both protected requests to reach refreshAccessToken().
+     * both protected requests to reach
+     * refreshAccessToken().
      *
      * If refreshPromise works correctly, request B will
      * reuse request A's pending refresh Promise rather
@@ -718,10 +799,13 @@ describe("concurrent refresh coordination", () => {
 
       /*
        * Both initial requests use the expired token.
+       *
+       * FastAPI explicitly identifies the bearer
+       * access credential as the rejected credential.
        */
 
       if (authorization === "Bearer expired-access-token") {
-        return Promise.resolve(emptyResponse(401));
+        return Promise.resolve(accessCredentialFailureResponse());
       }
 
       /*
@@ -785,8 +869,8 @@ describe("concurrent refresh coordination", () => {
     /*
      * Expected calls:
      *
-     * 1. GET /services    -> 401
-     * 2. GET /incidents   -> 401
+     * 1. GET /services    -> typed 401
+     * 2. GET /incidents   -> typed 401
      * 3. POST /refresh    -> 200
      * 4. retry /services  -> 200
      * 5. retry /incidents -> 200

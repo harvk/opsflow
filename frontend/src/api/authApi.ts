@@ -1,4 +1,6 @@
-import { addCsrfHeader, apiFetch } from "./apiClient";
+import { apiFetch } from "./apiClient";
+
+import { AuthApiError, AuthErrorCode, readAuthErrorCode } from "./authErrors";
 
 import type { AuthToken, AuthUser, LoginCredentials } from "../types/auth";
 
@@ -15,16 +17,54 @@ export interface PasswordResetRequestResponse {
   message: string;
 }
 
-export class PasswordResetThrottleError extends Error {
+/*
+ * =========================================================
+ * PASSWORD RESET THROTTLE ERROR
+ * =========================================================
+ *
+ * ForgotPasswordPage already distinguishes this error so it
+ * can display Retry-After information.
+ *
+ * Preserve that interface while attaching the stable
+ * backend authentication error code.
+ */
+
+export class PasswordResetThrottleError extends AuthApiError {
   readonly retryAfterSeconds: number | null;
 
   constructor(message: string, retryAfterSeconds: number | null) {
-    super(message);
+    super(message, {
+      code: AuthErrorCode.PASSWORD_RESET_THROTTLED,
+
+      status: 429,
+    });
 
     this.name = "PasswordResetThrottleError";
 
     this.retryAfterSeconds = retryAfterSeconds;
   }
+}
+
+/*
+ * =========================================================
+ * RETRY-AFTER PARSING
+ * =========================================================
+ */
+
+function readRetryAfterSeconds(response: Response): number | null {
+  const retryAfterHeader = response.headers.get("Retry-After");
+
+  if (retryAfterHeader === null) {
+    return null;
+  }
+
+  const parsedRetryAfter = Number.parseInt(retryAfterHeader, 10);
+
+  if (!Number.isFinite(parsedRetryAfter) || parsedRetryAfter <= 0) {
+    return null;
+  }
+
+  return parsedRetryAfter;
 }
 
 /*
@@ -46,12 +86,8 @@ export async function loginRequest(
     method: "POST",
 
     /*
-     * Required so the browser accepts:
-     *
-     *   HttpOnly refresh cookie
-     *   readable CSRF cookie
-     *
-     * returned by FastAPI.
+     * Required so the browser accepts the HttpOnly
+     * refresh cookie returned by FastAPI.
      */
 
     credentials: "include",
@@ -66,15 +102,32 @@ export async function loginRequest(
   });
 
   if (!response.ok) {
-    if (response.status === 401) {
-      throw new Error("Invalid email or password.");
+    const code = readAuthErrorCode(response);
+
+    if (code === AuthErrorCode.LOGIN_CREDENTIALS_INVALID) {
+      throw new AuthApiError("Invalid email or password.", {
+        code,
+
+        status: response.status,
+      });
     }
 
-    if (response.status === 429) {
-      throw new Error("Too many sign-in attempts. Please try again later.");
+    if (code === AuthErrorCode.LOGIN_THROTTLED) {
+      throw new AuthApiError(
+        "Too many authentication attempts. " + "Please try again later.",
+        {
+          code,
+
+          status: response.status,
+        },
+      );
     }
 
-    throw new Error("Unable to sign in. Please try again.");
+    throw new AuthApiError("Unable to sign in. Please try again.", {
+      code,
+
+      status: response.status,
+    });
   }
 
   return response.json() as Promise<AuthToken>;
@@ -90,7 +143,13 @@ export async function getCurrentUserRequest(): Promise<AuthUser> {
   const response = await apiFetch("/auth/me");
 
   if (!response.ok) {
-    throw new Error("Unable to retrieve the authenticated user.");
+    const code = readAuthErrorCode(response);
+
+    throw new AuthApiError("Unable to retrieve the authenticated user.", {
+      code,
+
+      status: response.status,
+    });
   }
 
   return response.json() as Promise<AuthUser>;
@@ -101,69 +160,37 @@ export async function getCurrentUserRequest(): Promise<AuthUser> {
  * LOGOUT
  * =========================================================
  *
- * Logout deliberately uses direct fetch() instead of
- * apiFetch().
+ * Use apiFetch rather than a raw fetch.
  *
- * Why?
+ * apiFetch already owns:
  *
- * Logout is a cookie-session mutation:
- *
- *   HttpOnly refresh cookie
- *       +
+ *   credentials: include
+ *   bearer access token
  *   readable CSRF cookie
- *       +
- *   X-CSRF-Token header
+ *   X-CSRF-Token
  *
- * We do not want an unsuccessful logout to initiate the
- * ordinary protected-request refresh/retry cycle.
+ * This also matches AuthContext's existing architecture.
  */
 
 export async function logoutRequest(): Promise<void> {
-  /*
-   * This is the missing piece from the previous version.
-   *
-   * addCsrfHeader() reads:
-   *
-   *     opsflow_csrf
-   *
-   * from document.cookie and places the exact value into:
-   *
-   *     X-CSRF-Token
-   */
-
-  const headers = addCsrfHeader(
-    new Headers({
-      Accept: "application/json",
-    }),
-    "POST",
-  );
-
-  const response = await fetch(`${API_BASE_URL}/auth/logout`, {
+  const response = await apiFetch("/auth/logout", {
     method: "POST",
 
-    /*
-     * Sends the browser-managed HttpOnly refresh
-     * credential and the readable CSRF cookie.
-     */
-
-    credentials: "include",
-
-    /*
-     * Explicitly sends the CSRF header generated above.
-     */
-
-    headers,
+    headers: {
+      Accept: "application/json",
+    },
   });
 
-  if (!response.ok) {
-    if (response.status === 403) {
-      throw new Error(
-        "Logout was rejected because the browser session " +
-          "could not provide valid CSRF proof.",
-      );
-    }
+  if (response.status === 204) {
+    return;
+  }
 
-    throw new Error("Unable to complete server logout.");
+  if (!response.ok) {
+    throw new AuthApiError("Unable to complete server logout.", {
+      code: readAuthErrorCode(response),
+
+      status: response.status,
+    });
   }
 }
 
@@ -179,14 +206,6 @@ export async function requestPasswordReset(
   const response = await fetch(`${API_BASE_URL}/auth/password-reset/request`, {
     method: "POST",
 
-    /*
-     * This endpoint is intentionally anonymous.
-     *
-     * It does not depend on the browser refresh cookie
-     * and therefore does not require the session CSRF
-     * proof used by refresh/logout.
-     */
-
     headers: {
       "Content-Type": "application/json",
 
@@ -198,28 +217,33 @@ export async function requestPasswordReset(
     }),
   });
 
-  if (response.status === 429) {
-    const retryAfterHeader = response.headers.get("Retry-After");
+  const code = readAuthErrorCode(response);
 
-    const parsedRetryAfter =
-      retryAfterHeader === null ? null : Number.parseInt(retryAfterHeader, 10);
+  /*
+   * Do not infer password-reset throttling from HTTP 429
+   * alone.
+   *
+   * The backend must explicitly identify the condition.
+   */
 
-    const retryAfterSeconds =
-      parsedRetryAfter !== null &&
-      Number.isFinite(parsedRetryAfter) &&
-      parsedRetryAfter > 0
-        ? parsedRetryAfter
-        : null;
-
+  if (
+    response.status === 429 &&
+    code === AuthErrorCode.PASSWORD_RESET_THROTTLED
+  ) {
     throw new PasswordResetThrottleError(
       "Too many password reset requests. " + "Please try again later.",
-      retryAfterSeconds,
+      readRetryAfterSeconds(response),
     );
   }
 
   if (!response.ok) {
-    throw new Error(
+    throw new AuthApiError(
       "Unable to request a password reset. " + "Please try again.",
+      {
+        code,
+
+        status: response.status,
+      },
     );
   }
 
@@ -229,7 +253,7 @@ export async function requestPasswordReset(
 
   if (typeof body.message !== "string" || body.message.length === 0) {
     throw new Error(
-      "The password reset service " + "returned an invalid response.",
+      "The password reset service returned " + "an invalid response.",
     );
   }
 
@@ -253,11 +277,8 @@ export async function confirmPasswordReset(
 
     /*
      * Confirmation revokes persistent authentication
-     * sessions and FastAPI clears authentication
+     * sessions and FastAPI clears any authentication
      * cookies held by this browser.
-     *
-     * credentials: "include" allows those Set-Cookie
-     * deletion headers to update the browser.
      */
 
     credentials: "include",
@@ -279,31 +300,61 @@ export async function confirmPasswordReset(
     return;
   }
 
-  if (response.status === 400) {
-    let detail: string | undefined;
+  const code = readAuthErrorCode(response);
 
-    try {
-      const body = (await response.json()) as {
-        detail?: unknown;
-      };
+  /*
+   * =======================================================
+   * INVALID RESET CREDENTIAL
+   * =======================================================
+   *
+   * Do not consume backend detail text.
+   */
 
-      if (typeof body.detail === "string") {
-        detail = body.detail;
-      }
-    } catch {
-      /*
-       * Fall through to the generic reset error.
-       */
-    }
+  if (code === AuthErrorCode.PASSWORD_RESET_CREDENTIAL_INVALID) {
+    throw new AuthApiError("The password reset link is invalid or expired.", {
+      code,
 
-    throw new Error(detail ?? "The password reset link is invalid or expired.");
+      status: response.status,
+    });
   }
 
+  /*
+   * =======================================================
+   * REPLACEMENT PASSWORD REJECTED
+   * =======================================================
+   */
+
+  if (code === AuthErrorCode.PASSWORD_RESET_PASSWORD_REJECTED) {
+    throw new AuthApiError("The new password could not be accepted.", {
+      code,
+
+      status: response.status,
+    });
+  }
+
+  /*
+   * =======================================================
+   * PYDANTIC / SCHEMA VALIDATION
+   * =======================================================
+   *
+   * HTTP 422 is framework-level request validation rather
+   * than an authentication-domain error code.
+   */
+
   if (response.status === 422) {
-    throw new Error(
-      "The new password does not meet " + "the required password policy.",
+    throw new AuthApiError(
+      "The new password does not meet the " + "required password policy.",
+      {
+        code,
+
+        status: response.status,
+      },
     );
   }
 
-  throw new Error("Unable to reset the password. " + "Please try again.");
+  throw new AuthApiError("Unable to reset the password. Please try again.", {
+    code,
+
+    status: response.status,
+  });
 }

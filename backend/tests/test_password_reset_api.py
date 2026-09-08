@@ -89,6 +89,10 @@ from urllib.parse import (
     urlsplit,
 )
 
+from app.core.auth_response_messages import (
+    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
+)
+
 
 OLD_PASSWORD = (
     "VerySecurePassword123!"
@@ -836,8 +840,7 @@ def test_password_reset_confirm_rejects_current_password_reuse(
 
     assert response.json() == {
         "detail": (
-            "The new password must differ "
-            "from the current password."
+            PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE
         )
     }
 

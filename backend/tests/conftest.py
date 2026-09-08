@@ -1,40 +1,95 @@
-from collections.abc import Generator
-from datetime import datetime, timezone
+from collections.abc import (
+    Generator,
+)
 
-from uuid import uuid4
+from datetime import (
+    datetime,
+    timezone,
+)
+
+from typing import (
+    Any,
+)
+
+from uuid import (
+    uuid4,
+)
 
 import pytest
 
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine, text
-from sqlalchemy.orm import Session
+from fastapi.testclient import (
+    TestClient,
+)
 
-from app.core.config import settings
-from app.db.session import get_db_session
+from sqlalchemy import (
+    create_engine,
+    text,
+)
 
-from app.core.security import create_access_token
+from sqlalchemy.orm import (
+    Session,
+)
 
-from app.domain.user import User, UserRole
-from app.repositories.sqlalchemy_user_repository import SqlAlchemyUserRepository
-from app.services.user_service import UserService
+from app.api.dependencies import (
+    get_login_throttle,
+    get_password_reset_throttle,
+    get_ses_client,
+)
+
+from app.core.config import (
+    settings,
+)
+
+from app.core.login_throttle import (
+    InMemoryLoginThrottle,
+)
+
+from app.core.password_reset_throttle import (
+    InMemoryPasswordResetThrottle,
+)
+
+from app.core.security import (
+    create_access_token,
+)
+
+from app.db.session import (
+    get_db_session,
+)
 
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
     IncidentStatus,
 )
+
 from app.domain.service import (
     Service,
     ServiceStatus,
 )
 
-from app.main import app
+from app.domain.user import (
+    User,
+    UserRole,
+)
+
+from app.main import (
+    app,
+)
 
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
 )
+
 from app.repositories.sqlalchemy_service_repository import (
     SqlAlchemyServiceRepository,
+)
+
+from app.repositories.sqlalchemy_user_repository import (
+    SqlAlchemyUserRepository,
+)
+
+from app.services.user_service import (
+    UserService,
 )
 
 from tests.constants import (
@@ -44,30 +99,70 @@ from tests.constants import (
     THIRD_INCIDENT_ID,
 )
 
-from app.api.dependencies import (
-    get_login_throttle,
-    get_password_reset_throttle,
-    get_password_reset_delivery,
-    get_password_reset_link_builder
-)
 
-from app.core.login_throttle import (
-    InMemoryLoginThrottle,
-)
+# =========================================================
+# TEST DATABASE ENGINE
+# =========================================================
 
-from app.core.password_reset_throttle import (
-    InMemoryPasswordResetThrottle
+
+test_engine = (
+    create_engine(
+        settings.test_database_url,
+        pool_pre_ping=True,
+    )
 )
 
 
-test_engine = create_engine(
-    settings.test_database_url,
-    pool_pre_ping=True,
-)
+# =========================================================
+# TEST SES CLIENT
+# =========================================================
+
+
+class SuccessfulTestSesClient:
+    """
+    No-network SES v2 test double.
+
+    Ordinary pytest requests should exercise the real:
+
+        FastAPI dependency graph
+            ↓
+        PasswordResetDeliveryCoordinator
+            ↓
+        PasswordResetLinkBuilder
+            ↓
+        SesPasswordResetDelivery
+
+    without ever contacting AWS.
+
+    Tests that specifically exercise SES failure and recovery
+    can replace get_ses_client with their own test doubles.
+
+    This class deliberately implements the same minimal
+    send_email contract used by SesClient.
+    """
+
+    def send_email(
+        self,
+        **_kwargs: Any,
+    ) -> dict[
+        str,
+        Any,
+    ]:
+        return {
+            "MessageId": (
+                "pytest-password-reset-message"
+            ),
+        }
+
+
+# =========================================================
+# DATABASE SESSION
+# =========================================================
 
 
 @pytest.fixture
-def db_session() -> Generator[
+def db_session(
+) -> Generator[
     Session,
     None,
     None,
@@ -107,6 +202,7 @@ def db_session() -> Generator[
     #
     # At the end of the test we roll this transaction back,
     # which removes all rows created or changed by that test.
+
     transaction = (
         connection.begin()
     )
@@ -115,17 +211,19 @@ def db_session() -> Generator[
     # CREATE TEST SQLALCHEMY SESSION
     # =====================================================
 
-    session = Session(
-        bind=connection,
-        autoflush=False,
-        expire_on_commit=False,
+    session = (
+        Session(
+            bind=connection,
+            autoflush=False,
+            expire_on_commit=False,
 
-        # Nested transactions/savepoints created by request
-        # fixtures can safely participate in this outer test
-        # transaction.
-        join_transaction_mode=(
-            "create_savepoint"
-        ),
+            # Nested transactions/savepoints created by
+            # request fixtures can safely participate in
+            # this outer test transaction.
+            join_transaction_mode=(
+                "create_savepoint"
+            ),
+        )
     )
 
     try:
@@ -148,7 +246,7 @@ def db_session() -> Generator[
         ):
             raise RuntimeError(
                 "Tests are connected to the wrong database. "
-                f"Expected 'opsflow_test', "
+                "Expected 'opsflow_test', "
                 f"got '{database_name}'."
             )
 
@@ -180,21 +278,6 @@ def db_session() -> Generator[
                 text(
                     "SELECT to_regclass("
                     "'public.incidents'"
-                    ")"
-                )
-            )
-            .scalar_one()
-        )
-        
-        # -------------------------------------------------
-        # password reset tokens
-        # -------------------------------------------------
-        
-        password_reset_tokens_table = (
-            session.execute(
-                text(
-                    "SELECT to_regclass("
-                    "'public.password_reset_tokens'"
                     ")"
                 )
             )
@@ -252,15 +335,6 @@ def db_session() -> Generator[
                 "public.incidents is missing "
                 "from opsflow_test."
             )
-            
-        if (
-            password_reset_tokens_table
-            is None
-        ):
-            raise RuntimeError(
-                "public.password_reset_tokens "
-                "is missing from opsflow_test."
-            )
 
         if (
             auth_sessions_table
@@ -311,41 +385,67 @@ def db_session() -> Generator[
         #   session revocations
         #
         # Nothing from one test should leak into the next.
+
         transaction.rollback()
 
         connection.close()
-        
-        
+
+
+# =========================================================
+# SEEDED SERVICES
+# =========================================================
+
+
 @pytest.fixture
 def seeded_services(
     db_session: Session,
-) -> list[Service]:
+) -> list[
+    Service
+]:
     service_repository = (
         SqlAlchemyServiceRepository(
             db_session
         )
     )
 
-    payments_service = Service(
-        id=PAYMENTS_SERVICE_ID,
-        name="Payments API",
-        owner="Payments Team",
-        status=ServiceStatus.HEALTHY,
-        uptime="99.99%",
-        latency_ms=42,
-        description=(
-            "Processes customer payments."
-        ),
-        region="us-east-1",
-        version="2.4.1",
-        last_deployed_at=datetime.now(
-            timezone.utc
-        ),
-        dependencies=[
-            "Identity API",
-            "PostgreSQL",
-        ],
-        incidents=[],
+    payments_service = (
+        Service(
+            id=(
+                PAYMENTS_SERVICE_ID
+            ),
+            name=(
+                "Payments API"
+            ),
+            owner=(
+                "Payments Team"
+            ),
+            status=(
+                ServiceStatus.HEALTHY
+            ),
+            uptime=(
+                "99.99%"
+            ),
+            latency_ms=42,
+            description=(
+                "Processes customer payments."
+            ),
+            region=(
+                "us-east-1"
+            ),
+            version=(
+                "2.4.1"
+            ),
+            last_deployed_at=(
+                datetime.now(
+                    timezone.utc
+                )
+            ),
+            dependencies=[
+                "Identity API",
+                "PostgreSQL",
+            ],
+            incidents=[],
+        )
     )
 
     service_repository.create(
@@ -354,6 +454,7 @@ def seeded_services(
 
     # Make the inserted Service visible to all operations
     # using this test transaction.
+
     db_session.flush()
 
     return [
@@ -361,11 +462,20 @@ def seeded_services(
     ]
 
 
+# =========================================================
+# SEEDED INCIDENTS
+# =========================================================
+
+
 @pytest.fixture
 def seeded_incidents(
     db_session: Session,
-    seeded_services: list[Service]
-) -> list[Incident]:
+    seeded_services: list[
+        Service
+    ],
+) -> list[
+    Incident
+]:
     """
     Adds Incident rows to the SAME Session/transaction
     created by db_session.
@@ -379,23 +489,39 @@ def seeded_incidents(
         )
     )
 
-    now = datetime.now(
-        timezone.utc
+    now = (
+        datetime.now(
+            timezone.utc
+        )
     )
 
     incidents = [
         Incident(
-            id=PAYMENTS_INCIDENT_ID,
-            service_id=PAYMENTS_SERVICE_ID,
-            title="Elevated payment latency",
-            severity=IncidentSeverity.SEV_2,
-            status=IncidentStatus.INVESTIGATING,
+            id=(
+                PAYMENTS_INCIDENT_ID
+            ),
+            service_id=(
+                PAYMENTS_SERVICE_ID
+            ),
+            title=(
+                "Elevated payment latency"
+            ),
+            severity=(
+                IncidentSeverity.SEV_2
+            ),
+            status=(
+                IncidentStatus.INVESTIGATING
+            ),
             summary=(
                 "Payment latency exceeded "
                 "the expected threshold."
             ),
-            assignee="Payments Team",
-            source="monitoring",
+            assignee=(
+                "Payments Team"
+            ),
+            source=(
+                "monitoring"
+            ),
             customer_impacting=True,
             acknowledged_at=now,
             started_at=now,
@@ -404,33 +530,59 @@ def seeded_incidents(
             updated_at=now,
         ),
         Incident(
-            id=SECOND_INCIDENT_ID,
-            service_id=PAYMENTS_SERVICE_ID,
-            title="Payment error spike",
-            severity=IncidentSeverity.SEV_1,
-            status=IncidentStatus.MONITORING,
+            id=(
+                SECOND_INCIDENT_ID
+            ),
+            service_id=(
+                PAYMENTS_SERVICE_ID
+            ),
+            title=(
+                "Payment error spike"
+            ),
+            severity=(
+                IncidentSeverity.SEV_1
+            ),
+            status=(
+                IncidentStatus.MONITORING
+            ),
             summary=(
                 "Payment failures exceeded "
                 "the expected baseline."
             ),
-            assignee="Platform Team",
+            assignee=(
+                "Platform Team"
+            ),
             started_at=now,
             resolved_at=None,
             created_at=now,
             updated_at=now,
         ),
         Incident(
-            id=THIRD_INCIDENT_ID,
-            service_id=PAYMENTS_SERVICE_ID,
-            title="Payment processing delay",
-            severity=IncidentSeverity.SEV_3,
-            status=IncidentStatus.RESOLVED,
+            id=(
+                THIRD_INCIDENT_ID
+            ),
+            service_id=(
+                PAYMENTS_SERVICE_ID
+            ),
+            title=(
+                "Payment processing delay"
+            ),
+            severity=(
+                IncidentSeverity.SEV_3
+            ),
+            status=(
+                IncidentStatus.RESOLVED
+            ),
             summary=(
                 "Payment processing experienced "
                 "temporary delays."
             ),
-            assignee="SRE Team",
-            source="monitoring",
+            assignee=(
+                "SRE Team"
+            ),
+            source=(
+                "monitoring"
+            ),
             customer_impacting=False,
             acknowledged_at=now,
             started_at=now,
@@ -448,6 +600,11 @@ def seeded_incidents(
     db_session.flush()
 
     return incidents
+
+
+# =========================================================
+# FASTAPI TEST CLIENT
+# =========================================================
 
 
 @pytest.fixture
@@ -472,6 +629,7 @@ def client(
         401 invalid login
         403 authorization failure
         404 missing resource
+        password-reset delivery failure
 
     must roll back only the work performed by that request.
 
@@ -483,7 +641,8 @@ def client(
     database remains clean.
     """
 
-    def override_get_db_session():
+    def override_get_db_session(
+    ):
         # Each FastAPI request receives an independent
         # savepoint inside pytest's outer transaction.
         #
@@ -506,6 +665,7 @@ def client(
         #     ROLLBACK TO SAVEPOINT
         #
         # Previous successful requests remain intact.
+
         try:
             with db_session.begin_nested():
                 yield db_session
@@ -520,11 +680,14 @@ def client(
             # entire test, so expire loaded ORM state between
             # simulated requests to prevent the identity map
             # from leaking stale request-local state.
+
             db_session.expire_all()
 
     app.dependency_overrides[
         get_db_session
-    ] = override_get_db_session
+    ] = (
+        override_get_db_session
+    )
 
     try:
         with TestClient(
@@ -533,28 +696,61 @@ def client(
             yield test_client
 
     finally:
-        app.dependency_overrides.clear()
-        
+        # Do not clear the entire override mapping here.
+        #
+        # Other fixtures own independent overrides such as:
+        #
+        #     password-reset throttle
+        #     SES client
+        #     delivery test doubles
+        #
+        # Clearing all entries from this fixture makes those
+        # independent fixtures interfere with one another.
+
+        app.dependency_overrides.pop(
+            get_db_session,
+            None,
+        )
+
+
+# =========================================================
+# AUTHENTICATED USER
+# =========================================================
+
+
 @pytest.fixture
 def authenticated_user(
-    db_session,
+    db_session: Session,
 ) -> User:
-    repository = SqlAlchemyUserRepository(
-        db_session
+    repository = (
+        SqlAlchemyUserRepository(
+            db_session
+        )
     )
 
-    service = UserService(
-        repository
+    service = (
+        UserService(
+            repository
+        )
     )
 
-    user = service.create_user(
-        email=(
-            f"api-test-{uuid4().hex}"
-            "@example.com"
-        ),
-        full_name="OpsFlow Test Administrator",
-        password="VerySecurePassword123!",
-        role=UserRole.ADMIN,
+    user = (
+        service.create_user(
+            email=(
+                f"api-test-"
+                f"{uuid4().hex}"
+                "@example.com"
+            ),
+            full_name=(
+                "OpsFlow Test Administrator"
+            ),
+            password=(
+                "VerySecurePassword123!"
+            ),
+            role=(
+                UserRole.ADMIN
+            ),
+        )
     )
 
     db_session.flush()
@@ -562,12 +758,22 @@ def authenticated_user(
     return user
 
 
+# =========================================================
+# AUTH HEADERS
+# =========================================================
+
+
 @pytest.fixture
 def auth_headers(
     authenticated_user: User,
-) -> dict[str, str]:
-    access_token = create_access_token(
-        authenticated_user.id
+) -> dict[
+    str,
+    str,
+]:
+    access_token = (
+        create_access_token(
+            authenticated_user.id
+        )
     )
 
     return {
@@ -576,29 +782,44 @@ def auth_headers(
         )
     }
 
-    
+
+# =========================================================
+# ROLE USER FACTORY
+# =========================================================
+
+
 def create_user_with_role(
-    db_session,
+    db_session: Session,
     role: UserRole,
 ) -> User:
-    repository = SqlAlchemyUserRepository(
-        db_session
+    repository = (
+        SqlAlchemyUserRepository(
+            db_session
+        )
     )
 
-    service = UserService(
-        repository
+    service = (
+        UserService(
+            repository
+        )
     )
 
-    user = service.create_user(
-        email=(
-            f"{role.value}-"
-            f"{uuid4().hex}@example.com"
-        ),
-        full_name=(
-            f"OpsFlow Test {role.value.title()}"
-        ),
-        password="VerySecurePassword123!",
-        role=role,
+    user = (
+        service.create_user(
+            email=(
+                f"{role.value}-"
+                f"{uuid4().hex}"
+                "@example.com"
+            ),
+            full_name=(
+                "OpsFlow Test "
+                f"{role.value.title()}"
+            ),
+            password=(
+                "VerySecurePassword123!"
+            ),
+            role=role,
+        )
     )
 
     db_session.flush()
@@ -606,41 +827,62 @@ def create_user_with_role(
     return user
 
 
+# =========================================================
+# ROLE USERS
+# =========================================================
+
+
 @pytest.fixture
 def viewer_user(
-    db_session,
+    db_session: Session,
 ) -> User:
-    return create_user_with_role(
-        db_session,
-        UserRole.VIEWER,
+    return (
+        create_user_with_role(
+            db_session,
+            UserRole.VIEWER,
+        )
     )
 
 
 @pytest.fixture
 def operator_user(
-    db_session,
+    db_session: Session,
 ) -> User:
-    return create_user_with_role(
-        db_session,
-        UserRole.OPERATOR,
+    return (
+        create_user_with_role(
+            db_session,
+            UserRole.OPERATOR,
+        )
     )
 
 
 @pytest.fixture
 def admin_user(
-    db_session,
+    db_session: Session,
 ) -> User:
-    return create_user_with_role(
-        db_session,
-        UserRole.ADMIN,
+    return (
+        create_user_with_role(
+            db_session,
+            UserRole.ADMIN,
+        )
     )
-    
+
+
+# =========================================================
+# ROLE HEADER FACTORY
+# =========================================================
+
 
 def headers_for_user(
     user: User,
-) -> dict[str, str]:
-    token = create_access_token(
-        user.id
+) -> dict[
+    str,
+    str,
+]:
+    token = (
+        create_access_token(
+            user.id
+        )
     )
 
     return {
@@ -648,38 +890,65 @@ def headers_for_user(
             f"Bearer {token}"
         )
     }
-    
-    
+
+
+# =========================================================
+# ROLE HEADERS
+# =========================================================
+
+
 @pytest.fixture
 def viewer_headers(
     viewer_user: User,
-) -> dict[str, str]:
-    return headers_for_user(
-        viewer_user
+) -> dict[
+    str,
+    str,
+]:
+    return (
+        headers_for_user(
+            viewer_user
+        )
     )
 
 
 @pytest.fixture
 def operator_headers(
     operator_user: User,
-) -> dict[str, str]:
-    return headers_for_user(
-        operator_user
+) -> dict[
+    str,
+    str,
+]:
+    return (
+        headers_for_user(
+            operator_user
+        )
     )
 
 
 @pytest.fixture
 def admin_headers(
     admin_user: User,
-) -> dict[str, str]:
-    return headers_for_user(
-        admin_user
+) -> dict[
+    str,
+    str,
+]:
+    return (
+        headers_for_user(
+            admin_user
+        )
     )
-    
+
+
+# =========================================================
+# LOGIN THROTTLE ISOLATION
+# =========================================================
+
+
 @pytest.fixture(
     autouse=True
 )
-def reset_login_throttle_state():
+def reset_login_throttle_state(
+):
     """
     Keep authentication throttle state isolated between
     tests.
@@ -706,7 +975,8 @@ def reset_login_throttle_state():
         InMemoryLoginThrottle,
     ):
         throttle.reset()
-        
+
+
 @pytest.fixture(
     autouse=True
 )
@@ -717,7 +987,13 @@ def clear_process_local_login_throttle(
     yield
 
     get_login_throttle.cache_clear()
-    
+
+
+# =========================================================
+# PASSWORD RESET THROTTLE ISOLATION
+# =========================================================
+
+
 @pytest.fixture(
     autouse=True
 )
@@ -760,13 +1036,72 @@ def isolate_password_reset_throttle(
 
     app.dependency_overrides[
         get_password_reset_throttle
-    ] = lambda: throttle
-
-    yield
-
-    app.dependency_overrides.pop(
-        get_password_reset_throttle,
-        None,
+    ] = (
+        lambda: throttle
     )
 
-    get_password_reset_throttle.cache_clear()
+    try:
+        yield
+
+    finally:
+        app.dependency_overrides.pop(
+            get_password_reset_throttle,
+            None,
+        )
+
+        get_password_reset_throttle.cache_clear()
+
+
+# =========================================================
+# SES NETWORK ISOLATION
+# =========================================================
+
+
+@pytest.fixture(
+    autouse=True
+)
+def isolate_ses_client(
+):
+    """
+    Prevent ordinary pytest requests from contacting AWS SES.
+
+    Production still uses get_ses_client() normally.
+
+    During tests FastAPI resolves the real delivery graph,
+    but the final network-facing SES dependency is replaced
+    with a deterministic successful test client.
+
+    Individual tests remain free to replace get_ses_client
+    again.
+
+    This is especially important for
+    test_password_reset_delivery_resilience.py, whose
+    failing_ses_client fixture replaces this override with
+    its deliberate provider-failure test double.
+    """
+
+    ses_client = (
+        SuccessfulTestSesClient()
+    )
+
+    # Do not allow a real boto3 client cached by some earlier
+    # operation to survive into this test.
+
+    get_ses_client.cache_clear()
+
+    app.dependency_overrides[
+        get_ses_client
+    ] = (
+        lambda: ses_client
+    )
+
+    try:
+        yield
+
+    finally:
+        app.dependency_overrides.pop(
+            get_ses_client,
+            None,
+        )
+
+        get_ses_client.cache_clear()

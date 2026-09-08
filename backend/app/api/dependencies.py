@@ -38,6 +38,15 @@ from sqlalchemy.orm import (
     Session,
 )
 
+from app.core.auth_error_codes import (
+    AuthErrorCode,
+    auth_error_headers,
+)
+
+from app.core.auth_response_messages import (
+    ACCESS_CREDENTIALS_INVALID_MESSAGE,
+)
+
 from app.core.config import (
     settings,
 )
@@ -170,7 +179,8 @@ oauth2_scheme = (
     OAuth2PasswordBearer(
         tokenUrl=(
             "api/v1/auth/token"
-        )
+        ),
+        auto_error=False,
     )
 )
 
@@ -556,7 +566,7 @@ def get_authentication_service(
 def get_current_user(
     request: Request,
     token: Annotated[
-        str,
+        str | None,
         Depends(
             oauth2_scheme
         ),
@@ -572,8 +582,11 @@ def get_current_user(
     Resolve a bearer access JWT into the active application
     user represented by that credential.
 
-    Access-token validation failures are recorded as security
-    events without ever logging the bearer token itself.
+    Missing and invalid bearer credentials intentionally
+    share the same public HTTP contract.
+
+    Access-token failures are recorded as security events
+    without ever logging the bearer credential itself.
     """
 
     credentials_exception = (
@@ -583,22 +596,38 @@ def get_current_user(
                 .HTTP_401_UNAUTHORIZED
             ),
             detail=(
-                "Could not validate "
-                "credentials."
+                ACCESS_CREDENTIALS_INVALID_MESSAGE
             ),
-            headers={
-                "WWW-Authenticate": (
-                    "Bearer"
-                ),
-                "Cache-Control": (
-                    "no-store"
-                ),
-                "Pragma": (
-                    "no-cache"
-                ),
-            },
+            headers=(
+                auth_error_headers(
+                    AuthErrorCode
+                    .ACCESS_CREDENTIALS_INVALID,
+                    additional_headers={
+                        "WWW-Authenticate": (
+                            "Bearer"
+                        ),
+                    },
+                )
+            ),
         )
     )
+
+    if not token:
+        security_event_logger.emit(
+            event=(
+                "auth.access_token.failed"
+            ),
+            outcome="failure",
+            level=logging.WARNING,
+            request=request,
+            reason=(
+                "missing_access_token"
+            ),
+        )
+
+        raise (
+            credentials_exception
+        )
 
     try:
         return (
@@ -759,11 +788,6 @@ def get_password_reset_delivery(
 
     This is intentionally the single delivery factory in the
     dependency graph.
-
-    There is no second discard-delivery definition below or
-    above this function. As a result, FastAPI cannot capture
-    an obsolete dependency alias while the module is being
-    imported.
     """
 
     return (

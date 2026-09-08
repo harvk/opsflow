@@ -1,13 +1,11 @@
-from __future__ import annotations
+from fastapi import (
+    Request,
+    Response,
+)
 
 from datetime import (
     datetime,
     timezone,
-)
-
-from fastapi import (
-    Request,
-    Response,
 )
 
 from app.core.config import (
@@ -19,8 +17,13 @@ from app.core.security import (
 )
 
 
+SECONDS_PER_DAY = (
+    24 * 60 * 60
+)
+
+
 # =========================================================
-# REFRESH COOKIE READ
+# REFRESH COOKIE
 # =========================================================
 
 
@@ -28,10 +31,9 @@ def get_refresh_cookie(
     request: Request,
 ) -> str | None:
     """
-    Read the browser's HttpOnly refresh credential.
+    Read the HttpOnly refresh credential from the request.
 
-    The cookie value itself is returned only to the
-    authentication boundary and must never be logged.
+    Empty cookie values are treated as absent credentials.
     """
 
     token = (
@@ -42,48 +44,23 @@ def get_refresh_cookie(
     )
 
     if not token:
-        return (
-            None
-        )
+        return None
 
-    return (
-        token
-    )
+    return token
 
 
-# =========================================================
-# REFRESH COOKIE ABSOLUTE LIFETIME
-# =========================================================
-
-
-def _get_refresh_cookie_lifetime(
+def _refresh_cookie_max_age(
     token: str,
-) -> tuple[
-    int,
-    datetime,
-]:
+) -> int:
     """
-    Derive the browser-cookie lifetime directly from the
-    signed refresh JWT's absolute expiration.
+    Derive the browser cookie lifetime from the refresh
+    JWT's actual absolute expiration.
 
-    This prevents cookie rotation from creating a sliding
-    browser lifetime.
+    Refresh-token rotation must never extend the persistent
+    authentication session.
 
-    Example:
-
-        persistent session expires at 15:00
-        refresh JWT expires at       15:00
-
-        refresh performed at         14:55
-
-    The replacement cookie receives approximately five
-    minutes of Max-Age, NOT another full configured refresh
-    lifetime.
-
-    decode_refresh_token() also verifies that the value being
-    placed into the privileged refresh cookie is actually a
-    valid refresh JWT issued under the application's refresh
-    credential contract.
+    Therefore the cookie must expire no later than the JWT
+    it contains.
     """
 
     claims = (
@@ -92,52 +69,21 @@ def _get_refresh_cookie_lifetime(
         )
     )
 
-    expires_at = (
-        claims
-        .expires_at
-        .astimezone(
-            timezone.utc
-        )
+    now = datetime.now(
+        timezone.utc
     )
 
-    now = (
-        datetime.now(
-            timezone.utc
-        )
+    remaining_seconds = int(
+        (
+            claims.expires_at
+            - now
+        ).total_seconds()
     )
 
-    remaining_seconds = (
-        int(
-            (
-                expires_at
-                - now
-            )
-            .total_seconds()
-        )
-    )
-
-    # Never emit a negative Max-Age.
-    #
-    # A zero value instructs the browser not to persist a
-    # credential that has no usable lifetime remaining.
-
-    if (
-        remaining_seconds
-        < 0
-    ):
-        remaining_seconds = (
-            0
-        )
-
-    return (
+    return max(
+        0,
         remaining_seconds,
-        expires_at,
     )
-
-
-# =========================================================
-# REFRESH COOKIE WRITE
-# =========================================================
 
 
 def set_refresh_cookie(
@@ -145,29 +91,18 @@ def set_refresh_cookie(
     token: str,
 ) -> None:
     """
-    Store a refresh JWT in the browser.
+    Store the refresh JWT as an HttpOnly browser cookie.
 
-    Browser persistence is bounded by the refresh token's
-    existing absolute expiration.
-
-    IMPORTANT:
-
-    This helper must never recalculate a fresh lifetime from:
-
-        settings.refresh_token_expire_days
-
-    during refresh rotation.
-
-    Doing so would create a sliding cookie lifetime even
-    though the persistent session and refresh JWT retain an
+    The cookie lifetime is derived from the JWT's own
     absolute expiration.
+
+    This is critical during refresh-token rotation because
+    rotation changes the token ID but does NOT extend the
+    persistent authentication session.
     """
 
-    (
-        max_age,
-        expires_at,
-    ) = (
-        _get_refresh_cookie_lifetime(
+    max_age = (
+        _refresh_cookie_max_age(
             token
         )
     )
@@ -177,65 +112,34 @@ def set_refresh_cookie(
             settings
             .refresh_cookie_name
         ),
-        value=(
-            token
-        ),
-
-        # JavaScript cannot access this credential.
+        value=token,
         httponly=True,
-
-        # HTTPS-only in production.
         secure=(
             settings
             .is_production
         ),
-
-        # Helps mitigate cross-site request abuse.
         samesite=(
             settings
             .refresh_cookie_samesite
         ),
-
-        # Only configured authentication endpoints receive
-        # the refresh credential.
         path=(
             settings
             .refresh_cookie_path
         ),
-
-        # Relative browser lifetime.
-        #
-        # This represents only the time remaining until the
-        # JWT's already-established absolute expiration.
         max_age=(
             max_age
         ),
-
-        # Absolute browser lifetime.
-        #
-        # Providing Expires as well as Max-Age makes the same
-        # absolute boundary explicit in the Set-Cookie
-        # header.
-        expires=(
-            expires_at
-        ),
     )
-
-
-# =========================================================
-# REFRESH COOKIE CLEAR
-# =========================================================
 
 
 def clear_refresh_cookie(
     response: Response,
 ) -> None:
     """
-    Explicitly remove the browser refresh credential.
+    Expire the refresh credential.
 
-    Cookie deletion must use the same path and security
-    attributes as cookie creation so the browser targets the
-    correct cookie.
+    Cookie deletion deliberately mirrors the attributes
+    used when the cookie was created.
     """
 
     response.delete_cookie(
@@ -260,28 +164,113 @@ def clear_refresh_cookie(
 
 
 # =========================================================
-# AUTH RESPONSE CACHE CONTROL
+# CSRF COOKIE
 # =========================================================
 
 
-def prevent_auth_response_caching(
+def get_csrf_cookie(
+    request: Request,
+) -> str | None:
+    """
+    Read the browser CSRF proof.
+
+    Unlike the refresh JWT, this value is intentionally
+    readable by frontend JavaScript.
+    """
+
+    token = (
+        request.cookies.get(
+            settings
+            .csrf_cookie_name
+        )
+    )
+
+    if not token:
+        return None
+
+    return token
+
+
+def set_csrf_cookie(
+    response: Response,
+    token: str,
+) -> None:
+    """
+    Store the signed CSRF proof.
+
+    HttpOnly must remain False because the frontend copies
+    this value into the configured CSRF request header.
+
+    The CSRF cookie is not an authentication credential.
+    """
+
+    response.set_cookie(
+        key=(
+            settings
+            .csrf_cookie_name
+        ),
+        value=token,
+        httponly=False,
+        secure=(
+            settings
+            .is_production
+        ),
+        samesite=(
+            settings
+            .refresh_cookie_samesite
+        ),
+
+        # The SPA must be able to read this cookie while
+        # operating outside /api/v1/auth.
+        path="/",
+    )
+
+
+def clear_csrf_cookie(
     response: Response,
 ) -> None:
     """
-    Prevent authentication responses from being retained by
-    browser/intermediary caches.
+    Expire the CSRF cookie using the same security
+    attributes with which it was created.
     """
 
-    response.headers[
-        "Cache-Control"
-    ] = (
-        "no-store, "
-        "no-cache, "
-        "must-revalidate"
+    response.delete_cookie(
+        key=(
+            settings
+            .csrf_cookie_name
+        ),
+        path="/",
+        secure=(
+            settings
+            .is_production
+        ),
+        httponly=False,
+        samesite=(
+            settings
+            .refresh_cookie_samesite
+        ),
     )
 
-    response.headers[
-        "Pragma"
-    ] = (
-        "no-cache"
+
+# =========================================================
+# COMPLETE BROWSER AUTH STATE
+# =========================================================
+
+
+def clear_auth_cookies(
+    response: Response,
+) -> None:
+    """
+    Remove all browser-managed authentication state.
+
+    The access token is deliberately not handled here
+    because it exists only in frontend memory.
+    """
+
+    clear_refresh_cookie(
+        response
+    )
+
+    clear_csrf_cookie(
+        response
     )

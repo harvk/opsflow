@@ -1,7 +1,7 @@
 from fastapi import (
     FastAPI,
     Request,
-    status
+    status,
 )
 
 from fastapi.middleware.cors import (
@@ -9,7 +9,7 @@ from fastapi.middleware.cors import (
 )
 
 from fastapi.responses import (
-    JSONResponse
+    JSONResponse,
 )
 
 from app.api.router import (
@@ -20,6 +20,10 @@ from app.core.config import (
     settings,
 )
 
+from app.core.password_reset_messages import (
+    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
+)
+
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
@@ -28,43 +32,34 @@ from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )
 
-from app.core.logging_config import (
-    configure_security_logging,
-)
-
-from app.core.auth_cookies import (
-    prevent_auth_response_caching,
-)
-
-from app.core.password_reset_messages import (
-    PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
-)
-
 from app.services.password_reset_delivery import (
     PasswordResetDeliveryError,
 )
 
 
-configure_security_logging()
+# =========================================================
+# PASSWORD RESET DELIVERY FAILURE HANDLER
+# =========================================================
 
 
-async def password_reset_delivery_exception_handler(
-    request: Request,
-    exc: Exception,
+async def password_reset_delivery_error_handler(
+    _request: Request,
+    _exc: Exception,
 ) -> JSONResponse:
     """
-    Preserve password-reset enumeration resistance when the
-    delivery provider is unavailable.
+    Translate an internal password-reset delivery failure
+    into the same public response returned for a normal
+    password-reset request.
 
-    The PasswordResetDeliveryError has already escaped the
-    route, allowing the request database transaction to roll
-    back before this response is produced.
+    This handler is registered specifically for
+    PasswordResetDeliveryError, but the function accepts the
+    base Exception type to satisfy FastAPI/Starlette's
+    ExceptionHandler callable contract.
 
-    No AWS/provider details or reset credential information
-    are exposed.
+    No exception details are exposed to the caller.
     """
 
-    response = (
+    return (
         JSONResponse(
             status_code=(
                 status.HTTP_202_ACCEPTED
@@ -72,16 +67,10 @@ async def password_reset_delivery_exception_handler(
             content={
                 "message": (
                     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE
-                )
+                ),
             },
         )
     )
-
-    prevent_auth_response_caching(
-        response
-    )
-
-    return response
 
 
 # =========================================================
@@ -89,57 +78,79 @@ async def password_reset_delivery_exception_handler(
 # =========================================================
 
 
-def create_app() -> FastAPI:
-    """
-    Construct the complete OpsFlow FastAPI application.
-
-    The application factory is the single authoritative
-    location for:
-
-        application metadata
-        middleware
-        routing
-
-    This prevents application instances created by tests,
-    workers, or future tooling from receiving different
-    security configuration.
-    """
-
-    application = FastAPI(
-        title=(
-            settings.app_name
-        ),
-        version=(
-            "0.1.0"
-        ),
-        description=(
-            "Backend API for the OpsFlow "
-            "operations management platform."
-        ),
-        docs_url="/docs",
-        redoc_url="/redoc",
+def create_app(
+) -> FastAPI:
+    application = (
+        FastAPI(
+            title=(
+                settings.app_name
+            ),
+            version="0.1.0",
+            description=(
+                "Backend API for the OpsFlow "
+                "operations management platform."
+            ),
+            docs_url="/docs",
+            redoc_url="/redoc",
+        )
     )
-    
+
+    # =====================================================
+    # APPLICATION EXCEPTION HANDLERS
+    # =====================================================
+
     application.add_exception_handler(
         PasswordResetDeliveryError,
-        password_reset_delivery_exception_handler,
+        password_reset_delivery_error_handler,
+    )
+
+    # =====================================================
+    # API ROUTES
+    # =====================================================
+
+    application.include_router(
+        api_router,
+        prefix=(
+            settings
+            .api_v1_prefix
+        ),
+    )
+
+    # =====================================================
+    # BROWSER TRUST BOUNDARY
+    # =====================================================
+    #
+    # Starlette constructs user middleware in reverse
+    # registration order.
+    #
+    # This middleware is registered first so CORS and the
+    # response-security boundary can sit outside it.
+
+    application.add_middleware(
+        BrowserTrustBoundaryMiddleware,
+        allowed_origins=[
+            settings
+            .frontend_origin
+        ],
     )
 
     # =====================================================
     # CORS
     # =====================================================
     #
-    # Registered first.
+    # The frontend is allowed to read:
     #
-    # This is the innermost custom middleware layer.
+    #     Retry-After
+    #         password-reset throttling
     #
-    # Credentialed browser authentication requires an
-    # explicit trusted origin rather than "*".
+    #     X-Auth-Error-Code
+    #         stable authentication error contract
 
     application.add_middleware(
         CORSMiddleware,
         allow_origins=[
-            settings.frontend_origin,
+            settings
+            .frontend_origin
         ],
         allow_credentials=True,
         allow_methods=[
@@ -153,62 +164,33 @@ def create_app() -> FastAPI:
         allow_headers=[
             "Authorization",
             "Content-Type",
-            settings.csrf_header_name,
+            "X-CSRF-Token",
+        ],
+        expose_headers=[
+            "Retry-After",
+            "X-Auth-Error-Code",
         ],
     )
 
     # =====================================================
-    # BROWSER TRUST BOUNDARY
+    # RESPONSE SECURITY BOUNDARY
     # =====================================================
     #
-    # Registered after CORS.
+    # Starlette reverses middleware registration order.
     #
-    # This layer rejects hostile state-changing browser
-    # traffic using:
+    # Because this middleware is registered last, it becomes
+    # the outermost user middleware.
     #
-    #   Sec-Fetch-Site
-    #   Origin
-    #   Referer fallback
+    # That means security headers are also applied to:
     #
-    # It does not replace route-level CSRF validation.
-
-    application.add_middleware(
-        BrowserTrustBoundaryMiddleware,
-        allowed_origins=[
-            settings.frontend_origin,
-        ],
-    )
-
-    # =====================================================
-    # RESPONSE SECURITY HEADERS
-    # =====================================================
-    #
-    # Registered last.
-    #
-    # Starlette's last-added user middleware becomes the
-    # outermost user middleware layer.
-    #
-    # That is intentional:
-    #
-    # BrowserTrustBoundaryMiddleware may return its own 403
-    # response without reaching CORS or an API route.
-    #
-    # SecurityHeadersMiddleware must sit outside it so those
-    # responses still receive the baseline security policy.
+    #     normal route responses
+    #     FastAPI exception responses
+    #     password-reset delivery failure responses
+    #     browser-trust rejections
+    #     CORS preflight responses
 
     application.add_middleware(
         SecurityHeadersMiddleware,
-    )
-
-    # =====================================================
-    # API ROUTES
-    # =====================================================
-
-    application.include_router(
-        api_router,
-        prefix=(
-            settings.api_v1_prefix
-        ),
     )
 
     return application
@@ -219,4 +201,6 @@ def create_app() -> FastAPI:
 # =========================================================
 
 
-app = create_app()
+app = (
+    create_app()
+)
