@@ -397,6 +397,132 @@ services:
     networks:
       - opsflow_network
 
+  # ========================================================
+  # REACT / VITE FRONTEND
+  # ========================================================
+
+  frontend:
+    # ------------------------------------------------------
+    # IMAGE BUILD
+    # ------------------------------------------------------
+    #
+    # The frontend owns its own Docker build context.
+    #
+    # Compose will evaluate:
+    #
+    #     ./frontend/Dockerfile
+    #
+    # using:
+    #
+    #     ./frontend
+    #
+    # as the build context.
+    #
+    # ------------------------------------------------------
+
+    build:
+      context: ./frontend
+
+      dockerfile: Dockerfile
+
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24}
+
+    image: opsflow-frontend:dev
+
+    # ------------------------------------------------------
+    # FRONTEND RUNTIME CONFIGURATION
+    # ------------------------------------------------------
+    #
+    # This file is read from the HOST when Compose creates
+    # the container.
+    #
+    # It is not copied into the frontend image.
+    #
+    # Current values include:
+    #
+    #   VITE_API_BASE_URL
+    #   VITE_CSRF_COOKIE_NAME
+    #
+    # ------------------------------------------------------
+
+    env_file:
+      - ./frontend/.env.docker
+
+    # ------------------------------------------------------
+    # HOST PORT
+    # ------------------------------------------------------
+    #
+    # Browser:
+    #
+    #     http://localhost:5173
+    #
+    # Container:
+    #
+    #     0.0.0.0:5173
+    #
+    # The host binding remains limited to loopback for the
+    # local development environment.
+    #
+    # ------------------------------------------------------
+
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:5173"
+
+    # ------------------------------------------------------
+    # LIVE DEVELOPMENT FILESYSTEM
+    # ------------------------------------------------------
+    #
+    # The host frontend directory is mounted over /app.
+    #
+    # Changes made from VS Code therefore become immediately
+    # visible inside the running Linux container.
+    #
+    # A separate Docker-managed volume is mounted over
+    # /app/node_modules so host Windows dependencies never
+    # replace Linux dependencies installed by npm ci.
+    #
+    # ------------------------------------------------------
+
+    volumes:
+      - type: bind
+        source: ./frontend
+        target: /app
+
+      - type: volume
+        source: opsflow_frontend_node_modules
+        target: /app/node_modules
+
+    # ------------------------------------------------------
+    # BACKEND STARTUP RELATIONSHIP
+    # ------------------------------------------------------
+    #
+    # The frontend application itself does not directly call
+    # Docker's "backend" hostname.
+    #
+    # React executes in the host browser and uses:
+    #
+    #     http://localhost:8000/api/v1
+    #
+    # Still, starting the backend before the frontend gives
+    # the development stack a predictable startup sequence.
+    #
+    # We use service_started here rather than inventing a
+    # new backend health contract in this frontend phase.
+    #
+    # ------------------------------------------------------
+
+    depends_on:
+      backend:
+        condition: service_started
+
+    # ------------------------------------------------------
+    # DOCKER NETWORK
+    # ------------------------------------------------------
+
+    networks:
+      - opsflow_network
+
 # ==========================================================
 # PERSISTENT VOLUMES
 # ==========================================================
@@ -404,6 +530,9 @@ services:
 volumes:
   opsflow_postgres_data:
     name: opsflow_postgres_data
+
+  opsflow_frontend_node_modules:
+    name: opsflow_frontend_node_modules
 
 # ==========================================================
 # NETWORKS
