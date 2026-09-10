@@ -1,0 +1,416 @@
+# ==========================================================
+# OPSFLOW DOCKER COMPOSE
+# ==========================================================
+#
+# Local development orchestration.
+#
+# Current services:
+#
+#   db
+#       PostgreSQL
+#
+#   migrate
+#       One-shot Alembic database migration service
+#
+#   backend
+#       FastAPI / Uvicorn
+#
+# Future phases will add:
+#
+#   frontend
+#
+# ==========================================================
+
+services:
+  # ========================================================
+  # POSTGRESQL
+  # ========================================================
+
+  db:
+    image: postgres:18.6-bookworm
+
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+      POSTGRES_DB: ${POSTGRES_DB:-opsflow}
+
+    ports:
+      - "127.0.0.1:${POSTGRES_HOST_PORT:-5433}:5432"
+
+    volumes:
+      - opsflow_postgres_data:/var/lib/postgresql
+
+      - ./docker/postgres/init:/docker-entrypoint-initdb.d:ro
+
+    healthcheck:
+      test:
+        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+    networks:
+      - opsflow_network
+
+  # ========================================================
+  # ALEMBIC MIGRATIONS
+  # ========================================================
+  #
+  # This is a one-shot service.
+  #
+  # Startup sequence:
+  #
+  #   db becomes healthy
+  #           |
+  #           v
+  #   migrate starts
+  #           |
+  #           +--> migrate opsflow
+  #           |
+  #           +--> migrate opsflow_test
+  #           |
+  #           v
+  #   migrate exits with code 0
+  #           |
+  #           v
+  #   backend is allowed to start
+  #
+  # The migrate service uses the same application image,
+  # dependencies, configuration, Alembic files, and models
+  # as the backend.
+  #
+  # ========================================================
+
+  migrate:
+    # ------------------------------------------------------
+    # IMAGE BUILD
+    # ------------------------------------------------------
+
+    build:
+      context: ./backend
+
+      dockerfile: Dockerfile
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-backend:dev
+
+    # ------------------------------------------------------
+    # APPLICATION CONFIGURATION
+    # ------------------------------------------------------
+    #
+    # Use the same application configuration source as the
+    # backend.
+    #
+    # backend/.env contains the application's existing:
+    #
+    #   JWT configuration
+    #   CSRF configuration
+    #   throttling configuration
+    #   password-reset configuration
+    #   AWS/SES configuration
+    #   etc.
+    #
+    # Docker-specific database URLs are then overridden below.
+    #
+    # ------------------------------------------------------
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      # ----------------------------------------------------
+      # APPLICATION MODE
+      # ----------------------------------------------------
+
+      APP_ENV: development
+
+      # ----------------------------------------------------
+      # BROWSER TRUST / CORS
+      # ----------------------------------------------------
+
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+
+      # ----------------------------------------------------
+      # DATABASE
+      # ----------------------------------------------------
+      #
+      # The migration container communicates with PostgreSQL
+      # through the Docker network.
+      #
+      # Therefore:
+      #
+      #   WRONG inside Docker:
+      #
+      #       localhost:5433
+      #
+      #   CORRECT inside Docker:
+      #
+      #       db:5432
+      #
+      # ----------------------------------------------------
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
+
+      TEST_DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
+
+    # ------------------------------------------------------
+    # DATABASE STARTUP ORDER
+    # ------------------------------------------------------
+    #
+    # Do not start Alembic merely because the PostgreSQL
+    # container process exists.
+    #
+    # Wait until PostgreSQL reports healthy.
+    #
+    # ------------------------------------------------------
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    # ------------------------------------------------------
+    # MIGRATION COMMAND
+    # ------------------------------------------------------
+    #
+    # First:
+    #
+    #   DATABASE_URL points to opsflow
+    #
+    # so:
+    #
+    #   python -m alembic upgrade head
+    #
+    # migrates the primary database.
+    #
+    # Second:
+    #
+    #   DATABASE_URL is temporarily replaced by
+    #   TEST_DATABASE_URL
+    #
+    # so the same Alembic configuration migrates
+    # opsflow_test.
+    #
+    # The double dollar sign:
+    #
+    #   $$TEST_DATABASE_URL
+    #
+    # prevents Docker Compose from expanding the variable
+    # while parsing compose.yaml.
+    #
+    # It becomes:
+    #
+    #   $TEST_DATABASE_URL
+    #
+    # inside the container shell.
+    #
+    # ------------------------------------------------------
+
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+
+        echo "=================================================="
+        echo "OpsFlow Alembic migration container"
+        echo "=================================================="
+
+        echo ""
+        echo "Migrating primary database: opsflow"
+        echo "--------------------------------------------------"
+
+        python -m alembic upgrade head
+
+        echo ""
+        echo "Primary database migration complete."
+        echo ""
+
+        echo "Migrating test database: opsflow_test"
+        echo "--------------------------------------------------"
+
+        DATABASE_URL="$$TEST_DATABASE_URL" python -m alembic upgrade head
+
+        echo ""
+        echo "Test database migration complete."
+        echo ""
+
+        echo "=================================================="
+        echo "All OpsFlow database migrations completed."
+        echo "=================================================="
+
+    # ------------------------------------------------------
+    # RESTART POLICY
+    # ------------------------------------------------------
+    #
+    # This service is SUPPOSED to stop after migrations.
+    #
+    # Successful final state:
+    #
+    #   Exited (0)
+    #
+    # It should not behave like a long-running web server.
+    #
+    # ------------------------------------------------------
+
+    restart: "no"
+
+    # ------------------------------------------------------
+    # NETWORK
+    # ------------------------------------------------------
+
+    networks:
+      - opsflow_network
+
+  # ========================================================
+  # FASTAPI BACKEND
+  # ========================================================
+
+  backend:
+    # ------------------------------------------------------
+    # IMAGE BUILD
+    # ------------------------------------------------------
+
+    build:
+      context: ./backend
+
+      dockerfile: Dockerfile
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-backend:dev
+
+    # ------------------------------------------------------
+    # APPLICATION CONFIGURATION
+    # ------------------------------------------------------
+    #
+    # backend/.env contains the existing OpsFlow application
+    # settings:
+    #
+    #   JWT configuration
+    #   CSRF configuration
+    #   throttle configuration
+    #   password-reset configuration
+    #   AWS/SES configuration
+    #   etc.
+    #
+    # This file is read from the HOST at container startup.
+    #
+    # It is NOT copied into the image.
+    #
+    # Environment values declared below override matching
+    # values from backend/.env.
+    #
+    # ------------------------------------------------------
+
+    env_file:
+      - ./backend/.env
+
+    environment:
+      # ----------------------------------------------------
+      # APPLICATION MODE
+      # ----------------------------------------------------
+
+      APP_ENV: development
+
+      # ----------------------------------------------------
+      # BROWSER TRUST / CORS
+      # ----------------------------------------------------
+
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
+
+      # ----------------------------------------------------
+      # DATABASE
+      # ----------------------------------------------------
+      #
+      # Inside the Docker network, PostgreSQL is not:
+      #
+      #   localhost:5433
+      #
+      # It is:
+      #
+      #   db:5432
+      #
+      # ----------------------------------------------------
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
+
+      TEST_DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
+
+    # ------------------------------------------------------
+    # HOST PORT
+    # ------------------------------------------------------
+    #
+    # Browser:
+    #
+    #   http://localhost:8000
+    #
+    # Docker network:
+    #
+    #   http://backend:8000
+    #
+    # ------------------------------------------------------
+
+    ports:
+      - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+
+    # ------------------------------------------------------
+    # APPLICATION STARTUP ORDER
+    # ------------------------------------------------------
+    #
+    # Phase 8.3:
+    #
+    #   backend -> db healthy
+    #
+    # Phase 8.4:
+    #
+    #   backend -> migrate completed successfully
+    #                 |
+    #                 v
+    #              db healthy
+    #
+    # Therefore the backend no longer needs to start
+    # directly after PostgreSQL becomes healthy.
+    #
+    # It must wait until Alembic has successfully brought
+    # both databases to the current migration head.
+    #
+    # ------------------------------------------------------
+
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+
+    # ------------------------------------------------------
+    # NETWORK
+    # ------------------------------------------------------
+
+    networks:
+      - opsflow_network
+
+# ==========================================================
+# PERSISTENT VOLUMES
+# ==========================================================
+
+volumes:
+  opsflow_postgres_data:
+    name: opsflow_postgres_data
+
+# ==========================================================
+# NETWORKS
+# ==========================================================
+
+networks:
+  opsflow_network:
+    name: opsflow_network
+
+    driver: bridge
