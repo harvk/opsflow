@@ -21,6 +21,19 @@ backend/.env
 # Python bytecode
 *.py[cod]
 
+# ==========================================================
+# Python generated packaging metadata
+# ==========================================================
+
+*.egg-info/
+
+# ==========================================================
+# Local migration recovery artifacts
+# ==========================================================
+
+backend/migrations_backup/
+backend/reset_migration.sql
+
 # Node / React
 node_modules/
 dist/
