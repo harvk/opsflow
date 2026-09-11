@@ -7,13 +7,17 @@
 #
 # This is a multi-stage Docker build.
 #
-# Stage 1 installs Python dependencies.
+# Stage 1 creates an isolated Python virtual environment and
+# installs only dependencies required by the runtime image.
 #
-# Stage 2 creates the smaller runtime image that actually
-# executes FastAPI.
+# Stage 2 contains only the Python runtime, the prebuilt
+# virtual environment, application source, and Alembic
+# migration files.
 #
-# The Python major/minor version can be supplied by
-# Docker Compose using a build argument.
+# Development and test tooling remains outside this image.
+#
+# The Python major/minor version can be supplied by Docker
+# Compose using a build argument.
 #
 # ==========================================================
 
@@ -22,31 +26,31 @@ ARG PYTHON_VERSION=3.13
 
 
 # ==========================================================
-# STAGE 1 — DEPENDENCY BUILDER
+# STAGE 1 — RUNTIME DEPENDENCY BUILDER
 # ==========================================================
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
 
 
 # ----------------------------------------------------------
-# PYTHON RUNTIME BEHAVIOR
+# PYTHON / PIP BUILD BEHAVIOR
 # ----------------------------------------------------------
 #
 # PYTHONDONTWRITEBYTECODE=1
 #
-# Prevents Python from creating .pyc bytecode cache files.
+# Prevents Python from creating .pyc bytecode cache files
+# while Python code executes during the image build.
 #
 #
 # PYTHONUNBUFFERED=1
 #
-# Causes logs to be written directly to stdout/stderr.
-# This is desirable in Docker because Docker captures those
-# streams as container logs.
+# Causes Python output to be written directly to
+# stdout/stderr.
 #
 #
 # PIP_DISABLE_PIP_VERSION_CHECK=1
 #
-# Suppresses pip's periodic version-check message.
+# Prevents unnecessary pip version-check traffic/output.
 #
 # ----------------------------------------------------------
 
@@ -63,42 +67,57 @@ WORKDIR /build
 
 
 # ----------------------------------------------------------
-# CREATE AN ISOLATED PYTHON VIRTUAL ENVIRONMENT
+# CREATE ISOLATED RUNTIME VIRTUAL ENVIRONMENT
 # ----------------------------------------------------------
 
 RUN python -m venv /opt/venv
 
 
 # ----------------------------------------------------------
-# MAKE THAT VIRTUAL ENVIRONMENT THE DEFAULT PYTHON/PIP
+# MAKE THE VIRTUAL ENVIRONMENT THE DEFAULT PYTHON/PIP
 # ----------------------------------------------------------
 
 ENV PATH="/opt/venv/bin:${PATH}"
 
 
 # ----------------------------------------------------------
-# COPY ONLY REQUIREMENTS FIRST
+# COPY ONLY THE RUNTIME DEPENDENCY MANIFEST
 # ----------------------------------------------------------
 #
-# This creates a Docker cache boundary.
+# requirements.txt remains the complete development/test
+# dependency manifest used outside the production-style
+# runtime image.
 #
-# If Python source code changes but requirements.txt does
-# not change, Docker can reuse the installed dependency
-# layer rather than reinstalling everything.
+# requirements-runtime.txt intentionally excludes packages
+# that are needed only for testing, linting, development
+# reload behavior, or other non-runtime workflows.
+#
+# Keeping this COPY before application source also preserves
+# Docker's dependency-layer cache boundary.
 #
 # ----------------------------------------------------------
 
-COPY requirements.txt ./requirements.txt
+COPY requirements-runtime.txt ./requirements-runtime.txt
 
 
 # ----------------------------------------------------------
-# INSTALL PYTHON DEPENDENCIES
+# INSTALL RUNTIME DEPENDENCIES
+# ----------------------------------------------------------
+#
+# The BuildKit cache mount accelerates later builds without
+# copying pip's download cache into the final runtime image.
+#
+# --no-compile prevents pip from generating Python bytecode
+# during installation. Runtime bytecode writes are also
+# disabled by PYTHONDONTWRITEBYTECODE.
+#
 # ----------------------------------------------------------
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip \
     && python -m pip install \
-        --requirement requirements.txt
+        --no-compile \
+        --requirement requirements-runtime.txt
 
 
 # ==========================================================
@@ -115,22 +134,20 @@ FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH="/opt/venv/bin:${PATH}"
+    PATH="/opt/venv/bin:${PATH}" \
+    HOME="/home/opsflow"
 
 
 # ----------------------------------------------------------
-# CREATE A NON-ROOT APPLICATION USER
+# CREATE NON-ROOT APPLICATION USER
 # ----------------------------------------------------------
 #
-# Containers default to root unless told otherwise.
+# The backend does not require root privileges.
 #
-# Running FastAPI as root is unnecessary.
+# UID/GID 10001 provides a stable application identity that
+# does not overlap with the usual low-numbered system users.
 #
-# We create:
-#
-#   user:  opsflow
-#   UID:   10001
-#   GID:   10001
+# The login shell is disabled.
 #
 # ----------------------------------------------------------
 
@@ -153,7 +170,7 @@ WORKDIR /app
 
 
 # ----------------------------------------------------------
-# COPY THE PREBUILT PYTHON ENVIRONMENT
+# COPY PREBUILT RUNTIME PYTHON ENVIRONMENT
 # ----------------------------------------------------------
 
 COPY --from=builder \
@@ -174,10 +191,9 @@ COPY --chown=opsflow:opsflow \
 # COPY ALEMBIC MIGRATIONS
 # ----------------------------------------------------------
 #
-# Phase 8.4 will use these files.
-#
-# We include them now so the same backend image can later
-# execute Alembic commands.
+# The same backend image is used by the one-shot Compose
+# migration service, so Alembic migration source must remain
+# available in the runtime image.
 #
 # ----------------------------------------------------------
 
@@ -203,7 +219,7 @@ USER opsflow
 
 
 # ----------------------------------------------------------
-# DOCUMENT THE FASTAPI PORT
+# DOCUMENT FASTAPI PORT
 # ----------------------------------------------------------
 
 EXPOSE 8000
@@ -213,9 +229,7 @@ EXPOSE 8000
 # START UVICORN
 # ----------------------------------------------------------
 #
-# IMPORTANT:
-#
-# Keep this CMD instruction on ONE physical Dockerfile line.
+# Development reload is intentionally not enabled.
 #
 # ----------------------------------------------------------
 
