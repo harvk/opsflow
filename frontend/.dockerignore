@@ -1,0 +1,97 @@
+# ==========================================================
+# OPSFLOW FRONTEND DOCKER BUILD EXCLUSIONS
+# ==========================================================
+
+
+# ----------------------------------------------------------
+# NODE DEPENDENCIES
+# ----------------------------------------------------------
+#
+# Never copy dependencies installed on the host into the
+# Linux Docker image.
+#
+# The image creates its own Linux-compatible node_modules
+# tree using:
+#
+#     npm ci
+#
+# ----------------------------------------------------------
+
+node_modules
+
+
+# ----------------------------------------------------------
+# VITE / BUILD OUTPUT
+# ----------------------------------------------------------
+
+dist
+.vite
+
+
+# ----------------------------------------------------------
+# TEST OUTPUT
+# ----------------------------------------------------------
+
+coverage
+
+
+# ----------------------------------------------------------
+# TYPESCRIPT BUILD ARTIFACTS
+# ----------------------------------------------------------
+
+*.tsbuildinfo
+
+
+# ----------------------------------------------------------
+# ENVIRONMENT FILES
+# ----------------------------------------------------------
+#
+# Actual environment configuration should be injected into
+# containers at runtime rather than baked into an image.
+#
+# Example/template files are intentionally retained in the
+# Docker build context because they contain documentation,
+# not secrets.
+#
+# ----------------------------------------------------------
+
+.env
+.env.*
+
+!.env.example
+!.env.docker.example
+
+
+# ----------------------------------------------------------
+# VERSION CONTROL
+# ----------------------------------------------------------
+
+.git
+.gitignore
+
+
+# ----------------------------------------------------------
+# EDITOR FILES
+# ----------------------------------------------------------
+
+.vscode
+.idea
+
+
+# ----------------------------------------------------------
+# OPERATING SYSTEM METADATA
+# ----------------------------------------------------------
+
+.DS_Store
+Thumbs.db
+
+
+# ----------------------------------------------------------
+# LOG FILES
+# ----------------------------------------------------------
+
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*

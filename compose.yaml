@@ -2,22 +2,41 @@
 # OPSFLOW DOCKER COMPOSE
 # ==========================================================
 #
-# Local development orchestration.
+# Hardened local containerized OpsFlow stack.
 #
-# Current services:
+# Startup chain:
 #
-#   db
-#       PostgreSQL
+#   PostgreSQL healthy
+#           |
+#           v
+#   migrations complete successfully
+#           |
+#           v
+#   backend healthy
+#           |
+#           v
+#   frontend healthy
 #
-#   migrate
-#       One-shot Alembic database migration service
 #
-#   backend
-#       FastAPI / Uvicorn
+# Network segmentation:
 #
-# Future phases will add:
+#   opsflow_backend_network
+#       db
+#       migrate
+#       backend
 #
-#   frontend
+#   opsflow_frontend_network
+#       frontend
+#
+# React executes in the HOST BROWSER.
+#
+# Browser traffic:
+#
+#   localhost:5173 -> frontend NGINX
+#   localhost:8000 -> FastAPI
+#
+# The frontend container itself therefore has no legitimate
+# requirement to communicate directly with backend or db.
 #
 # ==========================================================
 
@@ -46,49 +65,39 @@ services:
 
     healthcheck:
       test:
-        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+        - CMD-SHELL
+        - 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
+
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 5s
 
+    restart: unless-stopped
+
     networks:
-      - opsflow_network
+      - opsflow_backend_network
 
   # ========================================================
   # ALEMBIC MIGRATIONS
   # ========================================================
   #
-  # This is a one-shot service.
+  # One-shot migration service.
   #
-  # Startup sequence:
+  # Security boundary:
   #
-  #   db becomes healthy
-  #           |
-  #           v
-  #   migrate starts
-  #           |
-  #           +--> migrate opsflow
-  #           |
-  #           +--> migrate opsflow_test
-  #           |
-  #           v
-  #   migrate exits with code 0
-  #           |
-  #           v
-  #   backend is allowed to start
-  #
-  # The migrate service uses the same application image,
-  # dependencies, configuration, Alembic files, and models
-  # as the backend.
+  #   - explicit non-root runtime identity
+  #   - database configuration only
+  #   - no application secret env file
+  #   - no Linux capabilities
+  #   - no-new-privileges
+  #   - read-only root filesystem
+  #   - bounded process count
+  #   - backend-only network
   #
   # ========================================================
 
   migrate:
-    # ------------------------------------------------------
-    # IMAGE BUILD
-    # ------------------------------------------------------
-
     build:
       context: ./backend
 
@@ -100,60 +109,24 @@ services:
     image: opsflow-backend:dev
 
     # ------------------------------------------------------
-    # APPLICATION CONFIGURATION
+    # EXPLICIT RUNTIME IDENTITY
     # ------------------------------------------------------
     #
-    # Use the same application configuration source as the
-    # backend.
+    # The Dockerfile already defines UID/GID 10001.
     #
-    # backend/.env contains the application's existing:
-    #
-    #   JWT configuration
-    #   CSRF configuration
-    #   throttling configuration
-    #   password-reset configuration
-    #   AWS/SES configuration
-    #   etc.
-    #
-    # Docker-specific database URLs are then overridden below.
+    # Repeating it here prevents an accidental future
+    # Dockerfile USER regression from silently causing the
+    # migration service to execute as root.
     #
     # ------------------------------------------------------
 
-    env_file:
-      - ./backend/.env
+    user: "10001:10001"
+
+    # ------------------------------------------------------
+    # MINIMAL MIGRATION CONFIGURATION
+    # ------------------------------------------------------
 
     environment:
-      # ----------------------------------------------------
-      # APPLICATION MODE
-      # ----------------------------------------------------
-
-      APP_ENV: development
-
-      # ----------------------------------------------------
-      # BROWSER TRUST / CORS
-      # ----------------------------------------------------
-
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-
-      # ----------------------------------------------------
-      # DATABASE
-      # ----------------------------------------------------
-      #
-      # The migration container communicates with PostgreSQL
-      # through the Docker network.
-      #
-      # Therefore:
-      #
-      #   WRONG inside Docker:
-      #
-      #       localhost:5433
-      #
-      #   CORRECT inside Docker:
-      #
-      #       db:5432
-      #
-      # ----------------------------------------------------
-
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
 
@@ -161,14 +134,7 @@ services:
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
     # ------------------------------------------------------
-    # DATABASE STARTUP ORDER
-    # ------------------------------------------------------
-    #
-    # Do not start Alembic merely because the PostgreSQL
-    # container process exists.
-    #
-    # Wait until PostgreSQL reports healthy.
-    #
+    # DATABASE READINESS
     # ------------------------------------------------------
 
     depends_on:
@@ -177,39 +143,6 @@ services:
 
     # ------------------------------------------------------
     # MIGRATION COMMAND
-    # ------------------------------------------------------
-    #
-    # First:
-    #
-    #   DATABASE_URL points to opsflow
-    #
-    # so:
-    #
-    #   python -m alembic upgrade head
-    #
-    # migrates the primary database.
-    #
-    # Second:
-    #
-    #   DATABASE_URL is temporarily replaced by
-    #   TEST_DATABASE_URL
-    #
-    # so the same Alembic configuration migrates
-    # opsflow_test.
-    #
-    # The double dollar sign:
-    #
-    #   $$TEST_DATABASE_URL
-    #
-    # prevents Docker Compose from expanding the variable
-    # while parsing compose.yaml.
-    #
-    # It becomes:
-    #
-    #   $TEST_DATABASE_URL
-    #
-    # inside the container shell.
-    #
     # ------------------------------------------------------
 
     command:
@@ -246,37 +179,55 @@ services:
         echo "=================================================="
 
     # ------------------------------------------------------
-    # RESTART POLICY
-    # ------------------------------------------------------
-    #
-    # This service is SUPPOSED to stop after migrations.
-    #
-    # Successful final state:
-    #
-    #   Exited (0)
-    #
-    # It should not behave like a long-running web server.
-    #
+    # ONE-SHOT LIFECYCLE
     # ------------------------------------------------------
 
     restart: "no"
 
     # ------------------------------------------------------
-    # NETWORK
+    # PROCESS CEILING
+    # ------------------------------------------------------
+    #
+    # Alembic needs only a very small number of processes.
+    #
+    # 128 intentionally leaves generous headroom while still
+    # bounding process creation.
+    #
+    # ------------------------------------------------------
+
+    pids_limit: 128
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # FILESYSTEM CONTAINMENT
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    # ------------------------------------------------------
+    # PRIVATE BACKEND NETWORK
     # ------------------------------------------------------
 
     networks:
-      - opsflow_network
+      - opsflow_backend_network
 
   # ========================================================
   # FASTAPI BACKEND
   # ========================================================
 
   backend:
-    # ------------------------------------------------------
-    # IMAGE BUILD
-    # ------------------------------------------------------
-
     build:
       context: ./backend
 
@@ -288,57 +239,22 @@ services:
     image: opsflow-backend:dev
 
     # ------------------------------------------------------
-    # APPLICATION CONFIGURATION
+    # EXPLICIT RUNTIME IDENTITY
     # ------------------------------------------------------
-    #
-    # backend/.env contains the existing OpsFlow application
-    # settings:
-    #
-    #   JWT configuration
-    #   CSRF configuration
-    #   throttle configuration
-    #   password-reset configuration
-    #   AWS/SES configuration
-    #   etc.
-    #
-    # This file is read from the HOST at container startup.
-    #
-    # It is NOT copied into the image.
-    #
-    # Environment values declared below override matching
-    # values from backend/.env.
-    #
+
+    user: "10001:10001"
+
+    # ------------------------------------------------------
+    # APPLICATION CONFIGURATION
     # ------------------------------------------------------
 
     env_file:
       - ./backend/.env
 
     environment:
-      # ----------------------------------------------------
-      # APPLICATION MODE
-      # ----------------------------------------------------
-
       APP_ENV: development
 
-      # ----------------------------------------------------
-      # BROWSER TRUST / CORS
-      # ----------------------------------------------------
-
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-
-      # ----------------------------------------------------
-      # DATABASE
-      # ----------------------------------------------------
-      #
-      # Inside the Docker network, PostgreSQL is not:
-      #
-      #   localhost:5433
-      #
-      # It is:
-      #
-      #   db:5432
-      #
-      # ----------------------------------------------------
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
@@ -349,41 +265,12 @@ services:
     # ------------------------------------------------------
     # HOST PORT
     # ------------------------------------------------------
-    #
-    # Browser:
-    #
-    #   http://localhost:8000
-    #
-    # Docker network:
-    #
-    #   http://backend:8000
-    #
-    # ------------------------------------------------------
 
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
 
     # ------------------------------------------------------
-    # APPLICATION STARTUP ORDER
-    # ------------------------------------------------------
-    #
-    # Phase 8.3:
-    #
-    #   backend -> db healthy
-    #
-    # Phase 8.4:
-    #
-    #   backend -> migrate completed successfully
-    #                 |
-    #                 v
-    #              db healthy
-    #
-    # Therefore the backend no longer needs to start
-    # directly after PostgreSQL becomes healthy.
-    #
-    # It must wait until Alembic has successfully brought
-    # both databases to the current migration head.
-    #
+    # STARTUP ORDER
     # ------------------------------------------------------
 
     depends_on:
@@ -391,11 +278,178 @@ services:
         condition: service_completed_successfully
 
     # ------------------------------------------------------
-    # NETWORK
+    # HEALTH CONTRACT
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/api/v1/health',
+          timeout=2
+          ).read()
+
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    # ------------------------------------------------------
+    # RESTART POLICY
+    # ------------------------------------------------------
+
+    restart: unless-stopped
+
+    # ------------------------------------------------------
+    # PROCESS CEILING
+    # ------------------------------------------------------
+    #
+    # OpsFlow currently runs one Uvicorn application process.
+    #
+    # 128 provides substantial headroom while preventing an
+    # uncontrolled process explosion.
+    #
+    # Reevaluate this value if the deployment later uses
+    # Gunicorn, multiple worker processes, or additional
+    # process-heavy workloads.
+    #
+    # ------------------------------------------------------
+
+    pids_limit: 128
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # FILESYSTEM CONTAINMENT
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    # ------------------------------------------------------
+    # PRIVATE BACKEND NETWORK
     # ------------------------------------------------------
 
     networks:
-      - opsflow_network
+      - opsflow_backend_network
+
+  # ========================================================
+  # REACT PRODUCTION FRONTEND
+  # ========================================================
+
+  frontend:
+    build:
+      context: ./frontend
+
+      dockerfile: Dockerfile
+
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24}
+
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+
+        VITE_CSRF_COOKIE_NAME: ${VITE_CSRF_COOKIE_NAME:-opsflow_csrf}
+
+    image: opsflow-frontend:prod
+
+    # ------------------------------------------------------
+    # HOST / CONTAINER PORT
+    # ------------------------------------------------------
+
+    ports:
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:8080"
+
+    # ------------------------------------------------------
+    # STARTUP ORDER
+    # ------------------------------------------------------
+    #
+    # Compose can use backend health state for orchestration
+    # even though frontend and backend do not share a Docker
+    # network.
+    #
+    # This does NOT create network connectivity between them.
+    #
+    # ------------------------------------------------------
+
+    depends_on:
+      backend:
+        condition: service_healthy
+
+    # ------------------------------------------------------
+    # FRONTEND HEALTH CONTRACT
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null
+          http://127.0.0.1:8080/healthz
+          || exit 1
+
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+
+    # ------------------------------------------------------
+    # RESTART POLICY
+    # ------------------------------------------------------
+
+    restart: unless-stopped
+
+    # ------------------------------------------------------
+    # PROCESS CEILING
+    # ------------------------------------------------------
+    #
+    # NGINX requires a small master/worker process set.
+    #
+    # 64 leaves ample operational headroom while bounding
+    # process creation.
+    #
+    # ------------------------------------------------------
+
+    pids_limit: 64
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # FILESYSTEM CONTAINMENT
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
+
+    # ------------------------------------------------------
+    # FRONTEND-ONLY NETWORK
+    # ------------------------------------------------------
+
+    networks:
+      - opsflow_frontend_network
 
 # ==========================================================
 # PERSISTENT VOLUMES
@@ -410,7 +464,12 @@ volumes:
 # ==========================================================
 
 networks:
-  opsflow_network:
-    name: opsflow_network
+  opsflow_backend_network:
+    name: opsflow_backend_network
+
+    driver: bridge
+
+  opsflow_frontend_network:
+    name: opsflow_frontend_network
 
     driver: bridge

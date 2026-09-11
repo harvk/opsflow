@@ -5,15 +5,22 @@
 # OPSFLOW FASTAPI BACKEND IMAGE
 # ==========================================================
 #
-# This is a multi-stage Docker build.
+# Multi-stage backend image.
 #
-# Stage 1 installs Python dependencies.
+# Stage 1:
+#   - creates the Python virtual environment
+#   - installs runtime-only Python dependencies
 #
-# Stage 2 creates the smaller runtime image that actually
-# executes FastAPI.
+# Stage 2:
+#   - contains the Python runtime
+#   - contains the prebuilt virtual environment
+#   - contains FastAPI application source
+#   - contains Alembic migration source
+#   - executes as an unprivileged application user
 #
-# The Python major/minor version can be supplied by
-# Docker Compose using a build argument.
+# Runtime application source remains owned by root so the
+# unprivileged application process cannot modify its own
+# deployed code.
 #
 # ==========================================================
 
@@ -22,32 +29,14 @@ ARG PYTHON_VERSION=3.13
 
 
 # ==========================================================
-# STAGE 1 — DEPENDENCY BUILDER
+# STAGE 1 — RUNTIME DEPENDENCY BUILDER
 # ==========================================================
 
 FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
 
 
 # ----------------------------------------------------------
-# PYTHON RUNTIME BEHAVIOR
-# ----------------------------------------------------------
-#
-# PYTHONDONTWRITEBYTECODE=1
-#
-# Prevents Python from creating .pyc bytecode cache files.
-#
-#
-# PYTHONUNBUFFERED=1
-#
-# Causes logs to be written directly to stdout/stderr.
-# This is desirable in Docker because Docker captures those
-# streams as container logs.
-#
-#
-# PIP_DISABLE_PIP_VERSION_CHECK=1
-#
-# Suppresses pip's periodic version-check message.
-#
+# PYTHON / PIP BUILD BEHAVIOR
 # ----------------------------------------------------------
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -63,42 +52,35 @@ WORKDIR /build
 
 
 # ----------------------------------------------------------
-# CREATE AN ISOLATED PYTHON VIRTUAL ENVIRONMENT
+# CREATE ISOLATED RUNTIME VIRTUAL ENVIRONMENT
 # ----------------------------------------------------------
 
 RUN python -m venv /opt/venv
 
 
 # ----------------------------------------------------------
-# MAKE THAT VIRTUAL ENVIRONMENT THE DEFAULT PYTHON/PIP
+# USE THE VIRTUAL ENVIRONMENT BY DEFAULT
 # ----------------------------------------------------------
 
 ENV PATH="/opt/venv/bin:${PATH}"
 
 
 # ----------------------------------------------------------
-# COPY ONLY REQUIREMENTS FIRST
-# ----------------------------------------------------------
-#
-# This creates a Docker cache boundary.
-#
-# If Python source code changes but requirements.txt does
-# not change, Docker can reuse the installed dependency
-# layer rather than reinstalling everything.
-#
+# COPY RUNTIME DEPENDENCY MANIFEST
 # ----------------------------------------------------------
 
-COPY requirements.txt ./requirements.txt
+COPY requirements-runtime.txt ./requirements-runtime.txt
 
 
 # ----------------------------------------------------------
-# INSTALL PYTHON DEPENDENCIES
+# INSTALL RUNTIME DEPENDENCIES
 # ----------------------------------------------------------
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip \
     && python -m pip install \
-        --requirement requirements.txt
+        --no-compile \
+        --requirement requirements-runtime.txt
 
 
 # ==========================================================
@@ -115,22 +97,18 @@ FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH="/opt/venv/bin:${PATH}"
+    PATH="/opt/venv/bin:${PATH}" \
+    HOME="/home/opsflow"
 
 
 # ----------------------------------------------------------
-# CREATE A NON-ROOT APPLICATION USER
+# CREATE UNPRIVILEGED APPLICATION IDENTITY
 # ----------------------------------------------------------
 #
-# Containers default to root unless told otherwise.
+# The account receives a writable home directory but does
+# not own the deployed application or virtual environment.
 #
-# Running FastAPI as root is unnecessary.
-#
-# We create:
-#
-#   user:  opsflow
-#   UID:   10001
-#   GID:   10001
+# UID/GID 10001 gives the runtime a stable non-root identity.
 #
 # ----------------------------------------------------------
 
@@ -148,15 +126,26 @@ RUN groupadd \
 # ----------------------------------------------------------
 # APPLICATION WORKING DIRECTORY
 # ----------------------------------------------------------
+#
+# WORKDIR is created by root and intentionally remains
+# root-owned.
+#
+# ----------------------------------------------------------
 
 WORKDIR /app
 
 
 # ----------------------------------------------------------
-# COPY THE PREBUILT PYTHON ENVIRONMENT
+# COPY PREBUILT PYTHON ENVIRONMENT
+# ----------------------------------------------------------
+#
+# The virtual environment remains root-owned. The runtime
+# user requires read/execute access only.
+#
 # ----------------------------------------------------------
 
 COPY --from=builder \
+    --chown=root:root \
     /opt/venv \
     /opt/venv
 
@@ -164,24 +153,22 @@ COPY --from=builder \
 # ----------------------------------------------------------
 # COPY FASTAPI APPLICATION SOURCE
 # ----------------------------------------------------------
+#
+# Application source is deliberately owned by root rather
+# than by the account executing FastAPI.
+#
+# ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     app \
     ./app
 
 
 # ----------------------------------------------------------
-# COPY ALEMBIC MIGRATIONS
-# ----------------------------------------------------------
-#
-# Phase 8.4 will use these files.
-#
-# We include them now so the same backend image can later
-# execute Alembic commands.
-#
+# COPY ALEMBIC MIGRATION SOURCE
 # ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     migrations \
     ./migrations
 
@@ -190,20 +177,48 @@ COPY --chown=opsflow:opsflow \
 # COPY ALEMBIC CONFIGURATION
 # ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     alembic.ini \
     ./alembic.ini
 
 
 # ----------------------------------------------------------
+# LOCK DEPLOYED APPLICATION FILES
+# ----------------------------------------------------------
+#
+# Directories:
+#   r-xr-xr-x  (0555)
+#
+# Files:
+#   r--r--r--  (0444)
+#
+# FastAPI and Alembic only need to read/import these files.
+# The application user should not modify deployed source.
+#
+# ----------------------------------------------------------
+
+RUN find /app \
+        -type d \
+        -exec chmod 0555 {} + \
+    && find /app \
+        -type f \
+        -exec chmod 0444 {} +
+
+
+# ----------------------------------------------------------
 # DROP ROOT PRIVILEGES
 # ----------------------------------------------------------
+#
+# Numeric UID/GID makes the runtime identity explicit even
+# if username resolution is not required by tooling.
+#
+# ----------------------------------------------------------
 
-USER opsflow
+USER 10001:10001
 
 
 # ----------------------------------------------------------
-# DOCUMENT THE FASTAPI PORT
+# DOCUMENT FASTAPI PORT
 # ----------------------------------------------------------
 
 EXPOSE 8000
@@ -211,12 +226,6 @@ EXPOSE 8000
 
 # ----------------------------------------------------------
 # START UVICORN
-# ----------------------------------------------------------
-#
-# IMPORTANT:
-#
-# Keep this CMD instruction on ONE physical Dockerfile line.
-#
 # ----------------------------------------------------------
 
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]

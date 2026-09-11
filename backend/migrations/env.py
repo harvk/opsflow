@@ -1,95 +1,272 @@
-from logging.config import fileConfig
+import os
 
-from sqlalchemy import engine_from_config
-from sqlalchemy import pool
-
-from alembic import context
-
-from app.core.config import settings
-from app.db.base_metadata import Base
-from app.models.service import ServiceModel, ServiceDependencyModel
-from app.models.incident import IncidentModel
-from app.models.user import UserModel
-
-# this is the Alembic Config object, which provides
-# access to the values within the .ini file in use.
-config = context.config
-
-configured_url = config.get_main_option(
-    "sqlalchemy.url"
+from logging.config import (
+    fileConfig,
 )
 
-if (
-    not configured_url
-    or configured_url.startswith("driver://")
-):
-    config.set_main_option(
-        "sqlalchemy.url",
-        settings.database_url,
+from alembic import (
+    context,
+)
+
+from dotenv import (
+    load_dotenv,
+)
+
+from sqlalchemy import (
+    engine_from_config,
+    pool,
+)
+
+from app.db.base_metadata import (
+    Base,
+)
+
+from app.models.incident import (
+    IncidentModel,
+)
+
+from app.models.service import (
+    ServiceDependencyModel,
+    ServiceModel,
+)
+
+from app.models.user import (
+    UserModel,
+)
+
+
+# =========================================================
+# LOCAL DEVELOPMENT ENVIRONMENT
+# =========================================================
+#
+# Host-side development commonly runs Alembic from:
+#
+#     opsflow/backend
+#
+# where:
+#
+#     backend/.env
+#
+# contains DATABASE_URL.
+#
+# load_dotenv() supports that local workflow.
+#
+# Inside the Docker migration container there is deliberately
+# no .env file. Docker Compose injects DATABASE_URL directly
+# into the process environment instead.
+#
+# Existing process environment variables take precedence over
+# values discovered in .env.
+#
+# =========================================================
+
+load_dotenv(
+    override=False,
+)
+
+
+# =========================================================
+# ALEMBIC CONFIGURATION
+# =========================================================
+
+config = (
+    context.config
+)
+
+
+# =========================================================
+# DATABASE URL RESOLUTION
+# =========================================================
+#
+# Alembic needs database configuration.
+#
+# It does NOT need the complete FastAPI Settings object.
+#
+# Importing:
+#
+#     app.core.config.settings
+#
+# would unnecessarily require application secrets such as:
+#
+#     JWT signing keys
+#     CSRF signing material
+#     throttle HMAC material
+#     security-event HMAC material
+#     password-reset configuration
+#
+# DATABASE_URL is therefore resolved directly from the
+# process environment.
+#
+# In Docker:
+#
+#     Compose injects DATABASE_URL.
+#
+# During host development:
+#
+#     load_dotenv() can load backend/.env.
+#
+# =========================================================
+
+
+def get_database_url(
+) -> str:
+    database_url = (
+        os.environ
+        .get(
+            "DATABASE_URL",
+            "",
+        )
+        .strip()
     )
 
-# Interpret the config file for Python logging.
-# This line sets up loggers basically.
-if config.config_file_name is not None:
-    fileConfig(config.config_file_name)
+    if not database_url:
+        raise RuntimeError(
+            "DATABASE_URL must be set "
+            "before Alembic can run."
+        )
 
-# add your model's MetaData object here
-# for 'autogenerate' support
-# from myapp import mymodel
-# target_metadata = mymodel.Base.metadata
-target_metadata = Base.metadata
-
-# other values from the config, defined by the needs of env.py,
-# can be acquired:
-# my_important_option = config.get_main_option("my_important_option")
-# ... etc.
+    return database_url
 
 
-def run_migrations_offline() -> None:
-    """Run migrations in 'offline' mode.
-
-    This configures the context with just a URL
-    and not an Engine, though an Engine is acceptable
-    here as well.  By skipping the Engine creation
-    we don't even need a DBAPI to be available.
-
-    Calls to context.execute() here emit the given string to the
-    script output.
-
+def escape_alembic_config_value(
+    value: str,
+) -> str:
     """
-    url = config.get_main_option("sqlalchemy.url")
+    Escape percent characters for the ConfigParser-backed
+    Alembic configuration object.
+
+    A percent character can legitimately appear in an
+    encoded database credential. ConfigParser treats percent
+    signs as interpolation syntax unless they are escaped.
+    """
+
+    return value.replace(
+        "%",
+        "%%",
+    )
+
+
+database_url = (
+    get_database_url()
+)
+
+config.set_main_option(
+    "sqlalchemy.url",
+    escape_alembic_config_value(
+        database_url
+    ),
+)
+
+
+# =========================================================
+# LOGGING
+# =========================================================
+
+if (
+    config.config_file_name
+    is not None
+):
+    fileConfig(
+        config.config_file_name
+    )
+
+
+# =========================================================
+# MODEL METADATA
+# =========================================================
+#
+# Model imports above register their tables with Base.
+#
+# These imports are deliberately retained so Alembic
+# autogenerate can compare all application models against
+# the database schema.
+#
+# =========================================================
+
+target_metadata = (
+    Base.metadata
+)
+
+
+# =========================================================
+# OFFLINE MIGRATIONS
+# =========================================================
+
+
+def run_migrations_offline(
+) -> None:
+    """
+    Run Alembic migrations without creating an Engine.
+    """
+
+    url = (
+        config
+        .get_main_option(
+            "sqlalchemy.url"
+        )
+    )
+
     context.configure(
         url=url,
-        target_metadata=target_metadata,
+        target_metadata=(
+            target_metadata
+        ),
         literal_binds=True,
-        dialect_opts={"paramstyle": "named"},
+        dialect_opts={
+            "paramstyle": "named",
+        },
     )
 
-    with context.begin_transaction():
+    with (
+        context
+        .begin_transaction()
+    ):
         context.run_migrations()
 
 
-def run_migrations_online() -> None:
-    """Run migrations in 'online' mode.
+# =========================================================
+# ONLINE MIGRATIONS
+# =========================================================
 
-    In this scenario we need to create an Engine
-    and associate a connection with the context.
 
+def run_migrations_online(
+) -> None:
     """
-    connectable = engine_from_config(
-        config.get_section(config.config_ini_section, {}),
-        prefix="sqlalchemy.",
-        poolclass=pool.NullPool,
+    Run Alembic migrations using a live database Engine.
+    """
+
+    connectable = (
+        engine_from_config(
+            config.get_section(
+                config.config_ini_section,
+                {},
+            ),
+            prefix="sqlalchemy.",
+            poolclass=pool.NullPool,
+        )
     )
 
-    with connectable.connect() as connection:
+    with (
+        connectable.connect()
+        as connection
+    ):
         context.configure(
-            connection=connection, target_metadata=target_metadata
+            connection=connection,
+            target_metadata=(
+                target_metadata
+            ),
         )
 
-        with context.begin_transaction():
+        with (
+            context
+            .begin_transaction()
+        ):
             context.run_migrations()
 
+
+# =========================================================
+# EXECUTION MODE
+# =========================================================
 
 if context.is_offline_mode():
     run_migrations_offline()
