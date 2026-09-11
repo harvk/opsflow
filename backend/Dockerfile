@@ -5,19 +5,22 @@
 # OPSFLOW FASTAPI BACKEND IMAGE
 # ==========================================================
 #
-# This is a multi-stage Docker build.
+# Multi-stage backend image.
 #
-# Stage 1 creates an isolated Python virtual environment and
-# installs only dependencies required by the runtime image.
+# Stage 1:
+#   - creates the Python virtual environment
+#   - installs runtime-only Python dependencies
 #
-# Stage 2 contains only the Python runtime, the prebuilt
-# virtual environment, application source, and Alembic
-# migration files.
+# Stage 2:
+#   - contains the Python runtime
+#   - contains the prebuilt virtual environment
+#   - contains FastAPI application source
+#   - contains Alembic migration source
+#   - executes as an unprivileged application user
 #
-# Development and test tooling remains outside this image.
-#
-# The Python major/minor version can be supplied by Docker
-# Compose using a build argument.
+# Runtime application source remains owned by root so the
+# unprivileged application process cannot modify its own
+# deployed code.
 #
 # ==========================================================
 
@@ -34,24 +37,6 @@ FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
 
 # ----------------------------------------------------------
 # PYTHON / PIP BUILD BEHAVIOR
-# ----------------------------------------------------------
-#
-# PYTHONDONTWRITEBYTECODE=1
-#
-# Prevents Python from creating .pyc bytecode cache files
-# while Python code executes during the image build.
-#
-#
-# PYTHONUNBUFFERED=1
-#
-# Causes Python output to be written directly to
-# stdout/stderr.
-#
-#
-# PIP_DISABLE_PIP_VERSION_CHECK=1
-#
-# Prevents unnecessary pip version-check traffic/output.
-#
 # ----------------------------------------------------------
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
@@ -74,27 +59,14 @@ RUN python -m venv /opt/venv
 
 
 # ----------------------------------------------------------
-# MAKE THE VIRTUAL ENVIRONMENT THE DEFAULT PYTHON/PIP
+# USE THE VIRTUAL ENVIRONMENT BY DEFAULT
 # ----------------------------------------------------------
 
 ENV PATH="/opt/venv/bin:${PATH}"
 
 
 # ----------------------------------------------------------
-# COPY ONLY THE RUNTIME DEPENDENCY MANIFEST
-# ----------------------------------------------------------
-#
-# requirements.txt remains the complete development/test
-# dependency manifest used outside the production-style
-# runtime image.
-#
-# requirements-runtime.txt intentionally excludes packages
-# that are needed only for testing, linting, development
-# reload behavior, or other non-runtime workflows.
-#
-# Keeping this COPY before application source also preserves
-# Docker's dependency-layer cache boundary.
-#
+# COPY RUNTIME DEPENDENCY MANIFEST
 # ----------------------------------------------------------
 
 COPY requirements-runtime.txt ./requirements-runtime.txt
@@ -102,15 +74,6 @@ COPY requirements-runtime.txt ./requirements-runtime.txt
 
 # ----------------------------------------------------------
 # INSTALL RUNTIME DEPENDENCIES
-# ----------------------------------------------------------
-#
-# The BuildKit cache mount accelerates later builds without
-# copying pip's download cache into the final runtime image.
-#
-# --no-compile prevents pip from generating Python bytecode
-# during installation. Runtime bytecode writes are also
-# disabled by PYTHONDONTWRITEBYTECODE.
-#
 # ----------------------------------------------------------
 
 RUN --mount=type=cache,target=/root/.cache/pip \
@@ -139,15 +102,13 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
 
 
 # ----------------------------------------------------------
-# CREATE NON-ROOT APPLICATION USER
+# CREATE UNPRIVILEGED APPLICATION IDENTITY
 # ----------------------------------------------------------
 #
-# The backend does not require root privileges.
+# The account receives a writable home directory but does
+# not own the deployed application or virtual environment.
 #
-# UID/GID 10001 provides a stable application identity that
-# does not overlap with the usual low-numbered system users.
-#
-# The login shell is disabled.
+# UID/GID 10001 gives the runtime a stable non-root identity.
 #
 # ----------------------------------------------------------
 
@@ -165,15 +126,26 @@ RUN groupadd \
 # ----------------------------------------------------------
 # APPLICATION WORKING DIRECTORY
 # ----------------------------------------------------------
+#
+# WORKDIR is created by root and intentionally remains
+# root-owned.
+#
+# ----------------------------------------------------------
 
 WORKDIR /app
 
 
 # ----------------------------------------------------------
-# COPY PREBUILT RUNTIME PYTHON ENVIRONMENT
+# COPY PREBUILT PYTHON ENVIRONMENT
+# ----------------------------------------------------------
+#
+# The virtual environment remains root-owned. The runtime
+# user requires read/execute access only.
+#
 # ----------------------------------------------------------
 
 COPY --from=builder \
+    --chown=root:root \
     /opt/venv \
     /opt/venv
 
@@ -181,23 +153,22 @@ COPY --from=builder \
 # ----------------------------------------------------------
 # COPY FASTAPI APPLICATION SOURCE
 # ----------------------------------------------------------
+#
+# Application source is deliberately owned by root rather
+# than by the account executing FastAPI.
+#
+# ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     app \
     ./app
 
 
 # ----------------------------------------------------------
-# COPY ALEMBIC MIGRATIONS
-# ----------------------------------------------------------
-#
-# The same backend image is used by the one-shot Compose
-# migration service, so Alembic migration source must remain
-# available in the runtime image.
-#
+# COPY ALEMBIC MIGRATION SOURCE
 # ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     migrations \
     ./migrations
 
@@ -206,16 +177,44 @@ COPY --chown=opsflow:opsflow \
 # COPY ALEMBIC CONFIGURATION
 # ----------------------------------------------------------
 
-COPY --chown=opsflow:opsflow \
+COPY --chown=root:root \
     alembic.ini \
     ./alembic.ini
 
 
 # ----------------------------------------------------------
-# DROP ROOT PRIVILEGES
+# LOCK DEPLOYED APPLICATION FILES
+# ----------------------------------------------------------
+#
+# Directories:
+#   r-xr-xr-x  (0555)
+#
+# Files:
+#   r--r--r--  (0444)
+#
+# FastAPI and Alembic only need to read/import these files.
+# The application user should not modify deployed source.
+#
 # ----------------------------------------------------------
 
-USER opsflow
+RUN find /app \
+        -type d \
+        -exec chmod 0555 {} + \
+    && find /app \
+        -type f \
+        -exec chmod 0444 {} +
+
+
+# ----------------------------------------------------------
+# DROP ROOT PRIVILEGES
+# ----------------------------------------------------------
+#
+# Numeric UID/GID makes the runtime identity explicit even
+# if username resolution is not required by tooling.
+#
+# ----------------------------------------------------------
+
+USER 10001:10001
 
 
 # ----------------------------------------------------------
@@ -227,10 +226,6 @@ EXPOSE 8000
 
 # ----------------------------------------------------------
 # START UVICORN
-# ----------------------------------------------------------
-#
-# Development reload is intentionally not enabled.
-#
 # ----------------------------------------------------------
 
 CMD ["python", "-m", "uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
