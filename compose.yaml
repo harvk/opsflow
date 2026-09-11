@@ -17,18 +17,26 @@
 #           v
 #   frontend healthy
 #
-# Runtime containment:
 #
-#   backend / migrate / frontend
-#       - no-new-privileges
-#       - all Linux capabilities dropped
-#       - read-only root filesystem
-#       - controlled writable /tmp
+# Network segmentation:
 #
-# Persistent services:
+#   opsflow_backend_network
+#       db
+#       migrate
+#       backend
 #
-#   db / backend / frontend
-#       - restart unless explicitly stopped
+#   opsflow_frontend_network
+#       frontend
+#
+# React executes in the HOST BROWSER.
+#
+# Browser traffic:
+#
+#   localhost:5173 -> frontend NGINX
+#   localhost:8000 -> FastAPI
+#
+# The frontend container itself therefore has no legitimate
+# requirement to communicate directly with backend or db.
 #
 # ==========================================================
 
@@ -65,40 +73,27 @@ services:
       retries: 10
       start_period: 5s
 
-    # ------------------------------------------------------
-    # RESTART POLICY
-    # ------------------------------------------------------
-    #
-    # PostgreSQL is a persistent service.
-    #
-    # Restart it after abnormal termination or Docker daemon
-    # restart unless an operator explicitly stopped it.
-    #
-    # ------------------------------------------------------
-
     restart: unless-stopped
 
     networks:
-      - opsflow_network
+      - opsflow_backend_network
 
-    # ========================================================
+  # ========================================================
   # ALEMBIC MIGRATIONS
   # ========================================================
   #
-  # One-shot database schema migration service.
+  # One-shot migration service.
   #
-  # SECURITY BOUNDARY:
+  # Security boundary:
   #
-  # This service deliberately does NOT consume:
-  #
-  #     backend/.env
-  #
-  # Alembic requires only database connectivity.
-  #
-  # Therefore application secrets such as JWT keys, CSRF
-  # signing material, throttle secrets, security-event HMAC
-  # material, AWS/SES configuration, and password-reset
-  # configuration are not exposed to this container.
+  #   - explicit non-root runtime identity
+  #   - database configuration only
+  #   - no application secret env file
+  #   - no Linux capabilities
+  #   - no-new-privileges
+  #   - read-only root filesystem
+  #   - bounded process count
+  #   - backend-only network
   #
   # ========================================================
 
@@ -114,20 +109,21 @@ services:
     image: opsflow-backend:dev
 
     # ------------------------------------------------------
-    # MINIMAL MIGRATION ENVIRONMENT
+    # EXPLICIT RUNTIME IDENTITY
     # ------------------------------------------------------
     #
-    # DATABASE_URL:
+    # The Dockerfile already defines UID/GID 10001.
     #
-    #     primary opsflow database
+    # Repeating it here prevents an accidental future
+    # Dockerfile USER regression from silently causing the
+    # migration service to execute as root.
     #
-    # TEST_DATABASE_URL:
-    #
-    #     opsflow_test database
-    #
-    # These are the only OpsFlow configuration values
-    # required by the migration process.
-    #
+    # ------------------------------------------------------
+
+    user: "10001:10001"
+
+    # ------------------------------------------------------
+    # MINIMAL MIGRATION CONFIGURATION
     # ------------------------------------------------------
 
     environment:
@@ -189,6 +185,19 @@ services:
     restart: "no"
 
     # ------------------------------------------------------
+    # PROCESS CEILING
+    # ------------------------------------------------------
+    #
+    # Alembic needs only a very small number of processes.
+    #
+    # 128 intentionally leaves generous headroom while still
+    # bounding process creation.
+    #
+    # ------------------------------------------------------
+
+    pids_limit: 128
+
+    # ------------------------------------------------------
     # PRIVILEGE CONTAINMENT
     # ------------------------------------------------------
 
@@ -208,11 +217,11 @@ services:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
 
     # ------------------------------------------------------
-    # NETWORK
+    # PRIVATE BACKEND NETWORK
     # ------------------------------------------------------
 
     networks:
-      - opsflow_network
+      - opsflow_backend_network
 
   # ========================================================
   # FASTAPI BACKEND
@@ -229,6 +238,16 @@ services:
 
     image: opsflow-backend:dev
 
+    # ------------------------------------------------------
+    # EXPLICIT RUNTIME IDENTITY
+    # ------------------------------------------------------
+
+    user: "10001:10001"
+
+    # ------------------------------------------------------
+    # APPLICATION CONFIGURATION
+    # ------------------------------------------------------
+
     env_file:
       - ./backend/.env
 
@@ -243,15 +262,23 @@ services:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
+    # ------------------------------------------------------
+    # HOST PORT
+    # ------------------------------------------------------
+
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
+
+    # ------------------------------------------------------
+    # STARTUP ORDER
+    # ------------------------------------------------------
 
     depends_on:
       migrate:
         condition: service_completed_successfully
 
     # ------------------------------------------------------
-    # BACKEND HEALTH CONTRACT
+    # HEALTH CONTRACT
     # ------------------------------------------------------
 
     healthcheck:
@@ -278,15 +305,24 @@ services:
     restart: unless-stopped
 
     # ------------------------------------------------------
-    # PRIVILEGE CONTAINMENT
+    # PROCESS CEILING
     # ------------------------------------------------------
     #
-    # FastAPI already executes as UID/GID 10001.
+    # OpsFlow currently runs one Uvicorn application process.
     #
-    # These controls ensure that process cannot later gain
-    # additional privileges or use Linux capabilities that
-    # the HTTP API does not require.
+    # 128 provides substantial headroom while preventing an
+    # uncontrolled process explosion.
     #
+    # Reevaluate this value if the deployment later uses
+    # Gunicorn, multiple worker processes, or additional
+    # process-heavy workloads.
+    #
+    # ------------------------------------------------------
+
+    pids_limit: 128
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
     # ------------------------------------------------------
 
     security_opt:
@@ -296,7 +332,7 @@ services:
       - ALL
 
     # ------------------------------------------------------
-    # READ-ONLY ROOT FILESYSTEM
+    # FILESYSTEM CONTAINMENT
     # ------------------------------------------------------
 
     read_only: true
@@ -304,8 +340,12 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
 
+    # ------------------------------------------------------
+    # PRIVATE BACKEND NETWORK
+    # ------------------------------------------------------
+
     networks:
-      - opsflow_network
+      - opsflow_backend_network
 
   # ========================================================
   # REACT PRODUCTION FRONTEND
@@ -326,8 +366,24 @@ services:
 
     image: opsflow-frontend:prod
 
+    # ------------------------------------------------------
+    # HOST / CONTAINER PORT
+    # ------------------------------------------------------
+
     ports:
       - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:8080"
+
+    # ------------------------------------------------------
+    # STARTUP ORDER
+    # ------------------------------------------------------
+    #
+    # Compose can use backend health state for orchestration
+    # even though frontend and backend do not share a Docker
+    # network.
+    #
+    # This does NOT create network connectivity between them.
+    #
+    # ------------------------------------------------------
 
     depends_on:
       backend:
@@ -357,14 +413,20 @@ services:
     restart: unless-stopped
 
     # ------------------------------------------------------
-    # PRIVILEGE CONTAINMENT
+    # PROCESS CEILING
     # ------------------------------------------------------
     #
-    # nginx-unprivileged already runs without root.
+    # NGINX requires a small master/worker process set.
     #
-    # Port 8080 is non-privileged, so NGINX does not require
-    # CAP_NET_BIND_SERVICE.
+    # 64 leaves ample operational headroom while bounding
+    # process creation.
     #
+    # ------------------------------------------------------
+
+    pids_limit: 64
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
     # ------------------------------------------------------
 
     security_opt:
@@ -374,14 +436,7 @@ services:
       - ALL
 
     # ------------------------------------------------------
-    # READ-ONLY ROOT FILESYSTEM
-    # ------------------------------------------------------
-    #
-    # The unprivileged NGINX image stores its runtime PID and
-    # temporary data beneath /tmp.
-    #
-    # We therefore make only /tmp writable.
-    #
+    # FILESYSTEM CONTAINMENT
     # ------------------------------------------------------
 
     read_only: true
@@ -389,8 +444,12 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=32m
 
+    # ------------------------------------------------------
+    # FRONTEND-ONLY NETWORK
+    # ------------------------------------------------------
+
     networks:
-      - opsflow_network
+      - opsflow_frontend_network
 
 # ==========================================================
 # PERSISTENT VOLUMES
@@ -405,7 +464,12 @@ volumes:
 # ==========================================================
 
 networks:
-  opsflow_network:
-    name: opsflow_network
+  opsflow_backend_network:
+    name: opsflow_backend_network
+
+    driver: bridge
+
+  opsflow_frontend_network:
+    name: opsflow_frontend_network
 
     driver: bridge
