@@ -2,36 +2,33 @@
 # OPSFLOW DOCKER COMPOSE
 # ==========================================================
 #
-# Local containerized OpsFlow stack.
+# Hardened local containerized OpsFlow stack.
 #
-# Services:
+# Startup chain:
 #
-#   db
-#       PostgreSQL
+#   PostgreSQL healthy
+#           |
+#           v
+#   migrations complete successfully
+#           |
+#           v
+#   backend healthy
+#           |
+#           v
+#   frontend healthy
 #
-#   migrate
-#       One-shot Alembic database migration service
+# Runtime containment:
 #
-#   backend
-#       FastAPI / Uvicorn
+#   backend / migrate / frontend
+#       - no-new-privileges
+#       - all Linux capabilities dropped
+#       - read-only root filesystem
+#       - controlled writable /tmp
 #
-#   frontend
-#       Production-built React application served through
-#       unprivileged NGINX
+# Persistent services:
 #
-#
-# Startup readiness chain:
-#
-#     db healthy
-#         |
-#         v
-#     migrate exits 0
-#         |
-#         v
-#     backend healthy
-#         |
-#         v
-#     frontend starts and becomes healthy
+#   db / backend / frontend
+#       - restart unless explicitly stopped
 #
 # ==========================================================
 
@@ -68,35 +65,27 @@ services:
       retries: 10
       start_period: 5s
 
+    # ------------------------------------------------------
+    # RESTART POLICY
+    # ------------------------------------------------------
+    #
+    # PostgreSQL is a persistent service.
+    #
+    # Restart it after abnormal termination or Docker daemon
+    # restart unless an operator explicitly stopped it.
+    #
+    # ------------------------------------------------------
+
+    restart: unless-stopped
+
     networks:
       - opsflow_network
 
   # ========================================================
   # ALEMBIC MIGRATIONS
   # ========================================================
-  #
-  # This is intentionally a one-shot service.
-  #
-  # Its successful lifecycle is:
-  #
-  #     Created
-  #        |
-  #        v
-  #     Running
-  #        |
-  #        v
-  #     Exited (0)
-  #
-  # A persistent Docker healthcheck is therefore NOT the
-  # correct readiness contract for this service.
-  #
-  # ========================================================
 
   migrate:
-    # ------------------------------------------------------
-    # IMAGE BUILD
-    # ------------------------------------------------------
-
     build:
       context: ./backend
 
@@ -106,10 +95,6 @@ services:
         PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
 
     image: opsflow-backend:dev
-
-    # ------------------------------------------------------
-    # APPLICATION CONFIGURATION
-    # ------------------------------------------------------
 
     env_file:
       - ./backend/.env
@@ -125,17 +110,9 @@ services:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
-    # ------------------------------------------------------
-    # DATABASE READINESS
-    # ------------------------------------------------------
-
     depends_on:
       db:
         condition: service_healthy
-
-    # ------------------------------------------------------
-    # MIGRATION COMMAND
-    # ------------------------------------------------------
 
     command:
       - /bin/sh
@@ -171,14 +148,36 @@ services:
         echo "=================================================="
 
     # ------------------------------------------------------
-    # ONE-SHOT RESTART POLICY
+    # ONE-SHOT SERVICE
     # ------------------------------------------------------
 
     restart: "no"
 
     # ------------------------------------------------------
-    # NETWORK
+    # PRIVILEGE CONTAINMENT
     # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # READ-ONLY ROOT FILESYSTEM
+    # ------------------------------------------------------
+    #
+    # Alembic only needs to read application and migration
+    # files and communicate with PostgreSQL.
+    #
+    # /tmp remains available for legitimate temporary files.
+    #
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
 
     networks:
       - opsflow_network
@@ -188,10 +187,6 @@ services:
   # ========================================================
 
   backend:
-    # ------------------------------------------------------
-    # IMAGE BUILD
-    # ------------------------------------------------------
-
     build:
       context: ./backend
 
@@ -201,10 +196,6 @@ services:
         PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
 
     image: opsflow-backend:dev
-
-    # ------------------------------------------------------
-    # APPLICATION CONFIGURATION
-    # ------------------------------------------------------
 
     env_file:
       - ./backend/.env
@@ -220,21 +211,8 @@ services:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
-    # ------------------------------------------------------
-    # HOST PORT
-    # ------------------------------------------------------
-
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
-
-    # ------------------------------------------------------
-    # STARTUP DEPENDENCY
-    # ------------------------------------------------------
-    #
-    # Do not start FastAPI until database migrations have
-    # completed successfully.
-    #
-    # ------------------------------------------------------
 
     depends_on:
       migrate:
@@ -242,22 +220,6 @@ services:
 
     # ------------------------------------------------------
     # BACKEND HEALTH CONTRACT
-    # ------------------------------------------------------
-    #
-    # The image intentionally does not install curl solely
-    # for a health check.
-    #
-    # Python is already required by the application, so the
-    # standard library performs the local HTTP request.
-    #
-    # The existing public OpsFlow endpoint is:
-    #
-    #     /api/v1/health
-    #
-    # urllib raises an exception for connection failures and
-    # non-success HTTP responses, causing the command to
-    # return a non-zero status.
-    #
     # ------------------------------------------------------
 
     healthcheck:
@@ -278,8 +240,37 @@ services:
       start_period: 10s
 
     # ------------------------------------------------------
-    # NETWORK
+    # RESTART POLICY
     # ------------------------------------------------------
+
+    restart: unless-stopped
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+    #
+    # FastAPI already executes as UID/GID 10001.
+    #
+    # These controls ensure that process cannot later gain
+    # additional privileges or use Linux capabilities that
+    # the HTTP API does not require.
+    #
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # READ-ONLY ROOT FILESYSTEM
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
 
     networks:
       - opsflow_network
@@ -289,10 +280,6 @@ services:
   # ========================================================
 
   frontend:
-    # ------------------------------------------------------
-    # IMAGE BUILD
-    # ------------------------------------------------------
-
     build:
       context: ./frontend
 
@@ -307,31 +294,8 @@ services:
 
     image: opsflow-frontend:prod
 
-    # ------------------------------------------------------
-    # HOST / CONTAINER PORT
-    # ------------------------------------------------------
-
     ports:
       - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:8080"
-
-    # ------------------------------------------------------
-    # BACKEND READINESS DEPENDENCY
-    # ------------------------------------------------------
-    #
-    # Previous Phase 8.6.4:
-    #
-    #     condition: service_started
-    #
-    # That merely proved that the backend process existed.
-    #
-    # Phase 8.6.5:
-    #
-    #     condition: service_healthy
-    #
-    # Now NGINX is not started until FastAPI has satisfied
-    # its explicit HTTP health contract.
-    #
-    # ------------------------------------------------------
 
     depends_on:
       backend:
@@ -339,18 +303,6 @@ services:
 
     # ------------------------------------------------------
     # FRONTEND HEALTH CONTRACT
-    # ------------------------------------------------------
-    #
-    # /healthz is served directly by NGINX.
-    #
-    # This check proves that the web server is accepting HTTP
-    # traffic without depending on:
-    #
-    #     React execution
-    #     authentication
-    #     FastAPI
-    #     PostgreSQL
-    #
     # ------------------------------------------------------
 
     healthcheck:
@@ -367,8 +319,43 @@ services:
       start_period: 5s
 
     # ------------------------------------------------------
-    # NETWORK
+    # RESTART POLICY
     # ------------------------------------------------------
+
+    restart: unless-stopped
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+    #
+    # nginx-unprivileged already runs without root.
+    #
+    # Port 8080 is non-privileged, so NGINX does not require
+    # CAP_NET_BIND_SERVICE.
+    #
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # READ-ONLY ROOT FILESYSTEM
+    # ------------------------------------------------------
+    #
+    # The unprivileged NGINX image stores its runtime PID and
+    # temporary data beneath /tmp.
+    #
+    # We therefore make only /tmp writable.
+    #
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
 
     networks:
       - opsflow_network
