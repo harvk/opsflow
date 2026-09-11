@@ -81,8 +81,25 @@ services:
     networks:
       - opsflow_network
 
-  # ========================================================
+    # ========================================================
   # ALEMBIC MIGRATIONS
+  # ========================================================
+  #
+  # One-shot database schema migration service.
+  #
+  # SECURITY BOUNDARY:
+  #
+  # This service deliberately does NOT consume:
+  #
+  #     backend/.env
+  #
+  # Alembic requires only database connectivity.
+  #
+  # Therefore application secrets such as JWT keys, CSRF
+  # signing material, throttle secrets, security-event HMAC
+  # material, AWS/SES configuration, and password-reset
+  # configuration are not exposed to this container.
+  #
   # ========================================================
 
   migrate:
@@ -96,23 +113,41 @@ services:
 
     image: opsflow-backend:dev
 
-    env_file:
-      - ./backend/.env
+    # ------------------------------------------------------
+    # MINIMAL MIGRATION ENVIRONMENT
+    # ------------------------------------------------------
+    #
+    # DATABASE_URL:
+    #
+    #     primary opsflow database
+    #
+    # TEST_DATABASE_URL:
+    #
+    #     opsflow_test database
+    #
+    # These are the only OpsFlow configuration values
+    # required by the migration process.
+    #
+    # ------------------------------------------------------
 
     environment:
-      APP_ENV: development
-
-      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
 
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
+    # ------------------------------------------------------
+    # DATABASE READINESS
+    # ------------------------------------------------------
+
     depends_on:
       db:
         condition: service_healthy
+
+    # ------------------------------------------------------
+    # MIGRATION COMMAND
+    # ------------------------------------------------------
 
     command:
       - /bin/sh
@@ -148,7 +183,7 @@ services:
         echo "=================================================="
 
     # ------------------------------------------------------
-    # ONE-SHOT SERVICE
+    # ONE-SHOT LIFECYCLE
     # ------------------------------------------------------
 
     restart: "no"
@@ -164,20 +199,17 @@ services:
       - ALL
 
     # ------------------------------------------------------
-    # READ-ONLY ROOT FILESYSTEM
-    # ------------------------------------------------------
-    #
-    # Alembic only needs to read application and migration
-    # files and communicate with PostgreSQL.
-    #
-    # /tmp remains available for legitimate temporary files.
-    #
+    # FILESYSTEM CONTAINMENT
     # ------------------------------------------------------
 
     read_only: true
 
     tmpfs:
       - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    # ------------------------------------------------------
+    # NETWORK
+    # ------------------------------------------------------
 
     networks:
       - opsflow_network
