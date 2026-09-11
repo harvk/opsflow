@@ -1,153 +1,184 @@
+# syntax=docker/dockerfile:1
+
+
 # ==========================================================
-# OPSFLOW FRONTEND DEVELOPMENT IMAGE
+# OPSFLOW FRONTEND PRODUCTION IMAGE
 # ==========================================================
 #
-# Purpose:
+# This is a multi-stage frontend build.
 #
-#   Run the React + TypeScript + Vite frontend inside Docker
-#   for the local OpsFlow development environment.
+# Stage 1:
 #
-# This is intentionally a DEVELOPMENT image.
+#     Node.js
+#         |
+#         +--> npm ci
+#         |
+#         +--> TypeScript compilation
+#         |
+#         +--> Vite production build
+#         |
+#         v
+#       /app/dist
 #
-# Production static-file serving will be handled separately
-# from this development containerization phase.
+#
+# Stage 2:
+#
+#     Unprivileged NGINX
+#         |
+#         +--> compiled static files only
+#         |
+#         v
+#       port 8080
+#
+#
+# Node.js, npm, TypeScript, Vite, source files, tests, and
+# node_modules do NOT enter the final runtime image.
 #
 # ==========================================================
 
 
 # ==========================================================
-# NODE BASE IMAGE
+# GLOBAL BUILD ARGUMENTS
 # ==========================================================
 
 ARG NODE_VERSION=24
 
-FROM node:${NODE_VERSION}-bookworm-slim
-
 
 # ==========================================================
-# APPLICATION ENVIRONMENT
-# ==========================================================
-#
-# Keep npm and frontend tooling in development mode.
-#
-# Vite and the TypeScript/build tooling are commonly stored
-# under devDependencies, so those dependencies must remain
-# installed.
-#
+# STAGE 1 — FRONTEND BUILDER
 # ==========================================================
 
-ENV NODE_ENV=development
+FROM node:${NODE_VERSION}-bookworm-slim AS builder
 
 
-# ==========================================================
-# WORKING DIRECTORY
-# ==========================================================
-#
-# Everything below this point executes relative to:
-#
-#     /app
-#
-# Host:
-#
-#     ./frontend
-#
-# Container:
-#
-#     /app
-#
-# ==========================================================
+# ----------------------------------------------------------
+# BUILD WORKING DIRECTORY
+# ----------------------------------------------------------
 
 WORKDIR /app
 
 
-# ==========================================================
+# ----------------------------------------------------------
 # DEPENDENCY MANIFESTS
-# ==========================================================
+# ----------------------------------------------------------
 #
-# Copy dependency manifests separately from source code.
+# Copy these independently from application source so Docker
+# can preserve the npm dependency layer when source files
+# change without package manifests changing.
 #
-# This gives Docker an independent dependency cache layer.
-#
-# If neither file changes:
-#
-#     package.json
-#     package-lock.json
-#
-# Docker can generally reuse the npm ci layer.
-#
-# ==========================================================
+# ----------------------------------------------------------
 
 COPY package.json package-lock.json ./
 
 
-# ==========================================================
-# DEPENDENCY INSTALLATION
-# ==========================================================
+# ----------------------------------------------------------
+# INSTALL LOCKED DEPENDENCIES
+# ----------------------------------------------------------
 #
-# npm ci installs the dependency graph recorded by the
-# committed package-lock.json.
+# Development dependencies are intentionally installed here.
 #
-# The installation occurs inside Linux rather than copying
-# host-installed Windows dependencies.
+# TypeScript, Vite, and the React Vite plugin are build tools
+# and therefore required during this builder stage.
 #
-# ==========================================================
+# They will not exist in the final NGINX image.
+#
+# ----------------------------------------------------------
 
-RUN npm ci
+RUN --mount=type=cache,target=/root/.npm \
+    npm ci
 
 
-# ==========================================================
-# APPLICATION SOURCE
-# ==========================================================
-#
-# Copy the rest of the frontend source.
-#
-# frontend/.dockerignore controls files excluded from this
-# build context.
-#
-# Runtime environment files are deliberately excluded.
-#
-# ==========================================================
+# ----------------------------------------------------------
+# COPY FRONTEND SOURCE
+# ----------------------------------------------------------
 
 COPY . .
 
 
+# ----------------------------------------------------------
+# BROWSER-VISIBLE BUILD CONFIGURATION
+# ----------------------------------------------------------
+#
+# VITE_* values are embedded into the browser bundle during:
+#
+#     npm run build
+#
+# They are NOT runtime environment variables in the final
+# NGINX container.
+#
+# Never use these arguments for private credentials.
+#
+# ----------------------------------------------------------
+
+ARG VITE_API_BASE_URL=http://localhost:8000/api/v1
+ARG VITE_CSRF_COOKIE_NAME=opsflow_csrf
+
+
+# ----------------------------------------------------------
+# BUILD PRODUCTION STATIC ASSETS
+# ----------------------------------------------------------
+
+RUN VITE_API_BASE_URL="${VITE_API_BASE_URL}" \
+    VITE_CSRF_COOKIE_NAME="${VITE_CSRF_COOKIE_NAME}" \
+    npm run build
+
+
 # ==========================================================
-# VITE DEVELOPMENT PORT
+# STAGE 2 — STATIC RUNTIME
 # ==========================================================
 #
-# EXPOSE documents the port used by the application inside
-# the container.
-#
-# It does not publish the port to the Windows host.
-#
-# Docker run or Docker Compose performs that mapping.
+# NGINX's unprivileged image is designed to operate without
+# root privileges and uses non-privileged port 8080.
 #
 # ==========================================================
 
-EXPOSE 5173
+FROM nginxinc/nginx-unprivileged:stable-alpine AS runtime
 
 
-# ==========================================================
-# VITE DEVELOPMENT SERVER
-# ==========================================================
-#
-# --host 0.0.0.0
-#
-#     Vite must listen beyond the container's localhost
-#     interface so Docker port publishing can reach it.
-#
-#
-# --port 5173
-#
-#     Use our defined frontend development port.
-#
-#
-# --strictPort
-#
-#     Never silently move to 5174, 5175, etc.
-#
-#     Docker expects the application to remain on 5173.
-#
-# ==========================================================
+# ----------------------------------------------------------
+# REPLACE DEFAULT SITE CONFIGURATION
+# ----------------------------------------------------------
 
-CMD ["npm", "run", "dev", "--", "--host", "0.0.0.0", "--port", "5173", "--strictPort"]
+COPY nginx/default.conf \
+    /etc/nginx/conf.d/default.conf
+
+
+# ----------------------------------------------------------
+# COPY ONLY COMPILED FRONTEND ARTIFACTS
+# ----------------------------------------------------------
+#
+# Nothing from:
+#
+#     src/
+#     node_modules/
+#     tests/
+#     TypeScript tooling
+#
+# is copied into this runtime stage.
+#
+# ----------------------------------------------------------
+
+COPY --from=builder \
+    /app/dist \
+    /usr/share/nginx/html
+
+
+# ----------------------------------------------------------
+# DOCUMENT RUNTIME PORT
+# ----------------------------------------------------------
+
+EXPOSE 8080
+
+
+# ----------------------------------------------------------
+# NGINX RUNTIME
+# ----------------------------------------------------------
+#
+# The base image already defines the appropriate
+# unprivileged execution identity and NGINX entrypoint.
+#
+# No development server command is required here.
+#
+# ----------------------------------------------------------
+
+CMD ["nginx", "-g", "daemon off;"]

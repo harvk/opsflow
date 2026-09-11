@@ -2,9 +2,9 @@
 # OPSFLOW DOCKER COMPOSE
 # ==========================================================
 #
-# Local development orchestration.
+# Local containerized OpsFlow stack.
 #
-# Current services:
+# Services:
 #
 #   db
 #       PostgreSQL
@@ -15,9 +15,9 @@
 #   backend
 #       FastAPI / Uvicorn
 #
-# Future phases will add:
-#
 #   frontend
+#       Production-built React application served through
+#       unprivileged NGINX
 #
 # ==========================================================
 
@@ -47,6 +47,7 @@ services:
     healthcheck:
       test:
         ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+
       interval: 5s
       timeout: 5s
       retries: 10
@@ -59,28 +60,21 @@ services:
   # ALEMBIC MIGRATIONS
   # ========================================================
   #
-  # This is a one-shot service.
+  # One-shot service.
   #
   # Startup sequence:
   #
-  #   db becomes healthy
-  #           |
-  #           v
-  #   migrate starts
-  #           |
-  #           +--> migrate opsflow
-  #           |
-  #           +--> migrate opsflow_test
-  #           |
-  #           v
-  #   migrate exits with code 0
-  #           |
-  #           v
-  #   backend is allowed to start
-  #
-  # The migrate service uses the same application image,
-  # dependencies, configuration, Alembic files, and models
-  # as the backend.
+  #     db healthy
+  #         |
+  #         v
+  #     migrate
+  #         |
+  #         +--> opsflow
+  #         |
+  #         +--> opsflow_test
+  #         |
+  #         v
+  #     Exited (0)
   #
   # ========================================================
 
@@ -102,22 +96,6 @@ services:
     # ------------------------------------------------------
     # APPLICATION CONFIGURATION
     # ------------------------------------------------------
-    #
-    # Use the same application configuration source as the
-    # backend.
-    #
-    # backend/.env contains the application's existing:
-    #
-    #   JWT configuration
-    #   CSRF configuration
-    #   throttling configuration
-    #   password-reset configuration
-    #   AWS/SES configuration
-    #   etc.
-    #
-    # Docker-specific database URLs are then overridden below.
-    #
-    # ------------------------------------------------------
 
     env_file:
       - ./backend/.env
@@ -132,26 +110,19 @@ services:
       # ----------------------------------------------------
       # BROWSER TRUST / CORS
       # ----------------------------------------------------
+      #
+      # The frontend remains browser-visible at:
+      #
+      #     http://localhost:5173
+      #
+      # even though NGINX listens on 8080 inside Docker.
+      #
+      # ----------------------------------------------------
 
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
 
       # ----------------------------------------------------
       # DATABASE
-      # ----------------------------------------------------
-      #
-      # The migration container communicates with PostgreSQL
-      # through the Docker network.
-      #
-      # Therefore:
-      #
-      #   WRONG inside Docker:
-      #
-      #       localhost:5433
-      #
-      #   CORRECT inside Docker:
-      #
-      #       db:5432
-      #
       # ----------------------------------------------------
 
       DATABASE_URL: >-
@@ -163,13 +134,6 @@ services:
     # ------------------------------------------------------
     # DATABASE STARTUP ORDER
     # ------------------------------------------------------
-    #
-    # Do not start Alembic merely because the PostgreSQL
-    # container process exists.
-    #
-    # Wait until PostgreSQL reports healthy.
-    #
-    # ------------------------------------------------------
 
     depends_on:
       db:
@@ -177,39 +141,6 @@ services:
 
     # ------------------------------------------------------
     # MIGRATION COMMAND
-    # ------------------------------------------------------
-    #
-    # First:
-    #
-    #   DATABASE_URL points to opsflow
-    #
-    # so:
-    #
-    #   python -m alembic upgrade head
-    #
-    # migrates the primary database.
-    #
-    # Second:
-    #
-    #   DATABASE_URL is temporarily replaced by
-    #   TEST_DATABASE_URL
-    #
-    # so the same Alembic configuration migrates
-    # opsflow_test.
-    #
-    # The double dollar sign:
-    #
-    #   $$TEST_DATABASE_URL
-    #
-    # prevents Docker Compose from expanding the variable
-    # while parsing compose.yaml.
-    #
-    # It becomes:
-    #
-    #   $TEST_DATABASE_URL
-    #
-    # inside the container shell.
-    #
     # ------------------------------------------------------
 
     command:
@@ -248,16 +179,6 @@ services:
     # ------------------------------------------------------
     # RESTART POLICY
     # ------------------------------------------------------
-    #
-    # This service is SUPPOSED to stop after migrations.
-    #
-    # Successful final state:
-    #
-    #   Exited (0)
-    #
-    # It should not behave like a long-running web server.
-    #
-    # ------------------------------------------------------
 
     restart: "no"
 
@@ -290,25 +211,6 @@ services:
     # ------------------------------------------------------
     # APPLICATION CONFIGURATION
     # ------------------------------------------------------
-    #
-    # backend/.env contains the existing OpsFlow application
-    # settings:
-    #
-    #   JWT configuration
-    #   CSRF configuration
-    #   throttle configuration
-    #   password-reset configuration
-    #   AWS/SES configuration
-    #   etc.
-    #
-    # This file is read from the HOST at container startup.
-    #
-    # It is NOT copied into the image.
-    #
-    # Environment values declared below override matching
-    # values from backend/.env.
-    #
-    # ------------------------------------------------------
 
     env_file:
       - ./backend/.env
@@ -328,17 +230,7 @@ services:
 
       # ----------------------------------------------------
       # DATABASE
-      # ----------------------------------------------------
-      #
-      # Inside the Docker network, PostgreSQL is not:
-      #
-      #   localhost:5433
-      #
-      # It is:
-      #
-      #   db:5432
-      #
-      # ----------------------------------------------------
+      # ------------------------------------------------------
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
@@ -352,11 +244,11 @@ services:
     #
     # Browser:
     #
-    #   http://localhost:8000
+    #     http://localhost:8000
     #
     # Docker network:
     #
-    #   http://backend:8000
+    #     http://backend:8000
     #
     # ------------------------------------------------------
 
@@ -365,25 +257,6 @@ services:
 
     # ------------------------------------------------------
     # APPLICATION STARTUP ORDER
-    # ------------------------------------------------------
-    #
-    # Phase 8.3:
-    #
-    #   backend -> db healthy
-    #
-    # Phase 8.4:
-    #
-    #   backend -> migrate completed successfully
-    #                 |
-    #                 v
-    #              db healthy
-    #
-    # Therefore the backend no longer needs to start
-    # directly after PostgreSQL becomes healthy.
-    #
-    # It must wait until Alembic has successfully brought
-    # both databases to the current migration head.
-    #
     # ------------------------------------------------------
 
     depends_on:
@@ -398,7 +271,7 @@ services:
       - opsflow_network
 
   # ========================================================
-  # REACT / VITE FRONTEND
+  # REACT PRODUCTION FRONTEND
   # ========================================================
 
   frontend:
@@ -406,17 +279,13 @@ services:
     # IMAGE BUILD
     # ------------------------------------------------------
     #
-    # The frontend owns its own Docker build context.
+    # Stage 1:
     #
-    # Compose will evaluate:
+    #     Node / npm / TypeScript / Vite
     #
-    #     ./frontend/Dockerfile
+    # Stage 2:
     #
-    # using:
-    #
-    #     ./frontend
-    #
-    # as the build context.
+    #     unprivileged NGINX + compiled dist/
     #
     # ------------------------------------------------------
 
@@ -428,88 +297,59 @@ services:
       args:
         NODE_VERSION: ${NODE_VERSION:-24}
 
-    image: opsflow-frontend:dev
+        # --------------------------------------------------
+        # VITE BUILD-TIME CONFIGURATION
+        # --------------------------------------------------
+        #
+        # These values become browser-visible JavaScript
+        # configuration during npm run build.
+        #
+        # They are not runtime secrets.
+        #
+        # --------------------------------------------------
+
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
+
+        VITE_CSRF_COOKIE_NAME: ${VITE_CSRF_COOKIE_NAME:-opsflow_csrf}
+
+    image: opsflow-frontend:prod
 
     # ------------------------------------------------------
-    # FRONTEND RUNTIME CONFIGURATION
+    # HOST / CONTAINER PORT
     # ------------------------------------------------------
     #
-    # This file is read from the HOST when Compose creates
-    # the container.
-    #
-    # It is not copied into the frontend image.
-    #
-    # Current values include:
-    #
-    #   VITE_API_BASE_URL
-    #   VITE_CSRF_COOKIE_NAME
-    #
-    # ------------------------------------------------------
-
-    env_file:
-      - ./frontend/.env.docker
-
-    # ------------------------------------------------------
-    # HOST PORT
-    # ------------------------------------------------------
-    #
-    # Browser:
+    # Host browser:
     #
     #     http://localhost:5173
     #
     # Container:
     #
-    #     0.0.0.0:5173
+    #     NGINX :8080
     #
-    # The host binding remains limited to loopback for the
-    # local development environment.
+    # Keeping the host origin unchanged avoids unnecessary
+    # CORS and authentication-origin changes.
     #
     # ------------------------------------------------------
 
     ports:
-      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:5173"
+      - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:8080"
 
     # ------------------------------------------------------
-    # LIVE DEVELOPMENT FILESYSTEM
+    # NO DEVELOPMENT BIND MOUNTS
     # ------------------------------------------------------
     #
-    # The host frontend directory is mounted over /app.
+    # There is intentionally no:
     #
-    # Changes made from VS Code therefore become immediately
-    # visible inside the running Linux container.
+    #     ./frontend:/app
     #
-    # A separate Docker-managed volume is mounted over
-    # /app/node_modules so host Windows dependencies never
-    # replace Linux dependencies installed by npm ci.
+    # and no persistent node_modules volume.
+    #
+    # The runtime image is immutable build output.
     #
     # ------------------------------------------------------
-
-    volumes:
-      - type: bind
-        source: ./frontend
-        target: /app
-
-      - type: volume
-        source: opsflow_frontend_node_modules
-        target: /app/node_modules
 
     # ------------------------------------------------------
     # BACKEND STARTUP RELATIONSHIP
-    # ------------------------------------------------------
-    #
-    # The frontend application itself does not directly call
-    # Docker's "backend" hostname.
-    #
-    # React executes in the host browser and uses:
-    #
-    #     http://localhost:8000/api/v1
-    #
-    # Still, starting the backend before the frontend gives
-    # the development stack a predictable startup sequence.
-    #
-    # We use service_started here rather than inventing a
-    # new backend health contract in this frontend phase.
-    #
     # ------------------------------------------------------
 
     depends_on:
@@ -517,7 +357,7 @@ services:
         condition: service_started
 
     # ------------------------------------------------------
-    # DOCKER NETWORK
+    # NETWORK
     # ------------------------------------------------------
 
     networks:
@@ -530,9 +370,6 @@ services:
 volumes:
   opsflow_postgres_data:
     name: opsflow_postgres_data
-
-  opsflow_frontend_node_modules:
-    name: opsflow_frontend_node_modules
 
 # ==========================================================
 # NETWORKS
