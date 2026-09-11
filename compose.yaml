@@ -19,6 +19,20 @@
 #       Production-built React application served through
 #       unprivileged NGINX
 #
+#
+# Startup readiness chain:
+#
+#     db healthy
+#         |
+#         v
+#     migrate exits 0
+#         |
+#         v
+#     backend healthy
+#         |
+#         v
+#     frontend starts and becomes healthy
+#
 # ==========================================================
 
 services:
@@ -46,7 +60,8 @@ services:
 
     healthcheck:
       test:
-        ["CMD-SHELL", 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"']
+        - CMD-SHELL
+        - 'pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"'
 
       interval: 5s
       timeout: 5s
@@ -60,21 +75,20 @@ services:
   # ALEMBIC MIGRATIONS
   # ========================================================
   #
-  # One-shot service.
+  # This is intentionally a one-shot service.
   #
-  # Startup sequence:
+  # Its successful lifecycle is:
   #
-  #     db healthy
-  #         |
-  #         v
-  #     migrate
-  #         |
-  #         +--> opsflow
-  #         |
-  #         +--> opsflow_test
-  #         |
-  #         v
+  #     Created
+  #        |
+  #        v
+  #     Running
+  #        |
+  #        v
   #     Exited (0)
+  #
+  # A persistent Docker healthcheck is therefore NOT the
+  # correct readiness contract for this service.
   #
   # ========================================================
 
@@ -101,29 +115,9 @@ services:
       - ./backend/.env
 
     environment:
-      # ----------------------------------------------------
-      # APPLICATION MODE
-      # ----------------------------------------------------
-
       APP_ENV: development
 
-      # ----------------------------------------------------
-      # BROWSER TRUST / CORS
-      # ----------------------------------------------------
-      #
-      # The frontend remains browser-visible at:
-      #
-      #     http://localhost:5173
-      #
-      # even though NGINX listens on 8080 inside Docker.
-      #
-      # ----------------------------------------------------
-
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-
-      # ----------------------------------------------------
-      # DATABASE
-      # ----------------------------------------------------
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
@@ -132,7 +126,7 @@ services:
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
     # ------------------------------------------------------
-    # DATABASE STARTUP ORDER
+    # DATABASE READINESS
     # ------------------------------------------------------
 
     depends_on:
@@ -177,7 +171,7 @@ services:
         echo "=================================================="
 
     # ------------------------------------------------------
-    # RESTART POLICY
+    # ONE-SHOT RESTART POLICY
     # ------------------------------------------------------
 
     restart: "no"
@@ -216,21 +210,9 @@ services:
       - ./backend/.env
 
     environment:
-      # ----------------------------------------------------
-      # APPLICATION MODE
-      # ----------------------------------------------------
-
       APP_ENV: development
 
-      # ----------------------------------------------------
-      # BROWSER TRUST / CORS
-      # ----------------------------------------------------
-
       FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:-http://localhost:5173}
-
-      # ----------------------------------------------------
-      # DATABASE
-      # ------------------------------------------------------
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB:-opsflow}
@@ -241,27 +223,59 @@ services:
     # ------------------------------------------------------
     # HOST PORT
     # ------------------------------------------------------
-    #
-    # Browser:
-    #
-    #     http://localhost:8000
-    #
-    # Docker network:
-    #
-    #     http://backend:8000
-    #
-    # ------------------------------------------------------
 
     ports:
       - "127.0.0.1:${BACKEND_HOST_PORT:-8000}:8000"
 
     # ------------------------------------------------------
-    # APPLICATION STARTUP ORDER
+    # STARTUP DEPENDENCY
+    # ------------------------------------------------------
+    #
+    # Do not start FastAPI until database migrations have
+    # completed successfully.
+    #
     # ------------------------------------------------------
 
     depends_on:
       migrate:
         condition: service_completed_successfully
+
+    # ------------------------------------------------------
+    # BACKEND HEALTH CONTRACT
+    # ------------------------------------------------------
+    #
+    # The image intentionally does not install curl solely
+    # for a health check.
+    #
+    # Python is already required by the application, so the
+    # standard library performs the local HTTP request.
+    #
+    # The existing public OpsFlow endpoint is:
+    #
+    #     /api/v1/health
+    #
+    # urllib raises an exception for connection failures and
+    # non-success HTTP responses, causing the command to
+    # return a non-zero status.
+    #
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/api/v1/health',
+          timeout=2
+          ).read()
+
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
 
     # ------------------------------------------------------
     # NETWORK
@@ -278,16 +292,6 @@ services:
     # ------------------------------------------------------
     # IMAGE BUILD
     # ------------------------------------------------------
-    #
-    # Stage 1:
-    #
-    #     Node / npm / TypeScript / Vite
-    #
-    # Stage 2:
-    #
-    #     unprivileged NGINX + compiled dist/
-    #
-    # ------------------------------------------------------
 
     build:
       context: ./frontend
@@ -296,17 +300,6 @@ services:
 
       args:
         NODE_VERSION: ${NODE_VERSION:-24}
-
-        # --------------------------------------------------
-        # VITE BUILD-TIME CONFIGURATION
-        # --------------------------------------------------
-        #
-        # These values become browser-visible JavaScript
-        # configuration during npm run build.
-        #
-        # They are not runtime secrets.
-        #
-        # --------------------------------------------------
 
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://localhost:8000/api/v1}
 
@@ -317,44 +310,61 @@ services:
     # ------------------------------------------------------
     # HOST / CONTAINER PORT
     # ------------------------------------------------------
-    #
-    # Host browser:
-    #
-    #     http://localhost:5173
-    #
-    # Container:
-    #
-    #     NGINX :8080
-    #
-    # Keeping the host origin unchanged avoids unnecessary
-    # CORS and authentication-origin changes.
-    #
-    # ------------------------------------------------------
 
     ports:
       - "127.0.0.1:${FRONTEND_HOST_PORT:-5173}:8080"
 
     # ------------------------------------------------------
-    # NO DEVELOPMENT BIND MOUNTS
+    # BACKEND READINESS DEPENDENCY
     # ------------------------------------------------------
     #
-    # There is intentionally no:
+    # Previous Phase 8.6.4:
     #
-    #     ./frontend:/app
+    #     condition: service_started
     #
-    # and no persistent node_modules volume.
+    # That merely proved that the backend process existed.
     #
-    # The runtime image is immutable build output.
+    # Phase 8.6.5:
     #
-    # ------------------------------------------------------
-
-    # ------------------------------------------------------
-    # BACKEND STARTUP RELATIONSHIP
+    #     condition: service_healthy
+    #
+    # Now NGINX is not started until FastAPI has satisfied
+    # its explicit HTTP health contract.
+    #
     # ------------------------------------------------------
 
     depends_on:
       backend:
-        condition: service_started
+        condition: service_healthy
+
+    # ------------------------------------------------------
+    # FRONTEND HEALTH CONTRACT
+    # ------------------------------------------------------
+    #
+    # /healthz is served directly by NGINX.
+    #
+    # This check proves that the web server is accepting HTTP
+    # traffic without depending on:
+    #
+    #     React execution
+    #     authentication
+    #     FastAPI
+    #     PostgreSQL
+    #
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          wget -q -O /dev/null
+          http://127.0.0.1:8080/healthz
+          || exit 1
+
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
 
     # ------------------------------------------------------
     # NETWORK
