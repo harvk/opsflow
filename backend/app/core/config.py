@@ -1,6 +1,9 @@
 from functools import (
     lru_cache,
 )
+from pathlib import (
+    Path,
+)
 from typing import (
     Literal,
 )
@@ -13,6 +16,40 @@ from pydantic import (
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
+)
+
+
+# =========================================================
+# BACKEND CONFIGURATION PATH
+# =========================================================
+#
+# This file lives at:
+#
+#     backend/app/core/config.py
+#
+# parents[0] -> backend/app/core
+# parents[1] -> backend/app
+# parents[2] -> backend
+#
+# Resolving the environment file from this module prevents
+# configuration loading from depending on the shell's
+# current working directory.
+#
+# In Docker the real .env file is deliberately absent from
+# the image. Docker Compose injects the required application
+# environment variables directly into the backend process.
+#
+# =========================================================
+
+BACKEND_DIR = (
+    Path(__file__)
+    .resolve()
+    .parents[2]
+)
+
+BACKEND_ENV_FILE = (
+    BACKEND_DIR
+    / ".env"
 )
 
 
@@ -91,25 +128,18 @@ class Settings(
     # TOKEN LIFETIMES
     # =====================================================
 
-    # Ordinary bearer credential.
     access_token_expire_minutes: int = Field(
         default=15,
         ge=5,
         le=60,
     )
 
-    # Absolute persistent refresh-session lifetime.
     refresh_token_expire_days: int = Field(
         default=7,
         ge=1,
         le=30,
     )
 
-    # Step-up authentication should remain very short-lived.
-    #
-    # Five minutes gives a user enough time to complete the
-    # sensitive action without turning reauthentication into
-    # another long-lived session credential.
     reauth_token_expire_minutes: int = Field(
         default=5,
         ge=1,
@@ -145,10 +175,10 @@ class Settings(
         ge=60,
         le=86400,
     )
-    
-    # ---------------------------------------------------------
-    # Password-reset abuse protection
-    # ---------------------------------------------------------
+
+    # =====================================================
+    # PASSWORD-RESET ABUSE PROTECTION
+    # =====================================================
 
     password_reset_ip_max_requests: int = Field(
         default=10,
@@ -173,10 +203,10 @@ class Settings(
         ge=1,
         le=86400,
     )
-    
-    # =========================================================
+
+    # =====================================================
     # PASSWORD RESET DELIVERY
-    # =========================================================
+    # =====================================================
 
     password_reset_url: str = Field(
         default=(
@@ -186,10 +216,10 @@ class Settings(
         min_length=1,
         max_length=2048,
     )
-    
-    # =========================================================
+
+    # =====================================================
     # AWS / SES PASSWORD RESET DELIVERY
-    # =========================================================
+    # =====================================================
 
     aws_region: str = Field(
         default="us-east-1",
@@ -265,7 +295,9 @@ class Settings(
 
     model_config = (
         SettingsConfigDict(
-            env_file=".env",
+            env_file=(
+                BACKEND_ENV_FILE
+            ),
             env_file_encoding=(
                 "utf-8"
             ),
