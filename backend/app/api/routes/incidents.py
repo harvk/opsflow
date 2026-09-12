@@ -3,7 +3,10 @@ from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
-from app.api.dependencies import IncidentServiceDependency, require_permission
+from app.api.dependencies import (
+    IncidentGatewayDependency,
+    require_permission,
+)
 
 from app.domain.incident import IncidentSeverity, IncidentStatus
 from app.domain.authorization import Permission
@@ -34,7 +37,7 @@ router = APIRouter()
     ]
 )
 def list_incidents(
-    incident_service: IncidentServiceDependency,
+    incident_gateway: IncidentGatewayDependency,
     search: Annotated[
         str | None,
         Query(
@@ -83,7 +86,7 @@ def list_incidents(
         ),
     ] = 50,
 ) -> list[IncidentResponse]:
-    incidents = incident_service.list(
+    incidents = incident_gateway.list(
         search=search,
         service_id=service_id,
         severity=severity,
@@ -111,10 +114,10 @@ def list_incidents(
 )
 def get_incident(
     incident_id: UUID,
-    incident_service: IncidentServiceDependency,
+    incident_gateway: IncidentGatewayDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.get_by_id(
+        incident = incident_gateway.get_by_id(
             incident_id
         )
     except IncidentNotFoundError as exc:
@@ -142,10 +145,10 @@ def get_incident(
 )
 def create_incident(
     payload: IncidentCreate,
-    incident_service: IncidentServiceDependency,
+    incident_gateway: IncidentGatewayDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.create(
+        incident = incident_gateway.create(
             payload
         )
     except IncidentServiceReferenceError as exc:
@@ -173,10 +176,10 @@ def create_incident(
 def update_incident(
     incident_id: UUID,
     payload: IncidentUpdate,
-    incident_service: IncidentServiceDependency,
+    incident_gateway: IncidentGatewayDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.update(
+        incident = incident_gateway.update(
             incident_id,
             payload,
         )
@@ -209,10 +212,10 @@ def update_incident(
 )
 def delete_incident(
     incident_id: UUID,
-    incident_service: IncidentServiceDependency,
+    incident_gateway: IncidentGatewayDependency,
 ) -> None:
     try:
-        incident_service.delete(
+        incident_gateway.delete(
             incident_id
         )
     except IncidentNotFoundError as exc:

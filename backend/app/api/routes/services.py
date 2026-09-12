@@ -4,9 +4,9 @@ from uuid import UUID
 from fastapi import APIRouter, HTTPException, Query, status, Depends
 
 from app.api.dependencies import (
+    IncidentGatewayDependency,
     ServiceServiceDependency,
-    IncidentServiceDependency,
-    require_permission
+    require_permission,
 )
 from app.domain.service import ServiceStatus
 from app.domain.authorization import Permission
@@ -23,9 +23,6 @@ from app.services.service_service import (
 from app.schemas.incident import IncidentResponse
 
 from app.services.incident_service import IncidentNotFoundError
-
-from app.api.dependencies import get_incident_service
-
 
 router = APIRouter()
 
@@ -117,7 +114,8 @@ def get_service(
     return ServiceResponse.model_validate(
         service
     )
-    
+
+
 @router.get(
     "/{service_id}/incidents",
     response_model=list[IncidentResponse],
@@ -131,10 +129,7 @@ def get_service(
 )
 def list_service_incidents(
     service_id: UUID,
-    incident_service: Annotated[
-        IncidentServiceDependency,
-        Depends(get_incident_service),
-    ],
+    incident_gateway: IncidentGatewayDependency,
     offset: Annotated[
         int,
         Query(ge=0),
@@ -145,16 +140,16 @@ def list_service_incidents(
     ] = 50,
 ) -> list[IncidentResponse]:
     try:
-        incidents = incident_service.list_for_service(
-                service_id,
-                offset=offset,
-                limit=limit,
-            )
+        incidents = incident_gateway.list_for_service(
+            service_id,
+            offset=offset,
+            limit=limit,
+        )
     except IncidentNotFoundError as exc:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=str(exc)
-        )
+            detail=str(exc),
+        ) from exc
 
     return [
         IncidentResponse.model_validate(incident)

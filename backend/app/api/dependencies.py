@@ -83,6 +83,14 @@ from app.domain.user import (
     User,
 )
 
+from app.gateways.incident_gateway import (
+    IncidentGateway,
+)
+
+from app.gateways.local_incident_gateway import (
+    LocalIncidentGateway,
+)
+
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesClient,
     SesPasswordResetDelivery,
@@ -323,6 +331,28 @@ IncidentServiceDependency = (
         IncidentService,
         Depends(
             get_incident_service
+        ),
+    ]
+)
+
+
+def get_incident_gateway(
+    incident_service: (
+        IncidentServiceDependency
+    ),
+) -> IncidentGateway:
+    return (
+        LocalIncidentGateway(
+            incident_service
+        )
+    )
+
+
+IncidentGatewayDependency = (
+    Annotated[
+        IncidentGateway,
+        Depends(
+            get_incident_gateway
         ),
     ]
 )
