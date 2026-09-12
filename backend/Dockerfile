@@ -10,13 +10,20 @@
 # Stage 1:
 #   - creates the Python virtual environment
 #   - installs runtime-only Python dependencies
+#   - validates installed dependency consistency
+#   - removes pip after dependency installation
 #
 # Stage 2:
-#   - contains the Python runtime
+#   - starts from a clean Python runtime
+#   - removes the base image's system pip
 #   - contains the prebuilt virtual environment
 #   - contains FastAPI application source
 #   - contains Alembic migration source
 #   - executes as an unprivileged application user
+#
+# Runtime package installation is intentionally disabled.
+# Package-management tooling is a build-time concern, not a
+# production runtime requirement for OpsFlow.
 #
 # Runtime application source remains owned by root so the
 # unprivileged application process cannot modify its own
@@ -32,7 +39,7 @@ ARG PYTHON_VERSION=3.13
 # STAGE 1 — RUNTIME DEPENDENCY BUILDER
 # ==========================================================
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS builder
+FROM python:${PYTHON_VERSION}-slim-trixie AS builder
 
 
 # ----------------------------------------------------------
@@ -75,30 +82,81 @@ COPY requirements-runtime.txt ./requirements-runtime.txt
 # ----------------------------------------------------------
 # INSTALL RUNTIME DEPENDENCIES
 # ----------------------------------------------------------
+#
+# pip is required only while constructing the virtual
+# environment.
+#
+# After installation:
+#
+#   1. pip check validates dependency consistency.
+#   2. pip removes itself from /opt/venv.
+#   3. Python verifies that the pip module is no longer
+#      importable from the runtime virtual environment.
+#
+# This prevents pip's vendored libraries, including its
+# vendored msgpack implementation, from being copied into
+# the final runtime image.
+#
+# ----------------------------------------------------------
 
 RUN --mount=type=cache,target=/root/.cache/pip \
     python -m pip install --upgrade pip \
     && python -m pip install \
         --no-compile \
-        --requirement requirements-runtime.txt
+        --requirement requirements-runtime.txt \
+    && python -m pip check \
+    && python -m pip uninstall --yes pip \
+    && python -c \
+        "import importlib.util; assert importlib.util.find_spec('pip') is None"
 
 
 # ==========================================================
 # STAGE 2 — RUNTIME IMAGE
 # ==========================================================
 
-FROM python:${PYTHON_VERSION}-slim-bookworm AS runtime
+FROM python:${PYTHON_VERSION}-slim-trixie AS runtime
 
 
 # ----------------------------------------------------------
 # RUNTIME ENVIRONMENT
 # ----------------------------------------------------------
+#
+# PIP_DISABLE_PIP_VERSION_CHECK is intentionally absent.
+#
+# pip does not belong in the final OpsFlow runtime image.
+#
+# ----------------------------------------------------------
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
     PATH="/opt/venv/bin:${PATH}" \
     HOME="/home/opsflow"
+
+
+# ----------------------------------------------------------
+# REMOVE BASE-IMAGE PACKAGE MANAGEMENT TOOLING
+# ----------------------------------------------------------
+#
+# The official Python runtime image contains its own pip
+# installation under /usr/local.
+#
+# OpsFlow does not install Python packages at runtime.
+#
+# Remove system pip before /opt/venv is copied into this
+# stage.
+#
+# At this point /opt/venv does not yet exist, so "python"
+# resolves to the runtime image's system interpreter.
+#
+# The verification command ensures that pip truly became
+# unavailable instead of silently leaving an importable
+# installation behind.
+#
+# ----------------------------------------------------------
+
+RUN python -m pip uninstall --yes pip \
+    && python -c \
+        "import importlib.util; assert importlib.util.find_spec('pip') is None"
 
 
 # ----------------------------------------------------------
@@ -141,6 +199,9 @@ WORKDIR /app
 #
 # The virtual environment remains root-owned. The runtime
 # user requires read/execute access only.
+#
+# pip has already been removed from this virtual environment
+# in the builder stage.
 #
 # ----------------------------------------------------------
 
