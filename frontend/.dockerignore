@@ -46,20 +46,18 @@ coverage
 # ENVIRONMENT FILES
 # ----------------------------------------------------------
 #
-# Actual environment configuration should be injected into
-# containers at runtime rather than baked into an image.
+# No environment file belongs in the frontend Docker build
+# context.
 #
-# Example/template files are intentionally retained in the
-# Docker build context because they contain documentation,
-# not secrets.
+# VITE_* browser configuration is supplied explicitly as
+# Docker build arguments through compose.yaml.
+#
+# Never place secrets in a VITE_* variable.
 #
 # ----------------------------------------------------------
 
 .env
 .env.*
-
-!.env.example
-!.env.docker.example
 
 
 # ----------------------------------------------------------

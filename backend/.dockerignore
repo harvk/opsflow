@@ -4,12 +4,25 @@
 
 
 # ----------------------------------------------------------
-# PRIVATE ENVIRONMENT FILES
+# ENVIRONMENT FILES
+# ----------------------------------------------------------
+#
+# No environment file belongs in the backend image.
+#
+# This intentionally excludes:
+#
+#     .env
+#     .env.example
+#     .env.local
+#     .env.production
+#     .env.*
+#
+# Configuration is injected at runtime.
+#
 # ----------------------------------------------------------
 
 .env
 .env.*
-!.env.example
 
 
 # ----------------------------------------------------------
@@ -106,7 +119,9 @@ dist/
 #
 # The normal runtime backend image does not need tests.
 #
-# Containerized testing will be handled separately later.
+# Containerized testing will use a dedicated testing
+# strategy rather than putting the test suite into the
+# production runtime image.
 #
 # ----------------------------------------------------------
 
