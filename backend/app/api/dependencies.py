@@ -91,6 +91,14 @@ from app.gateways.local_incident_gateway import (
     LocalIncidentGateway,
 )
 
+from app.gateways.local_service_catalog_gateway import (
+    LocalServiceCatalogGateway,
+)
+
+from app.gateways.service_catalog_gateway import (
+    ServiceCatalogGateway,
+)
+
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesClient,
     SesPasswordResetDelivery,
@@ -283,6 +291,32 @@ ServiceServiceDependency = (
 
 
 # =========================================================
+# SERVICE CATALOG GATEWAY DEPENDENCY
+# =========================================================
+
+def get_service_catalog_gateway(
+    service_repository: (
+        ServiceRepositoryDependency
+    ),
+) -> ServiceCatalogGateway:
+    return (
+        LocalServiceCatalogGateway(
+            service_repository
+        )
+    )
+
+
+ServiceCatalogGatewayDependency = (
+    Annotated[
+        ServiceCatalogGateway,
+        Depends(
+            get_service_catalog_gateway
+        ),
+    ]
+)
+
+
+# =========================================================
 # INCIDENT DEPENDENCIES
 # =========================================================
 
@@ -310,8 +344,8 @@ def get_incident_service(
     incident_repository: (
         IncidentRepositoryDependency
     ),
-    service_repository: (
-        ServiceRepositoryDependency
+    service_catalog_gateway: (
+        ServiceCatalogGatewayDependency
     ),
 ) -> IncidentService:
     return (
@@ -319,8 +353,8 @@ def get_incident_service(
             incident_repository=(
                 incident_repository
             ),
-            service_repository=(
-                service_repository
+            service_catalog_gateway=(
+                service_catalog_gateway
             ),
         )
     )
