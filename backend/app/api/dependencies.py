@@ -1,41 +1,31 @@
 from __future__ import annotations
 
+import logging
 from collections.abc import (
     Callable,
 )
-
 from functools import (
     lru_cache,
 )
-
-import logging
-
+from secrets import (
+    compare_digest,
+)
 from typing import (
     Annotated,
     cast,
 )
 
 import boto3
-
 from botocore.config import (
     Config,
 )
-
 from botocore.exceptions import (
     BotoCoreError,
 )
-
-from fastapi import (
-    Depends,
-    HTTPException,
-    Request,
-    status,
-)
-
+from fastapi import Depends, Header, HTTPException, Request, status
 from fastapi.security import (
     OAuth2PasswordBearer,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -44,133 +34,102 @@ from app.core.auth_error_codes import (
     AuthErrorCode,
     auth_error_headers,
 )
-
 from app.core.auth_response_messages import (
     ACCESS_CREDENTIALS_INVALID_MESSAGE,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.login_throttle import (
     InMemoryLoginThrottle,
     LoginThrottle,
 )
-
 from app.core.password_reset_links import (
     PasswordResetLinkBuilder,
 )
-
 from app.core.password_reset_throttle import (
     InMemoryPasswordResetThrottle,
     PasswordResetThrottle,
 )
-
 from app.core.security_events import (
     security_event_logger,
 )
-
 from app.db.session import (
     get_db_session,
 )
-
 from app.domain.authorization import (
     Permission,
 )
-
 from app.domain.user import (
     User,
 )
-
 from app.gateways.incident_gateway import (
     IncidentGateway,
 )
-
 from app.gateways.local_incident_gateway import (
     LocalIncidentGateway,
 )
-
 from app.gateways.local_service_catalog_gateway import (
     LocalServiceCatalogGateway,
 )
-
 from app.gateways.service_catalog_gateway import (
     ServiceCatalogGateway,
 )
-
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesClient,
     SesPasswordResetDelivery,
 )
-
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
-
 from app.repositories.incident_repository import (
     IncidentRepository,
 )
-
 from app.repositories.password_reset_token_repository import (
     PasswordResetTokenRepository,
 )
-
 from app.repositories.service_repository import (
     ServiceRepository,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
 )
-
 from app.repositories.sqlalchemy_password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
 )
-
 from app.repositories.sqlalchemy_service_repository import (
     SqlAlchemyServiceRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationError,
     AuthenticationService,
 )
-
 from app.services.authorization_service import (
     AuthorizationService,
     PermissionDeniedError,
 )
-
 from app.services.incident_service import (
     IncidentService,
 )
-
 from app.services.password_reset_delivery import (
     PasswordResetDelivery,
     PasswordResetDeliveryError,
 )
-
 from app.services.password_reset_delivery_coordinator import (
     PasswordResetDeliveryCoordinator,
 )
-
 from app.services.password_reset_service import (
     PasswordResetService,
 )
-
 from app.services.service_service import (
     ServiceService,
 )
-
 
 authorization_service = (
     AuthorizationService()
@@ -187,6 +146,62 @@ DbSession = Annotated[
         get_db_session
     ),
 ]
+
+
+# =========================================================
+# INTERNAL SERVICE AUTHENTICATION
+# =========================================================
+
+InternalServiceTokenHeader = Annotated[
+    str | None,
+    Header(
+        alias=(
+            "X-OpsFlow-Internal-Token"
+        ),
+    ),
+]
+
+
+def require_incident_service_token(
+    supplied_token: (
+        InternalServiceTokenHeader
+    ) = None,
+) -> None:
+    """
+    Authenticate requests originating from the Incident Service.
+
+    Missing and incorrect credentials deliberately produce the
+    same response.
+    """
+
+    expected_token = (
+        settings
+        .incident_service_token
+        .get_secret_value()
+    )
+
+    token_is_valid = (
+        supplied_token is not None
+        and compare_digest(
+            supplied_token.encode(
+                "utf-8"
+            ),
+            expected_token.encode(
+                "utf-8"
+            ),
+        )
+    )
+
+    if not token_is_valid:
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Invalid internal service credentials."
+            ),
+        )
 
 
 # =========================================================

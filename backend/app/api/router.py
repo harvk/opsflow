@@ -6,14 +6,7 @@ from fastapi import (
 from app.api.dependencies import (
     get_current_user,
 )
-
-from app.api.routes import (
-    auth,
-    health,
-    incidents,
-    services,
-)
-
+from app.api.routes import auth, health, incidents, internal_services, services
 
 api_router = (
     APIRouter()
@@ -38,6 +31,20 @@ api_router.include_router(
     tags=[
         "Authentication"
     ],
+)
+
+
+# =========================================================
+# INTERNAL SERVICE ROUTES
+# =========================================================
+
+api_router.include_router(
+    internal_services.router,
+    prefix="/internal/services",
+    tags=[
+        "Internal"
+    ],
+    include_in_schema=False,
 )
 
 

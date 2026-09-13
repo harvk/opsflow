@@ -1,6 +1,9 @@
 from fastapi.testclient import (
     TestClient,
 )
+from pydantic import (
+    SecretStr,
+)
 
 from app.core.config import (
     Settings,
@@ -22,7 +25,16 @@ def test_health_endpoint_reports_incident_service_identity(
             database_url=(
                 "postgresql+psycopg://"
                 "test:test@localhost/test"
-            )
+            ),
+            core_backend_url=(
+                "http://core-backend.test/api/v1"
+            ),
+            incident_service_token=(
+                SecretStr(
+                    "test-internal-token-that-is-"
+                    "at-least-32-characters"
+                )
+            ),
         )
     )
 

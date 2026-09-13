@@ -5,6 +5,9 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import (
+    SecretStr,
+)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -12,6 +15,9 @@ from app.api.dependencies import (
 )
 from app.core.config import Settings
 from app.db.session import get_db_session
+from app.gateways.unavailable_service_catalog_gateway import (
+    UnavailableServiceCatalogGateway,
+)
 from app.main import create_app
 
 
@@ -52,6 +58,15 @@ def api_client(
             database_url=(
                 "postgresql+psycopg://"
                 "test:test@localhost/test"
+            ),
+            core_backend_url=(
+                "http://core-backend.test/api/v1"
+            ),
+            incident_service_token=(
+                SecretStr(
+                    "test-internal-token-that-is-"
+                    "at-least-32-characters"
+                )
             ),
         )
     )
@@ -220,6 +235,15 @@ def test_create_fails_closed_when_catalog_is_unavailable(
                 "postgresql+psycopg://"
                 "test:test@localhost/test"
             ),
+            core_backend_url=(
+                "http://core-backend.test/api/v1"
+            ),
+            incident_service_token=(
+                SecretStr(
+                    "test-internal-token-that-is-"
+                    "at-least-32-characters"
+                )
+            ),
         )
     )
 
@@ -230,6 +254,12 @@ def test_create_fails_closed_when_catalog_is_unavailable(
     application.dependency_overrides[
         get_db_session
     ] = override_db_session
+    
+    application.dependency_overrides[
+        get_service_catalog_gateway
+    ] = lambda: (
+        UnavailableServiceCatalogGateway()
+    )
 
     with TestClient(application) as client:
         response = client.post(

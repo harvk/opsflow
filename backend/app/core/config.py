@@ -12,12 +12,10 @@ from pydantic import (
     Field,
     SecretStr,
 )
-
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
 )
-
 
 # =========================================================
 # BACKEND CONFIGURATION PATH
@@ -83,6 +81,14 @@ class Settings(
     database_url: str
 
     test_database_url: str
+    
+    # =====================================================
+    # SERVICE-TO-SERVICE AUTHENTICATION
+    # =====================================================
+
+    incident_service_token: SecretStr = Field(
+        min_length=32,
+    )
 
     # =====================================================
     # JWT AUTHENTICATION SETTINGS

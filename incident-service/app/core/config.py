@@ -1,6 +1,14 @@
-from functools import lru_cache
-from pathlib import Path
+from functools import (
+    lru_cache,
+)
+from pathlib import (
+    Path,
+)
 
+from pydantic import (
+    Field,
+    SecretStr,
+)
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
@@ -18,7 +26,9 @@ INCIDENT_SERVICE_ENV_FILE = (
 )
 
 
-class Settings(BaseSettings):
+class Settings(
+    BaseSettings
+):
     """
     Process-local configuration for the Incident Service.
 
@@ -27,13 +37,31 @@ class Settings(BaseSettings):
     migration tooling.
     """
 
-    app_name: str = "OpsFlow Incident Service"
+    app_name: str = (
+        "OpsFlow Incident Service"
+    )
 
-    app_env: str = "development"
+    app_env: str = (
+        "development"
+    )
 
-    api_v1_prefix: str = "/api/v1"
+    api_v1_prefix: str = (
+        "/api/v1"
+    )
 
     database_url: str
+
+    core_backend_url: str
+
+    incident_service_token: SecretStr = Field(
+        min_length=32,
+    )
+
+    service_catalog_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+    )
 
     model_config = SettingsConfigDict(
         env_file=INCIDENT_SERVICE_ENV_FILE,
@@ -44,11 +72,14 @@ class Settings(BaseSettings):
 
 
 @lru_cache
-def get_settings() -> Settings:
+def get_settings(
+) -> Settings:
     # BaseSettings supplies required values from configured
     # environment sources at runtime. Pylance cannot infer
     # those external settings sources.
     return Settings()  # pyright: ignore[reportCallIssue]
 
 
-settings = get_settings()
+settings = (
+    get_settings()
+)

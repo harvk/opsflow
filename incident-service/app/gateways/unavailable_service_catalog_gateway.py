@@ -7,10 +7,10 @@ from app.services.exceptions import (
 
 class UnavailableServiceCatalogGateway:
     """
-    Fail-closed placeholder used until the production Service
-    Catalog HTTP adapter is configured.
+    Explicit fail-closed Service Catalog adapter.
 
-    It never treats an unvalidated Service ID as valid.
+    This remains useful for tests and intentionally isolated
+    deployments, but it is no longer the production default.
     """
 
     def service_exists(
