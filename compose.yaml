@@ -18,12 +18,17 @@
 #   frontend healthy
 #
 #
+# The Incident Service currently starts independently from
+# the database/migration chain. Its persistence layer and
+# production traffic switch are introduced in later phases.
+#
 # Network segmentation:
 #
 #   opsflow_backend_network
 #       db
 #       migrate
 #       backend
+#       incident-service
 #
 #   opsflow_frontend_network
 #       frontend
@@ -330,6 +335,133 @@ services:
     # Gunicorn, multiple worker processes, or additional
     # process-heavy workloads.
     #
+    # ------------------------------------------------------
+
+    pids_limit: 128
+
+    # ------------------------------------------------------
+    # PRIVILEGE CONTAINMENT
+    # ------------------------------------------------------
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    # ------------------------------------------------------
+    # FILESYSTEM CONTAINMENT
+    # ------------------------------------------------------
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    # ------------------------------------------------------
+    # PRIVATE BACKEND NETWORK
+    # ------------------------------------------------------
+
+    networks:
+      - opsflow_backend_network
+
+  # ========================================================
+  # INCIDENT SERVICE
+  # ========================================================
+  #
+  # Standalone Incident Management service.
+  #
+  # During the current strangler phase:
+  #
+  #   - the service exposes only its health contract
+  #   - it is reachable from the Core Backend by Docker DNS
+  #   - it is not published directly to the host
+  #   - it does not own or access a database yet
+  #   - Core Backend traffic still uses LocalIncidentGateway
+  #
+  # ========================================================
+
+  incident-service:
+    build:
+      context: ./incident-service
+
+      dockerfile: Dockerfile
+
+      provenance: mode=max
+
+      sbom: true
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-incident-service:dev
+
+    # ------------------------------------------------------
+    # EXPLICIT RUNTIME IDENTITY
+    # ------------------------------------------------------
+
+    user: "10001:10001"
+
+    # ------------------------------------------------------
+    # APPLICATION CONFIGURATION
+    # ------------------------------------------------------
+    #
+    # No backend environment file is shared with this
+    # service. Only settings belonging to the Incident
+    # Service are supplied here.
+    #
+    # ------------------------------------------------------
+
+    environment:
+      APP_ENV: development
+
+    # ------------------------------------------------------
+    # PRIVATE CONTAINER PORT
+    # ------------------------------------------------------
+    #
+    # This documents the container port for service-to-
+    # service communication.
+    #
+    # It deliberately does not publish a Windows host port.
+    #
+    # Core Backend address:
+    #
+    #   http://incident-service:8000
+    #
+    # ------------------------------------------------------
+
+    expose:
+      - "8000"
+
+    # ------------------------------------------------------
+    # HEALTH CONTRACT
+    # ------------------------------------------------------
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen(
+          'http://127.0.0.1:8000/api/v1/health',
+          timeout=2
+          ).read()
+
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 10s
+
+    # ------------------------------------------------------
+    # RESTART POLICY
+    # ------------------------------------------------------
+
+    restart: unless-stopped
+
+    # ------------------------------------------------------
+    # PROCESS CEILING
     # ------------------------------------------------------
 
     pids_limit: 128
