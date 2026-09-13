@@ -2,6 +2,9 @@
 .env
 .env.*
 !.env.example
+!.env.docker.example
+!backend/.env.example
+!incident-service/.env.example
 
 # Python
 __pycache__/
@@ -11,12 +14,12 @@ venv/
 .pytest_cache/
 .mypy_cache/
 .ruff_cache/
-.env.example
 backend/.venv/
 backend/**/__pycache__/
 backend/.pytest_cache/
 backend/.ruff_cache/
 backend/.env
+incident-service/.env
 
 # Python bytecode
 *.py[cod]
@@ -59,21 +62,4 @@ crash.log
 *.key
 
 # Logs
-*.log.env.docker
-.env.docker
-
-cat >> .gitignore <<'EOF'
-
-# ==========================================================
-# SAFE ENVIRONMENT TEMPLATES
-# ==========================================================
-#
-# Real environment files remain ignored.
-# These example files contain placeholders only and are
-# intentionally tracked so a fresh clone documents the
-# required configuration.
-#
-
-!.env.docker.example
-!backend/.env.example
-EOF
+*.log

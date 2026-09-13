@@ -1,0 +1,8 @@
+fastapi==0.141.1
+httpx==0.28.1
+pydantic==2.13.5
+pydantic-settings==2.15.0
+pytest==9.1.1
+python-dotenv==1.2.3
+ruff==0.16.6
+uvicorn[standard]==0.52.4
