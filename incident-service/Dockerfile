@@ -119,6 +119,20 @@ COPY --chown=root:root \
 
 
 # ----------------------------------------------------------
+# COPY ALEMBIC MIGRATION SOURCE
+# ----------------------------------------------------------
+
+COPY --chown=root:root \
+    migrations \
+    ./migrations
+
+
+COPY --chown=root:root \
+    alembic.ini \
+    ./alembic.ini
+
+
+# ----------------------------------------------------------
 # PROTECT DEPLOYED SOURCE FROM RUNTIME MODIFICATION
 # ----------------------------------------------------------
 

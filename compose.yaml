@@ -29,6 +29,8 @@
 #       migrate
 #       backend
 #       incident-service
+#       provision-databases
+#       incident-migrate
 #
 #   opsflow_frontend_network
 #       frontend
@@ -79,6 +81,69 @@ services:
       start_period: 5s
 
     restart: unless-stopped
+
+    networks:
+      - opsflow_backend_network
+
+  # ========================================================
+  # DATABASE PROVISIONING
+  # ========================================================
+  #
+  # Idempotently creates logical databases required by the
+  # Core Backend and Incident Service.
+  #
+  # This service is necessary because PostgreSQL init scripts
+  # run only when the data volume is first initialized.
+  #
+  # ========================================================
+
+  provision-databases:
+    image: postgres:18.6-bookworm
+
+    user: "postgres"
+
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+
+      POSTGRES_USER: ${POSTGRES_USER:?POSTGRES_USER is required}
+
+      POSTGRES_DB: ${POSTGRES_DB:-opsflow}
+
+    depends_on:
+      db:
+        condition: service_healthy
+
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+
+        psql \
+          --host=db \
+          --port=5432 \
+          --username="$$POSTGRES_USER" \
+          --dbname="$$POSTGRES_DB" \
+          --set=ON_ERROR_STOP=1 \
+          --file=/database-init/01-create-application-databases.sql
+
+    volumes:
+      - ./docker/postgres/init:/database-init:ro
+
+    restart: "no"
+
+    pids_limit: 64
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=32m
 
     networks:
       - opsflow_backend_network
@@ -152,8 +217,8 @@ services:
     # ------------------------------------------------------
 
     depends_on:
-      db:
-        condition: service_healthy
+      provision-databases:
+        condition: service_completed_successfully
 
     # ------------------------------------------------------
     # MIGRATION COMMAND
@@ -366,6 +431,72 @@ services:
       - opsflow_backend_network
 
   # ========================================================
+  # INCIDENT SERVICE MIGRATIONS
+  # ========================================================
+
+  incident-migrate:
+    build:
+      context: ./incident-service
+
+      dockerfile: Dockerfile
+
+      provenance: mode=max
+
+      sbom: true
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-incident-service:dev
+
+    user: "10001:10001"
+
+    environment:
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents
+
+      TEST_DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents_test
+
+    depends_on:
+      provision-databases:
+        condition: service_completed_successfully
+
+    command:
+      - /bin/sh
+      - -c
+      - |
+        set -eu
+
+        echo "Migrating Incident Service application database"
+
+        python -m alembic upgrade head
+
+        echo "Migrating Incident Service test database"
+
+        DATABASE_URL="$$TEST_DATABASE_URL" python -m alembic upgrade head
+
+        echo "Incident Service migrations complete"
+
+    restart: "no"
+
+    pids_limit: 128
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    networks:
+      - opsflow_backend_network
+
+  # ========================================================
   # INCIDENT SERVICE
   # ========================================================
   #
@@ -376,7 +507,6 @@ services:
   #   - the service exposes only its health contract
   #   - it is reachable from the Core Backend by Docker DNS
   #   - it is not published directly to the host
-  #   - it does not own or access a database yet
   #   - Core Backend traffic still uses LocalIncidentGateway
   #
   # ========================================================
@@ -414,6 +544,13 @@ services:
 
     environment:
       APP_ENV: development
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents
+
+    depends_on:
+      incident-migrate:
+        condition: service_completed_successfully
 
     # ------------------------------------------------------
     # PRIVATE CONTAINER PORT
