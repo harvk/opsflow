@@ -1,18 +1,10 @@
-from functools import (
-    lru_cache,
-)
-from pathlib import (
-    Path,
-)
+from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
 )
-
-# =========================================================
-# INCIDENT SERVICE CONFIGURATION PATH
-# =========================================================
 
 INCIDENT_SERVICE_DIR = (
     Path(__file__)
@@ -26,50 +18,37 @@ INCIDENT_SERVICE_ENV_FILE = (
 )
 
 
-class Settings(
-    BaseSettings
-):
+class Settings(BaseSettings):
     """
-    Process-local settings for the OpsFlow Incident Service.
+    Process-local configuration for the Incident Service.
 
-    The initial scaffold contains only application identity
-    and routing settings. Database, Core Backend, and
-    service-authentication settings will be introduced in the
-    subphases that implement those capabilities.
+    TEST_DATABASE_URL is deliberately not an application
+    setting. It is consumed only by test infrastructure and
+    migration tooling.
     """
 
-    app_name: str = (
-        "OpsFlow Incident Service"
-    )
+    app_name: str = "OpsFlow Incident Service"
 
-    app_env: str = (
-        "development"
-    )
+    app_env: str = "development"
 
-    api_v1_prefix: str = (
-        "/api/v1"
-    )
+    api_v1_prefix: str = "/api/v1"
 
-    model_config = (
-        SettingsConfigDict(
-            env_file=(
-                INCIDENT_SERVICE_ENV_FILE
-            ),
-            env_file_encoding=(
-                "utf-8"
-            ),
-            case_sensitive=False,
-            extra="ignore",
-        )
+    database_url: str
+
+    model_config = SettingsConfigDict(
+        env_file=INCIDENT_SERVICE_ENV_FILE,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
     )
 
 
 @lru_cache
-def get_settings(
-) -> Settings:
-    return Settings()
+def get_settings() -> Settings:
+    # BaseSettings supplies required values from configured
+    # environment sources at runtime. Pylance cannot infer
+    # those external settings sources.
+    return Settings()  # pyright: ignore[reportCallIssue]
 
 
-settings = (
-    get_settings()
-)
+settings = get_settings()

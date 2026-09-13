@@ -19,6 +19,10 @@ def test_health_endpoint_reports_incident_service_identity(
             ),
             app_env="test",
             api_v1_prefix="/api/v1",
+            database_url=(
+                "postgresql+psycopg://"
+                "test:test@localhost/test"
+            )
         )
     )
 
