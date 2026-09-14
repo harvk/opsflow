@@ -1,6 +1,9 @@
 from collections.abc import (
     Generator,
 )
+from secrets import (
+    compare_digest,
+)
 from typing import (
     Annotated,
 )
@@ -8,6 +11,9 @@ from typing import (
 import httpx
 from fastapi import (
     Depends,
+    Header,
+    HTTPException,
+    status,
 )
 from sqlalchemy.orm import (
     Session,
@@ -44,6 +50,68 @@ SettingsDependency = Annotated[
 ]
 
 
+# =========================================================
+# INTERNAL SERVICE AUTHENTICATION
+# =========================================================
+
+InternalServiceTokenHeader = Annotated[
+    str | None,
+    Header(
+        alias=(
+            "X-OpsFlow-Internal-Token"
+        ),
+    ),
+]
+
+
+def require_core_backend_token(
+    app_settings: SettingsDependency,
+    supplied_token: (
+        InternalServiceTokenHeader
+    ) = None,
+) -> None:
+    """
+    Authenticate requests originating from Core Backend.
+
+    Missing and incorrect credentials deliberately produce
+    the same response so the endpoint does not reveal which
+    part of the credential check failed.
+    """
+
+    expected_token = (
+        app_settings
+        .incident_service_token
+        .get_secret_value()
+    )
+
+    token_is_valid = (
+        supplied_token is not None
+        and compare_digest(
+            supplied_token.encode(
+                "utf-8"
+            ),
+            expected_token.encode(
+                "utf-8"
+            ),
+        )
+    )
+
+    if not token_is_valid:
+        raise HTTPException(
+            status_code=(
+                status
+                .HTTP_401_UNAUTHORIZED
+            ),
+            detail=(
+                "Invalid internal service credentials."
+            ),
+        )
+
+
+# =========================================================
+# DATABASE SESSION
+# =========================================================
+
 DbSession = Annotated[
     Session,
     Depends(
@@ -51,6 +119,10 @@ DbSession = Annotated[
     ),
 ]
 
+
+# =========================================================
+# INCIDENT REPOSITORY
+# =========================================================
 
 def get_incident_repository(
     session: DbSession,
@@ -69,6 +141,10 @@ IncidentRepositoryDependency = Annotated[
     ),
 ]
 
+
+# =========================================================
+# SERVICE CATALOG GATEWAY
+# =========================================================
 
 def get_service_catalog_gateway(
     app_settings: SettingsDependency,
@@ -106,6 +182,10 @@ ServiceCatalogGatewayDependency = Annotated[
     ),
 ]
 
+
+# =========================================================
+# INCIDENT SERVICE
+# =========================================================
 
 def get_incident_service(
     incident_repository: (

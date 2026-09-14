@@ -16,6 +16,7 @@ from typing import (
 )
 
 import boto3
+import httpx
 from botocore.config import (
     Config,
 )
@@ -62,6 +63,9 @@ from app.domain.authorization import (
 )
 from app.domain.user import (
     User,
+)
+from app.gateways.http_incident_gateway import (
+    HttpIncidentGateway,
 )
 from app.gateways.incident_gateway import (
     IncidentGateway,
@@ -385,11 +389,55 @@ IncidentServiceDependency = (
 )
 
 
+@lru_cache(
+    maxsize=1
+)
+def get_incident_http_client(
+) -> httpx.Client:
+    """
+    Construct the process-wide Incident Service HTTP client.
+
+    Reusing one client preserves connection pooling across
+    requests while the Core Backend process is running.
+    """
+
+    return (
+        httpx.Client(
+            timeout=(
+                settings
+                .incident_service_timeout_seconds
+            ),
+        )
+    )
+
+
 def get_incident_gateway(
     incident_service: (
         IncidentServiceDependency
     ),
 ) -> IncidentGateway:
+    if (
+        settings
+        .incident_gateway_mode
+        == "http"
+    ):
+        return (
+            HttpIncidentGateway(
+                client=(
+                    get_incident_http_client()
+                ),
+                incident_service_url=(
+                    settings
+                    .incident_service_url
+                ),
+                internal_token=(
+                    settings
+                    .incident_service_token
+                    .get_secret_value()
+                ),
+            )
+        )
+
     return (
         LocalIncidentGateway(
             incident_service

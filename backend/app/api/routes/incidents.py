@@ -1,16 +1,29 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status, Depends
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 
 from app.api.dependencies import (
     IncidentGatewayDependency,
     require_permission,
 )
-
-from app.domain.incident import IncidentSeverity, IncidentStatus
+from app.api.incident_gateway_errors import (
+    incident_gateway_http_exception,
+)
 from app.domain.authorization import Permission
-
+from app.domain.incident import (
+    IncidentSeverity,
+    IncidentStatus,
+)
+from app.gateways.incident_gateway import (
+    IncidentGatewayError,
+)
 from app.schemas.incident import (
     IncidentCreate,
     IncidentResponse,
@@ -20,7 +33,6 @@ from app.services.incident_service import (
     IncidentNotFoundError,
     IncidentServiceReferenceError,
 )
-
 
 router = APIRouter()
 
@@ -34,7 +46,7 @@ router = APIRouter()
                 Permission.SERVICE_READ
             )
         )
-    ]
+    ],
 )
 def list_incidents(
     incident_gateway: IncidentGatewayDependency,
@@ -86,14 +98,19 @@ def list_incidents(
         ),
     ] = 50,
 ) -> list[IncidentResponse]:
-    incidents = incident_gateway.list(
-        search=search,
-        service_id=service_id,
-        severity=severity,
-        status=incident_status,
-        offset=offset,
-        limit=limit,
-    )
+    try:
+        incidents = incident_gateway.list(
+            search=search,
+            service_id=service_id,
+            severity=severity,
+            status=incident_status,
+            offset=offset,
+            limit=limit,
+        )
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
+        ) from exc
 
     return [
         IncidentResponse.model_validate(incident)
@@ -110,7 +127,7 @@ def list_incidents(
                 Permission.SERVICE_READ
             )
         )
-    ]
+    ],
 )
 def get_incident(
     incident_id: UUID,
@@ -124,6 +141,10 @@ def get_incident(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
         ) from exc
 
     return IncidentResponse.model_validate(
@@ -141,7 +162,7 @@ def get_incident(
                 Permission.INCIDENT_CREATE
             )
         )
-    ]
+    ],
 )
 def create_incident(
     payload: IncidentCreate,
@@ -155,6 +176,10 @@ def create_incident(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
         ) from exc
 
     return IncidentResponse.model_validate(
@@ -171,7 +196,7 @@ def create_incident(
                 Permission.INCIDENT_UPDATE
             )
         )
-    ]
+    ],
 )
 def update_incident(
     incident_id: UUID,
@@ -193,6 +218,10 @@ def update_incident(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=str(exc),
         ) from exc
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
+        ) from exc
 
     return IncidentResponse.model_validate(
         incident
@@ -208,7 +237,7 @@ def update_incident(
                 Permission.INCIDENT_DELETE
             )
         )
-    ]
+    ],
 )
 def delete_incident(
     incident_id: UUID,
@@ -222,4 +251,8 @@ def delete_incident(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
         ) from exc

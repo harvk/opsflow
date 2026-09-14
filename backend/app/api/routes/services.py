@@ -1,28 +1,40 @@
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, HTTPException, Query, status, Depends
+from fastapi import (
+    APIRouter,
+    Depends,
+    HTTPException,
+    Query,
+    status,
+)
 
 from app.api.dependencies import (
     IncidentGatewayDependency,
     ServiceServiceDependency,
     require_permission,
 )
-from app.domain.service import ServiceStatus
+from app.api.incident_gateway_errors import (
+    incident_gateway_http_exception,
+)
 from app.domain.authorization import Permission
-
+from app.domain.service import ServiceStatus
+from app.gateways.incident_gateway import (
+    IncidentGatewayError,
+)
+from app.schemas.incident import IncidentResponse
 from app.schemas.service import (
     ServiceCreate,
     ServiceResponse,
     ServiceUpdate,
 )
+from app.services.incident_service import (
+    IncidentNotFoundError,
+)
 from app.services.service_service import (
     ServiceNameConflictError,
     ServiceNotFoundError,
 )
-from app.schemas.incident import IncidentResponse
-
-from app.services.incident_service import IncidentNotFoundError
 
 router = APIRouter()
 
@@ -36,7 +48,7 @@ router = APIRouter()
                 Permission.SERVICE_READ
             )
         )
-    ]
+    ],
 )
 def list_services(
     service_service: ServiceServiceDependency,
@@ -95,7 +107,7 @@ def list_services(
                 Permission.SERVICE_READ
             )
         )
-    ]
+    ],
 )
 def get_service(
     service_id: UUID,
@@ -130,6 +142,7 @@ def get_service(
 def list_service_incidents(
     service_id: UUID,
     incident_gateway: IncidentGatewayDependency,
+    service_service: ServiceServiceDependency,
     offset: Annotated[
         int,
         Query(ge=0),
@@ -140,6 +153,16 @@ def list_service_incidents(
     ] = 50,
 ) -> list[IncidentResponse]:
     try:
+        service_service.get_service(
+            service_id
+        )
+    except ServiceNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc
+
+    try:
         incidents = incident_gateway.list_for_service(
             service_id,
             offset=offset,
@@ -149,6 +172,10 @@ def list_service_incidents(
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
             detail=str(exc),
+        ) from exc
+    except IncidentGatewayError as exc:
+        raise incident_gateway_http_exception(
+            exc
         ) from exc
 
     return [
@@ -167,7 +194,7 @@ def list_service_incidents(
                 Permission.SERVICE_CREATE
             )
         )
-    ]
+    ],
 )
 def create_service(
     payload: ServiceCreate,
@@ -197,7 +224,7 @@ def create_service(
                 Permission.SERVICE_UPDATE
             )
         )
-    ]
+    ],
 )
 def update_service(
     service_id: UUID,
@@ -234,7 +261,7 @@ def update_service(
                 Permission.SERVICE_DELETE
             )
         )
-    ]
+    ],
 )
 def delete_service(
     service_id: UUID,

@@ -347,6 +347,12 @@ services:
 
       INCIDENT_SERVICE_TOKEN: ${INCIDENT_SERVICE_TOKEN:?INCIDENT_SERVICE_TOKEN is required}
 
+      INCIDENT_GATEWAY_MODE: ${INCIDENT_GATEWAY_MODE:-http}
+
+      INCIDENT_SERVICE_URL: ${INCIDENT_SERVICE_URL:-http://incident-service:8000/api/v1}
+
+      INCIDENT_SERVICE_TIMEOUT_SECONDS: ${INCIDENT_SERVICE_TIMEOUT_SECONDS:-3.0}
+
     # ------------------------------------------------------
     # HOST PORT
     # ------------------------------------------------------

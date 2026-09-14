@@ -8,11 +8,35 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-
 from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
 )
+
+
+class IncidentGatewayError(Exception):
+    """
+    Base error for failures crossing the IncidentGateway
+    application boundary.
+    """
+
+
+class IncidentGatewayUnavailableError(
+    IncidentGatewayError
+):
+    """
+    Raised when the configured Incident Management provider
+    cannot complete a request.
+    """
+
+
+class IncidentGatewayProtocolError(
+    IncidentGatewayError
+):
+    """
+    Raised when the configured Incident Management provider
+    returns a response that violates the expected contract.
+    """
 
 
 class IncidentGateway(
