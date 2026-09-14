@@ -6,7 +6,15 @@ from fastapi import (
 from app.api.dependencies import (
     get_current_user,
 )
-from app.api.routes import auth, health, incidents, internal_services, services
+from app.api.routes import (
+    auth,
+    health,
+    incidents,
+    internal_services,
+    overview,
+    services,
+)
+
 
 api_router = (
     APIRouter()
@@ -51,6 +59,19 @@ api_router.include_router(
 # =========================================================
 # AUTHENTICATED APPLICATION ROUTES
 # =========================================================
+
+api_router.include_router(
+    overview.router,
+    prefix="/overview",
+    tags=[
+        "Overview"
+    ],
+    dependencies=[
+        Depends(
+            get_current_user
+        )
+    ],
+)
 
 api_router.include_router(
     services.router,

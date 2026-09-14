@@ -4,9 +4,10 @@ interface RecentActivityProps {
   activities: ActivityItem[];
 }
 
-function formatActivityTime(value: string) {
+function formatActivityTime(value: string): string {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
+
     timeStyle: "short",
   }).format(new Date(value));
 }
@@ -24,30 +25,36 @@ export default function RecentActivity({ activities }: RecentActivityProps) {
           </h2>
 
           <p className="small text-secondary mb-0">
-            Latest operational events across OpsFlow.
+            Latest operational incident activity across OpsFlow.
           </p>
         </div>
 
-        <ol className="ops-activity-list">
-          {activities.map((activity) => (
-            <li key={activity.id} className="ops-activity-item">
-              <div>
-                <p className="fw-semibold mb-1">{activity.title}</p>
+        {activities.length === 0 ? (
+          <p className="text-secondary mb-0" role="status">
+            No recent incident activity is available.
+          </p>
+        ) : (
+          <ol className="ops-activity-list">
+            {activities.map((activity) => (
+              <li key={activity.id} className="ops-activity-item">
+                <div>
+                  <p className="fw-semibold mb-1">{activity.title}</p>
 
-                <p className="small text-secondary mb-2">
-                  {activity.description}
-                </p>
+                  <p className="small text-secondary mb-2">
+                    {activity.description}
+                  </p>
 
-                <time
-                  className="small text-secondary"
-                  dateTime={activity.occurredAt}
-                >
-                  {formatActivityTime(activity.occurredAt)}
-                </time>
-              </div>
-            </li>
-          ))}
-        </ol>
+                  <time
+                    className="small text-secondary"
+                    dateTime={activity.occurredAt}
+                  >
+                    {formatActivityTime(activity.occurredAt)}
+                  </time>
+                </div>
+              </li>
+            ))}
+          </ol>
+        )}
       </div>
     </section>
   );
