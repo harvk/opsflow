@@ -3,29 +3,23 @@ from __future__ import annotations
 from collections.abc import (
     Iterator,
 )
-
 from typing import (
     Any,
 )
-
 from uuid import (
     uuid4,
 )
 
 import pytest
-
 from botocore.exceptions import (
     ClientError,
 )
-
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import (
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -34,24 +28,19 @@ from app.api.dependencies import (
     get_password_reset_throttle,
     get_ses_client,
 )
-
 from app.domain.user import (
     User,
     UserRole,
 )
-
 from app.main import (
     app,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # HTTP CONTRACT

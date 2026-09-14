@@ -10,7 +10,6 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-
 from app.models.incident import (
     IncidentModel,
 )

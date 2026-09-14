@@ -3,11 +3,9 @@ from __future__ import annotations
 from concurrent.futures import (
     ThreadPoolExecutor,
 )
-
 from threading import (
     Barrier,
 )
-
 from uuid import (
     uuid4,
 )
@@ -16,7 +14,6 @@ from sqlalchemy import (
     create_engine,
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -24,24 +21,19 @@ from sqlalchemy.orm import (
 from app.core.config import (
     settings,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     RefreshTokenReuseError,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 TEST_PASSWORD = (
     "VerySecurePassword123!"

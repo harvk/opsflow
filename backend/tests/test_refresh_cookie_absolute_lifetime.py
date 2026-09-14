@@ -3,25 +3,20 @@ from __future__ import annotations
 from dataclasses import (
     dataclass,
 )
-
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from email.utils import (
     parsedate_to_datetime,
 )
-
 from http.cookies import (
     SimpleCookie,
 )
-
 from typing import (
     Any,
 )
-
 from uuid import (
     uuid4,
 )
@@ -29,11 +24,9 @@ from uuid import (
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import (
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -41,28 +34,22 @@ from sqlalchemy.orm import (
 from app.api.dependencies import (
     get_login_throttle,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.security import (
     decode_refresh_token,
 )
-
 from app.domain.user import (
     User,
     UserRole,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # TEST CREDENTIAL
@@ -272,14 +259,14 @@ def require_refresh_cookie_from_response(
                 expires = (
                     expires.replace(
                         tzinfo=(
-                            timezone.utc
+                            UTC
                         )
                     )
                 )
 
             expires = (
                 expires.astimezone(
-                    timezone.utc
+                    UTC
                 )
             )
 
@@ -448,7 +435,7 @@ def assert_cookie_does_not_outlive_refresh_token(
         claims
         .expires_at
         .astimezone(
-            timezone.utc
+            UTC
         )
     )
 
@@ -550,7 +537,7 @@ def test_login_refresh_cookie_does_not_outlive_initial_refresh_token(
 
     response_received_at = (
         datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
@@ -740,7 +727,7 @@ def test_refresh_rotation_cookie_uses_remaining_absolute_session_lifetime(
 
     shortened_expiration = (
         datetime.now(
-            timezone.utc
+            UTC
         )
         + timedelta(
             minutes=5
@@ -786,7 +773,7 @@ def test_refresh_rotation_cookie_uses_remaining_absolute_session_lifetime(
 
     response_received_at = (
         datetime.now(
-            timezone.utc
+            UTC
         )
     )
 

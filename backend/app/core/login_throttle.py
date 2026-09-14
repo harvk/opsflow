@@ -1,14 +1,13 @@
 from __future__ import annotations
 
+import hmac
 from collections import deque
 from collections.abc import Callable
 from dataclasses import dataclass
 from hashlib import sha256
-import hmac
 from threading import RLock
 from time import monotonic
 from typing import Literal, Protocol
-
 
 ThrottleReason = Literal[
     "ip",
@@ -363,9 +362,7 @@ class InMemoryLoginThrottle:
 
         message = (
             f"{namespace}:{value}"
-            .encode(
-                "utf-8"
-            )
+            .encode()
         )
 
         return hmac.new(

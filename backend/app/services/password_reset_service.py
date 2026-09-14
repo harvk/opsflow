@@ -1,19 +1,16 @@
 from __future__ import annotations
 
-from dataclasses import (
-    dataclass,
-)
-
-from datetime import (
-    datetime,
-    timedelta,
-    timezone,
-)
-
 import hashlib
 import hmac
 import secrets
-
+from dataclasses import (
+    dataclass,
+)
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from uuid import (
     UUID,
     uuid4,
@@ -23,29 +20,23 @@ from app.core.password_policy import (
     PasswordPolicyViolation,
     validate_new_password,
 )
-
 from app.core.security import (
     create_reauthentication_fingerprint,
     hash_password,
     verify_password,
 )
-
 from app.domain.password_reset_token import (
     PasswordResetToken,
 )
-
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
-
 from app.repositories.password_reset_token_repository import (
     PasswordResetTokenRepository,
 )
-
 from app.repositories.user_repository import (
     UserRepository,
 )
-
 
 # =========================================================
 # RESULTS
@@ -110,7 +101,6 @@ class InvalidPasswordResetCredentialError(
     reason into one generic error.
     """
 
-    pass
 
 
 class PasswordResetPasswordError(
@@ -120,7 +110,6 @@ class PasswordResetPasswordError(
     Replacement password violates a password invariant.
     """
 
-    pass
 
 
 # =========================================================
@@ -197,7 +186,7 @@ class PasswordResetService:
             return None
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         # A newly requested credential supersedes all
@@ -330,7 +319,7 @@ class PasswordResetService:
             )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         self._require_usable_token(

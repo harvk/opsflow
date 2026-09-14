@@ -4,7 +4,6 @@ import hashlib
 import hmac
 import secrets
 
-
 # =========================================================
 # PASSWORD RESET TOKEN CONFIGURATION
 # =========================================================

@@ -1,9 +1,8 @@
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from uuid import (
     uuid4,
 )
@@ -15,15 +14,12 @@ from sqlalchemy.orm import (
 from app.domain.auth_session import (
     AuthSession,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
@@ -63,7 +59,7 @@ def create_auth_session(
     user_id,
 ) -> AuthSession:
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     return AuthSession(
@@ -158,7 +154,7 @@ def test_update_current_token_rotates_jti(
 
     replacement_time = (
         datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
@@ -210,7 +206,7 @@ def test_revoke_session(
     )
 
     revoked_at = datetime.now(
-        timezone.utc
+        UTC
     )
 
     repository.revoke(
@@ -271,7 +267,7 @@ def test_revoke_all_for_user(
             user_id=user.id,
             revoked_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
             ),
             reason="logout_all",

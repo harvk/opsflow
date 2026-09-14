@@ -11,7 +11,6 @@ from app.core.password_policy import (
     validate_new_password,
 )
 
-
 # =========================================================
 # POLICY CONSTANTS
 # =========================================================

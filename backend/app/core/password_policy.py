@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-
 # =========================================================
 # PASSWORD LENGTH POLICY
 # =========================================================
@@ -80,7 +79,6 @@ class PasswordPolicyViolation(
     coupling it to a particular authentication workflow.
     """
 
-    pass
 
 
 # =========================================================

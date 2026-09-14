@@ -1,6 +1,6 @@
 from app.domain.authorization import (
-    Permission,
     ROLE_PERMISSIONS,
+    Permission,
 )
 from app.domain.user import User
 
@@ -38,9 +38,9 @@ class AuthorizationService:
             permission,
         ):
             raise PermissionDeniedError(
-                (
+
                     f"User role '{user.role.value}' "
                     f"does not have permission "
                     f"'{permission.value}'."
-                )
+
             )

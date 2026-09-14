@@ -3,19 +3,18 @@ from uuid import uuid4
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.domain.service import Service
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
     IncidentStatus,
 )
+from app.domain.service import Service
 from tests.constants import (
     PAYMENTS_INCIDENT_ID,
     PAYMENTS_SERVICE_ID,
     SECOND_INCIDENT_ID,
     THIRD_INCIDENT_ID,
 )
-
 
 INCIDENTS_URL = "/api/v1/incidents"
 

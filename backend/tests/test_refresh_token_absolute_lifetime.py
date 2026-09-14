@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from uuid import (
     uuid4,
 )
@@ -13,11 +12,9 @@ from uuid import (
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import (
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -25,28 +22,22 @@ from sqlalchemy.orm import (
 from app.api.dependencies import (
     get_login_throttle,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.security import (
     decode_refresh_token,
 )
-
 from app.domain.user import (
     User,
     UserRole,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # TEST CREDENTIALS
@@ -679,13 +670,13 @@ def test_expired_persistent_session_blocks_refresh_even_when_jwt_is_still_signed
     assert (
         claims.expires_at
         > datetime.now(
-            timezone.utc
+            UTC
         )
     )
 
     forced_expiration = (
         datetime.now(
-            timezone.utc
+            UTC
         )
         - timedelta(
             seconds=1

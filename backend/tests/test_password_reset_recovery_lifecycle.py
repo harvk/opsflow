@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import html
 import re
-
 from collections.abc import Iterator
 from typing import Any
 from uuid import uuid4
@@ -24,7 +23,6 @@ from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
 from app.services.user_service import UserService
-
 
 # =========================================================
 # TEST CONSTANTS

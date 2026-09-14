@@ -2,7 +2,6 @@ from fastapi.testclient import (
     TestClient,
 )
 
-
 AUTH_CACHE_CONTROL = (
     "no-store, "
     "no-cache, "

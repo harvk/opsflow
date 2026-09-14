@@ -3,11 +3,9 @@ from __future__ import annotations
 from collections.abc import (
     Mapping,
 )
-
 from enum import (
     StrEnum,
 )
-
 
 AUTH_ERROR_CODE_HEADER = (
     "X-Auth-Error-Code"

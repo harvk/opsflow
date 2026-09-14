@@ -9,11 +9,9 @@ from app.core.auth_error_codes import (
     AuthErrorCode,
     auth_error_headers,
 )
-
 from app.core.config import (
     settings,
 )
-
 
 # =========================================================
 # HEADER CONSTRUCTION

@@ -1,6 +1,6 @@
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 from uuid import uuid4
 
@@ -13,25 +13,20 @@ from app.core.security import (
     decode_refresh_token,
     validate_csrf_token,
 )
-
 from app.domain.user import (
     UserRole,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     InvalidCredentialsError,
     InvalidCsrfTokenError,
 )
-
 from app.services.user_service import (
     UserService,
 )
@@ -341,7 +336,7 @@ def test_refresh_rejects_token_that_is_not_current(
         ),
         last_used_at=(
             datetime.now(
-                timezone.utc
+                UTC
             )
         ),
     )
@@ -391,7 +386,7 @@ def test_refresh_rejects_revoked_session(
         ),
         revoked_at=(
             datetime.now(
-                timezone.utc
+                UTC
             )
         ),
         reason=(

@@ -7,16 +7,10 @@ from typing import (
 )
 from uuid import UUID
 
-from sqlalchemy import (
-    select,
-    update,
-    delete
-)
-
+from sqlalchemy import delete, select, update
 from sqlalchemy.engine import (
     CursorResult,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -24,11 +18,9 @@ from sqlalchemy.orm import (
 from app.domain.auth_session import (
     AuthSession,
 )
-
 from app.models.auth_session import (
     AuthSessionModel,
 )
-
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
@@ -283,9 +275,7 @@ class SqlAlchemyAuthSessionRepository(
         self.session.flush()
 
         return (
-            result.rowcount
-            if result.rowcount >= 0
-            else 0
+            max(result.rowcount, 0)
         )
         
     # =====================================================
@@ -335,9 +325,7 @@ class SqlAlchemyAuthSessionRepository(
         self.session.flush()
 
         return (
-            result.rowcount
-            if result.rowcount >= 0
-            else 0
+            max(result.rowcount, 0)
         )
 
     # =====================================================

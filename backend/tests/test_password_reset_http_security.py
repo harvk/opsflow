@@ -3,25 +3,20 @@ from __future__ import annotations
 import html
 import re
 import secrets
-
 from collections.abc import (
     Iterator,
 )
-
 from typing import (
     Any,
 )
-
 from uuid import (
     uuid4,
 )
 
 import pytest
-
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -30,28 +25,22 @@ from app.api.dependencies import (
     get_password_reset_throttle,
     get_ses_client,
 )
-
+from app.core.auth_response_messages import (
+    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
+)
 from app.domain.user import (
     User,
     UserRole,
 )
-
 from app.main import (
     app,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
-from app.core.auth_response_messages import (
-    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
-)
-
 
 # =========================================================
 # TEST CONSTANTS

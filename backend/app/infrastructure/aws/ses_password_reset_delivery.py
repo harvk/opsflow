@@ -1,14 +1,12 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
-
 from html import (
     escape,
 )
-
 from typing import (
     Any,
     Protocol,
@@ -23,7 +21,6 @@ from app.services.password_reset_delivery import (
     PasswordResetDeliveryError,
     PasswordResetDeliveryMessage,
 )
-
 
 # =========================================================
 # MINIMAL SES CLIENT CONTRACT
@@ -334,7 +331,7 @@ class SesPasswordResetDelivery:
         return (
             expires_at
             .astimezone(
-                timezone.utc
+                UTC
             )
         )
 

@@ -3,19 +3,19 @@ from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.domain.user import UserRole
+from app.repositories.sqlalchemy_auth_session_repository import (
+    SqlAlchemyAuthSessionRepository,
+)
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
 from app.services.authentication_service import (
+    AuthenticationService,
     InactiveUserError,
     InvalidCredentialsError,
-    AuthenticationService,
 )
 from app.services.user_service import (
     UserService,
-)
-from app.repositories.sqlalchemy_auth_session_repository import (
-    SqlAlchemyAuthSessionRepository,
 )
 
 

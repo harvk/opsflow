@@ -1,4 +1,4 @@
-from datetime import timedelta, datetime, timezone
+from datetime import UTC, datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -171,7 +171,7 @@ def test_refresh_token_round_trip(
 
     expires_at = (
         datetime.now(
-            timezone.utc
+            UTC
         )
         + timedelta(
             days=7
@@ -235,7 +235,7 @@ def test_refresh_token_cannot_be_used_as_access_token(
             ),
             expires_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
                 + timedelta(
                     days=7
@@ -284,7 +284,7 @@ def test_expired_refresh_token_is_rejected(
             ),
             expires_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
                 - timedelta(
                     seconds=1

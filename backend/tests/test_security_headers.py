@@ -1,11 +1,9 @@
-from httpx import (
-    Response,
-)
-
 from fastapi.testclient import (
     TestClient,
 )
-
+from httpx import (
+    Response,
+)
 from sqlalchemy.orm import (
     Session,
 )
@@ -13,19 +11,15 @@ from sqlalchemy.orm import (
 from app.core.config import (
     settings,
 )
-
 from app.domain.user import (
     UserRole,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # ROUTE CONSTANTS

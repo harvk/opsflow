@@ -15,11 +15,9 @@ from app.api.dependencies import (
     get_password_reset_delivery_coordinator,
     get_ses_client,
 )
-
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesPasswordResetDelivery,
 )
-
 
 # =========================================================
 # TEST SES CLIENT

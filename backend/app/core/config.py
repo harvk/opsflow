@@ -12,12 +12,10 @@ from pydantic import (
     Field,
     SecretStr,
 )
-
 from pydantic_settings import (
     BaseSettings,
     SettingsConfigDict,
 )
-
 
 # =========================================================
 # BACKEND CONFIGURATION PATH
@@ -83,6 +81,51 @@ class Settings(
     database_url: str
 
     test_database_url: str
+
+    # =====================================================
+    # SERVICE-TO-SERVICE AUTHENTICATION
+    # =====================================================
+
+    incident_service_token: SecretStr = Field(
+        min_length=32,
+    )
+
+    # =====================================================
+    # INCIDENT GATEWAY
+    # =====================================================
+    #
+    # local:
+    #     Core Backend executes Incident Management through
+    #     the existing in-process LocalIncidentGateway.
+    #
+    # http:
+    #     Core Backend delegates Incident Management to the
+    #     independent Incident Service over HTTP.
+    #
+    # Local remains the safe default until the container
+    # integration and rollback verification are complete.
+    #
+    # =====================================================
+
+    incident_gateway_mode: Literal[
+        "local",
+        "http",
+    ] = "local"
+
+    incident_service_url: str = Field(
+        default=(
+            "http://incident-service:8000"
+            "/api/v1"
+        ),
+        min_length=1,
+        max_length=2048,
+    )
+
+    incident_service_timeout_seconds: float = Field(
+        default=3.0,
+        gt=0,
+        le=30,
+    )
 
     # =====================================================
     # JWT AUTHENTICATION SETTINGS

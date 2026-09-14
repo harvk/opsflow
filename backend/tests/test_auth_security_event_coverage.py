@@ -1,23 +1,18 @@
 from __future__ import annotations
 
 import ast
-
 from dataclasses import (
     dataclass,
 )
-
 from pathlib import (
     Path,
 )
-
 from types import (
     ModuleType,
 )
 
 import app.api.dependencies as dependency_module
-
 import app.api.routes.auth as auth_route_module
-
 
 # =========================================================
 # EVENT REQUIREMENT MODEL

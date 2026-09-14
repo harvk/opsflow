@@ -8,17 +8,14 @@ from app.core.password_policy import (
     PASSWORD_TOO_LONG_MESSAGE,
     PASSWORD_TOO_SHORT_MESSAGE,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     PasswordChangeError,
 )
-
 from app.services.password_reset_service import (
     PasswordResetPasswordError,
     PasswordResetService,
 )
-
 
 # =========================================================
 # AUTHENTICATION SERVICE TRANSLATION

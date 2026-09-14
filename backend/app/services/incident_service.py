@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from app.domain.incident import (
@@ -9,17 +9,16 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
+from app.gateways.service_catalog_gateway import (
+    ServiceCatalogGateway,
+)
 from app.repositories.incident_repository import (
     IncidentRepository,
-)
-from app.repositories.service_repository import (
-    ServiceRepository,
 )
 from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
 )
-
 
 # =========================================================
 # INCIDENT SERVICE ERRORS
@@ -47,14 +46,14 @@ class IncidentService:
     def __init__(
         self,
         incident_repository: IncidentRepository,
-        service_repository: ServiceRepository,
+        service_catalog_gateway: ServiceCatalogGateway,
     ) -> None:
         self._incident_repository = (
             incident_repository
         )
 
-        self._service_repository = (
-            service_repository
+        self._service_catalog_gateway = (
+            service_catalog_gateway
         )
 
     # =====================================================
@@ -122,7 +121,7 @@ class IncidentService:
 
         now = (
             datetime.now(
-                timezone.utc
+                UTC
             )
         )
 
@@ -221,7 +220,7 @@ class IncidentService:
         ):
             resolved_at = (
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
             )
 
@@ -294,7 +293,7 @@ class IncidentService:
                 ),
                 updated_at=(
                     datetime.now(
-                        timezone.utc
+                        UTC
                     )
                 ),
             )
@@ -334,14 +333,12 @@ class IncidentService:
         self,
         service_id: UUID,
     ) -> None:
-        service = (
-            self._service_repository
-            .get_by_id(
+        if not (
+            self._service_catalog_gateway
+            .exists(
                 service_id
             )
-        )
-
-        if service is None:
+        ):
             raise (
                 IncidentServiceReferenceError(
                     f"Service {service_id} "
@@ -360,14 +357,12 @@ class IncidentService:
         offset: int = 0,
         limit: int = 50,
     ) -> list[Incident]:
-        service = (
-            self._service_repository
-            .get_by_id(
+        if not (
+            self._service_catalog_gateway
+            .exists(
                 service_id
             )
-        )
-
-        if service is None:
+        ):
             raise (
                 IncidentNotFoundError(
                     service_id

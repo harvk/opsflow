@@ -1,28 +1,22 @@
 from __future__ import annotations
 
+import hashlib
+import hmac
+import time
 from collections import (
     defaultdict,
     deque,
 )
-
 from dataclasses import (
     dataclass,
 )
-
-import hashlib
-import hmac
-
 from threading import (
     Lock,
 )
-
-import time
-
 from typing import (
     Literal,
     Protocol,
 )
-
 
 PasswordResetThrottleBlockReason = Literal[
     "ip",

@@ -1,11 +1,9 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import Any, cast
 from uuid import UUID
 
-from sqlalchemy import update
+from sqlalchemy import select, update
 from sqlalchemy.engine import CursorResult
-
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.domain.user import User, UserAuthRecord, UserRole
@@ -131,7 +129,7 @@ class SqlAlchemyUserRepository(UserRepository):
                 ),
                 updated_at=(
                     datetime.now(
-                        timezone.utc
+                        UTC
                     )
                 ),
             )

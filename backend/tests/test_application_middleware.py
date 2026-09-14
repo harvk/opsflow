@@ -6,11 +6,9 @@ from fastapi.middleware.cors import (
 from app.main import (
     create_app,
 )
-
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
-
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )

@@ -4,11 +4,9 @@ from dataclasses import (
     dataclass,
     field,
 )
-
 from typing import (
     Any,
 )
-
 from uuid import (
     uuid4,
 )
@@ -16,20 +14,15 @@ from uuid import (
 from fastapi import (
     Request,
 )
-
 from fastapi.testclient import (
     TestClient,
 )
 
 import app.api.dependencies as dependency_module
-
 import app.api.routes.auth as auth_route_module
-
 from app.api.dependencies import (
     get_login_throttle,
-    get_password_reset_throttle,
 )
-
 
 # =========================================================
 # TEST CREDENTIALS

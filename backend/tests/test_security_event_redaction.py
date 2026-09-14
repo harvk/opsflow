@@ -1,23 +1,19 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import (
     Iterator,
 )
-
-import json
-import logging
-
 from typing import (
     Any,
     cast,
 )
-
 from uuid import (
     uuid4,
 )
 
 import pytest
-
 from fastapi import (
     Request,
 )
@@ -26,7 +22,6 @@ from app.core.security_events import (
     SecurityDetailValue,
     SecurityEventLogger,
 )
-
 
 # =========================================================
 # DISTINCTIVE TEST SECRETS
@@ -167,10 +162,10 @@ def logger_harness(
 
     python_logger = (
         logging.getLogger(
-            (
+
                 "opsflow.security.test."
                 f"{uuid4().hex}"
-            )
+
         )
     )
 

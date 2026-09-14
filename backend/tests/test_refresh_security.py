@@ -1,7 +1,7 @@
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
 from uuid import uuid4
 
@@ -28,7 +28,7 @@ def test_refresh_token_preserves_session_claims(
 
     expires_at = (
         datetime.now(
-            timezone.utc
+            UTC
         )
         + timedelta(
             days=7
@@ -81,7 +81,7 @@ def test_refresh_token_cannot_be_used_as_access_token(
         token_id=uuid4(),
         expires_at=(
             datetime.now(
-                timezone.utc
+                UTC
             )
             + timedelta(
                 days=7

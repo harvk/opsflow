@@ -3,12 +3,10 @@ from __future__ import annotations
 from app.core.password_reset_links import (
     PasswordResetLinkBuilder,
 )
-
 from app.services.password_reset_delivery import (
     PasswordResetDelivery,
     PasswordResetDeliveryMessage,
 )
-
 from app.services.password_reset_service import (
     PasswordResetIssueResult,
 )

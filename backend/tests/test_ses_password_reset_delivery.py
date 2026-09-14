@@ -1,29 +1,22 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
 
 import pytest
 
-from botocore.exceptions import (
-    ClientError,
-)
-
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesPasswordResetDelivery,
 )
-
 from app.services.password_reset_delivery import (
     PasswordResetDeliveryError,
     PasswordResetDeliveryMessage,
 )
-
 from tests.fakes.ses_client import (
     RecordingSesClient,
 )
-
 
 RESET_URL = (
     "https://app.example.com/"
@@ -50,7 +43,7 @@ def build_message(
                     18,
                     30,
                     tzinfo=(
-                        timezone.utc
+                        UTC
                     ),
                 )
             ),
@@ -288,7 +281,7 @@ def test_ses_delivery_rejects_empty_recipient(
             ),
             expires_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
             ),
         )

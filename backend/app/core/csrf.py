@@ -7,7 +7,6 @@ import secrets
 
 from app.core.config import settings
 
-
 CSRF_NONCE_BYTES = 32
 
 
@@ -18,7 +17,7 @@ def _build_message(session_id: str, nonce: str) -> bytes:
     Including the length of the session ID makes the encoding
     unambiguous even if formats change in the future.
     """
-    return f"{len(session_id)}!{session_id}!{nonce}".encode("utf-8")
+    return f"{len(session_id)}!{session_id}!{nonce}".encode()
 
 
 def _sign(session_id: str, nonce: str) -> str:

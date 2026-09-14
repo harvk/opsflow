@@ -7,7 +7,6 @@ from collections.abc import (
 from sqlalchemy import (
     create_engine,
 )
-
 from sqlalchemy.orm import (
     Session,
     sessionmaker,
@@ -16,7 +15,6 @@ from sqlalchemy.orm import (
 from app.core.config import (
     settings,
 )
-
 
 # =========================================================
 # DATABASE ENGINE

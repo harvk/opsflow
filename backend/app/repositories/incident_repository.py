@@ -3,7 +3,6 @@ from __future__ import annotations
 from typing import (
     Protocol,
 )
-
 from uuid import (
     UUID,
 )
@@ -13,7 +12,6 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-
 
 # =========================================================
 # INCIDENT REPOSITORY CONTRACT
