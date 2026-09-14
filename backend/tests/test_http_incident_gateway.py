@@ -8,6 +8,12 @@ import httpx
 import pytest
 from pydantic import ValidationError
 
+from app.core.request_context import (
+    REQUEST_ID_HEADER,
+    bind_request_id,
+    reset_request_id,
+)
+
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -108,6 +114,61 @@ def assert_internal_authentication(
         ]
         == INTERNAL_TOKEN
     )
+    
+def test_gateway_propagates_only_the_current_request_id(
+) -> None:
+    observed_request_ids: list[
+        str | None
+    ] = []
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        observed_request_ids.append(
+            request.headers.get(
+                REQUEST_ID_HEADER
+            )
+        )
+
+        assert_internal_authentication(
+            request
+        )
+
+        return httpx.Response(
+            200,
+            json=[],
+        )
+
+    gateway, client = build_gateway(
+        handler
+    )
+
+    request_id = (
+        "backend-request-9.6.4"
+    )
+
+    try:
+        context_token = bind_request_id(
+            request_id
+        )
+
+        try:
+            assert gateway.list() == []
+
+        finally:
+            reset_request_id(
+                context_token
+            )
+
+        assert gateway.list() == []
+
+    finally:
+        client.close()
+
+    assert observed_request_ids == [
+        request_id,
+        None,
+    ]
 
 
 @pytest.mark.parametrize(

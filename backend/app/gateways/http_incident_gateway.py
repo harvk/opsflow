@@ -6,6 +6,11 @@ from uuid import UUID
 import httpx
 from pydantic import TypeAdapter, ValidationError
 
+from app.core.request_context import (
+    REQUEST_ID_HEADER,
+    get_request_id,
+)
+
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -297,11 +302,22 @@ class HttpIncidentGateway:
             | None
         ) = None,
     ) -> httpx.Response:
+        request_headers = dict(
+            self._headers
+        )
+
+        request_id = get_request_id()
+
+        if request_id is not None:
+            request_headers[
+                REQUEST_ID_HEADER
+            ] = request_id
+
         try:
             return self._client.request(
                 method,
                 url,
-                headers=self._headers,
+                headers=request_headers,
                 params=params,
                 json=json,
             )

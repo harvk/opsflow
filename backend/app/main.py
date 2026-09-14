@@ -22,6 +22,9 @@ from app.core.password_reset_messages import (
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
+from app.middleware.request_correlation import (
+    RequestCorrelationMiddleware,
+)
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )
@@ -137,6 +140,9 @@ def create_app(
     #
     #     X-Auth-Error-Code
     #         stable authentication error contract
+    #
+    #     X-Request-ID
+    #         distributed request correlation
 
     application.add_middleware(
         CORSMiddleware,
@@ -157,10 +163,12 @@ def create_app(
             "Authorization",
             "Content-Type",
             "X-CSRF-Token",
+            "X-Request-ID",
         ],
         expose_headers=[
             "Retry-After",
             "X-Auth-Error-Code",
+            "X-Request-ID",
         ],
     )
 
@@ -170,10 +178,11 @@ def create_app(
     #
     # Starlette reverses middleware registration order.
     #
-    # Because this middleware is registered last, it becomes
-    # the outermost user middleware.
+    # Security headers remain outside CORS and the browser
+    # trust boundary. Request correlation is registered after
+    # this middleware and becomes the final outer boundary.
     #
-    # That means security headers are also applied to:
+    # Security headers are therefore still applied to:
     #
     #     normal route responses
     #     FastAPI exception responses
@@ -183,6 +192,21 @@ def create_app(
 
     application.add_middleware(
         SecurityHeadersMiddleware,
+    )
+    
+    # =====================================================
+    # REQUEST CORRELATION BOUNDARY
+    # =====================================================
+    #
+    # Starlette reverses middleware registration order.
+    #
+    # Registering request correlation last makes it the
+    # outermost user middleware. This ensures X-Request-ID is
+    # attached even when a response originates from another
+    # middleware rather than from a route.
+
+    application.add_middleware(
+        RequestCorrelationMiddleware,
     )
 
     return application

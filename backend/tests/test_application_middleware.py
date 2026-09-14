@@ -9,6 +9,9 @@ from app.main import (
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
+from app.middleware.request_correlation import (
+    RequestCorrelationMiddleware,
+)
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )
@@ -41,14 +44,14 @@ def _count_registered_middleware(
     )
 
 
-def test_security_middleware_is_registered_once() -> None:
+def test_application_middleware_is_registered_once(
+) -> None:
     """
     The application factory must produce one authoritative
     middleware stack.
 
-    Duplicate middleware registrations—particularly duplicate
-    CORS middleware—can create conflicting browser-security
-    behavior.
+    Duplicate registrations can apply response transformations
+    more than once or create conflicting browser behavior.
     """
 
     application = (
@@ -75,6 +78,14 @@ def test_security_middleware_is_registered_once() -> None:
         _count_registered_middleware(
             application,
             SecurityHeadersMiddleware,
+        )
+        == 1
+    )
+
+    assert (
+        _count_registered_middleware(
+            application,
+            RequestCorrelationMiddleware,
         )
         == 1
     )

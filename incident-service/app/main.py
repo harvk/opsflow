@@ -10,6 +10,9 @@ from app.core.config import (
     get_settings,
     settings,
 )
+from app.middleware.request_correlation import (
+    RequestCorrelationMiddleware,
+)
 
 
 def create_app(
@@ -57,6 +60,15 @@ def create_app(
         application.dependency_overrides[
             get_settings
         ] = lambda: configured_settings
+
+    # The private Incident Service still establishes its own
+    # correlation boundary. Requests normally inherit the
+    # Backend request ID, but direct health checks and internal
+    # calls must also receive an identifier.
+
+    application.add_middleware(
+        RequestCorrelationMiddleware,
+    )
 
     return application
 
