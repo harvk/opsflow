@@ -1,5 +1,4 @@
 import logging
-
 from typing import (
     Annotated,
 )
@@ -12,11 +11,9 @@ from fastapi import (
     Response,
     status,
 )
-
 from fastapi.responses import (
     JSONResponse,
 )
-
 from fastapi.security import (
     OAuth2PasswordRequestForm,
 )
@@ -29,7 +26,6 @@ from app.api.dependencies import (
     PasswordResetThrottleDependency,
     get_authentication_service,
 )
-
 from app.core.auth_cookies import (
     clear_auth_cookies,
     get_csrf_cookie,
@@ -37,12 +33,10 @@ from app.core.auth_cookies import (
     set_csrf_cookie,
     set_refresh_cookie,
 )
-
 from app.core.auth_error_codes import (
     AuthErrorCode,
     auth_error_headers,
 )
-
 from app.core.auth_response_messages import (
     CSRF_VALIDATION_FAILED_MESSAGE,
     LOGIN_CREDENTIALS_INVALID_MESSAGE,
@@ -55,19 +49,15 @@ from app.core.auth_response_messages import (
     REAUTHENTICATION_REQUIRED_MESSAGE,
     REFRESH_CREDENTIALS_INVALID_MESSAGE,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
-
 from app.core.security_events import (
     security_event_logger,
 )
-
 from app.schemas.auth import (
     PasswordChangeRequest,
     PasswordResetConfirmRequest,
@@ -77,11 +67,9 @@ from app.schemas.auth import (
     ReauthenticationResponse,
     TokenResponse,
 )
-
 from app.schemas.user import (
     UserRead,
 )
-
 from app.services.authentication_service import (
     AuthenticationError,
     AuthenticationService,
@@ -90,16 +78,13 @@ from app.services.authentication_service import (
     ReauthenticationError,
     RefreshTokenReuseError,
 )
-
 from app.services.password_reset_delivery import (
     PasswordResetDeliveryError,
 )
-
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
 )
-
 
 router = (
     APIRouter()

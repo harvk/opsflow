@@ -1,20 +1,15 @@
-from fastapi import (
-    Request,
-    Response,
-)
-
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from uuid import (
     uuid4,
 )
 
-from app.core.security import (
-    create_refresh_token,
+from fastapi import (
+    Request,
+    Response,
 )
 
 from app.core.auth_cookies import (
@@ -26,11 +21,12 @@ from app.core.auth_cookies import (
     set_csrf_cookie,
     set_refresh_cookie,
 )
-
 from app.core.config import (
     settings,
 )
-
+from app.core.security import (
+    create_refresh_token,
+)
 
 # =========================================================
 # REQUEST HELPER
@@ -98,7 +94,7 @@ def create_refresh_token_for_cookie_test(
             ),
             expires_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
                 + timedelta(
                     hours=1
@@ -256,7 +252,7 @@ def test_set_refresh_cookie_uses_refresh_jwt_remaining_lifetime(
 
     expires_at = (
         datetime.now(
-            timezone.utc
+            UTC
         )
         + timedelta(
             seconds=(

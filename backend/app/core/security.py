@@ -1,30 +1,25 @@
 from __future__ import annotations
 
-from dataclasses import (
-    dataclass,
-)
-
-from datetime import (
-    datetime,
-    timedelta,
-    timezone,
-)
-
 import hashlib
 import hmac
 import secrets
-
+from dataclasses import (
+    dataclass,
+)
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from uuid import (
     UUID,
     uuid4,
 )
 
 import jwt
-
 from jwt.exceptions import (
     InvalidTokenError as PyJWTInvalidTokenError,
 )
-
 from pwdlib import (
     PasswordHash,
 )
@@ -32,7 +27,6 @@ from pwdlib import (
 from app.core.config import (
     settings,
 )
-
 
 # =========================================================
 # TOKEN TYPES
@@ -154,7 +148,6 @@ class TokenValidationError(
     exception into authentication-domain exceptions.
     """
 
-    pass
 
 
 # =========================================================
@@ -174,7 +167,7 @@ def create_access_token(
     """
 
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     if expires_delta is None:
@@ -324,7 +317,7 @@ def create_refresh_token(
         )
 
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     payload = {
@@ -503,7 +496,7 @@ def decode_refresh_token(
                 float(
                     expires_value
                 ),
-                tz=timezone.utc,
+                tz=UTC,
             )
         )
 
@@ -564,9 +557,7 @@ def create_reauthentication_fingerprint(
     message = (
         "opsflow-reauth-credential:"
         f"{hashed_password}"
-    ).encode(
-        "utf-8"
-    )
+    ).encode()
 
     return hmac.new(
         secret,
@@ -630,7 +621,7 @@ def create_reauthentication_token(
     """
 
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     if expires_delta is None:
@@ -828,9 +819,7 @@ def _csrf_signature(
 
     message = (
         f"{session_id}:{nonce}"
-        .encode(
-            "utf-8"
-        )
+        .encode()
     )
 
     secret = (

@@ -14,7 +14,6 @@ from app.core.password_policy import (
     PASSWORD_MIN_LENGTH,
 )
 
-
 # =========================================================
 # ORDINARY AUTHENTICATION
 # =========================================================

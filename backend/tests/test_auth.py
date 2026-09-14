@@ -3,28 +3,25 @@ from datetime import timedelta
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
+from app.api.dependencies import (
+    get_login_throttle,
+)
 from app.core.config import settings
+from app.core.login_throttle import (
+    InMemoryLoginThrottle,
+)
 from app.core.security import (
     create_access_token,
     hash_password,
 )
 from app.domain.user import UserRole
+from app.main import app
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
 from app.services.user_service import (
     UserService,
 )
-from app.api.dependencies import (
-    get_login_throttle,
-)
-
-from app.core.login_throttle import (
-    InMemoryLoginThrottle,
-)
-
-from app.main import app
-
 
 # =========================================================
 # AUTHENTICATION TEST CONSTANTS

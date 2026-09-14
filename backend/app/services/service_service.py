@@ -5,10 +5,7 @@ from uuid import UUID, uuid4
 from app.domain.service import Service, ServiceStatus
 from app.repositories.service_repository import ServiceRepository
 from app.schemas.service import ServiceCreate, ServiceUpdate
-from app.services.exceptions import (
-    ServiceNameConflictError,
-    ServiceNotFoundError
-)
+from app.services.exceptions import ServiceNameConflictError, ServiceNotFoundError
 
 
 class ServiceService:

@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 import re
-
 from pathlib import (
     Path,
 )
@@ -10,7 +9,6 @@ from app.core.password_policy import (
     PASSWORD_MAX_LENGTH,
     PASSWORD_MIN_LENGTH,
 )
-
 
 # =========================================================
 # REPOSITORY PATHS
@@ -290,13 +288,13 @@ def test_frontend_source_does_not_import_uppercase_password_policy(
 
     uppercase_import_pattern = (
         re.compile(
-            (
+
                 r"\bfrom\s+"
                 r"""["']"""
                 r"""[^"']*"""
                 r"PasswordPolicy"
                 r"""["']"""
-            )
+
         )
     )
 

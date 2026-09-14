@@ -3,11 +3,9 @@ from fastapi import (
     Request,
     status,
 )
-
 from fastapi.middleware.cors import (
     CORSMiddleware,
 )
-
 from fastapi.responses import (
     JSONResponse,
 )
@@ -15,27 +13,21 @@ from fastapi.responses import (
 from app.api.router import (
     api_router,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
-
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
-
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )
-
 from app.services.password_reset_delivery import (
     PasswordResetDeliveryError,
 )
-
 
 # =========================================================
 # PASSWORD RESET DELIVERY FAILURE HANDLER

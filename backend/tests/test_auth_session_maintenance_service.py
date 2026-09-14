@@ -1,11 +1,10 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from uuid import (
     uuid4,
 )
@@ -17,23 +16,18 @@ from sqlalchemy.orm import (
 from app.domain.auth_session import (
     AuthSession,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.auth_session_maintenance_service import (
     AuthSessionMaintenanceService,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 TEST_PASSWORD = (
     "VerySecurePassword123!"
@@ -121,7 +115,7 @@ def test_cleanup_deletes_only_sessions_past_retention(
         7,
         12,
         0,
-        tzinfo=timezone.utc,
+        tzinfo=UTC,
     )
 
     # Expired 45 days ago:

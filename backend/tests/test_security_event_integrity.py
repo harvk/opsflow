@@ -1,28 +1,23 @@
 from __future__ import annotations
 
+import json
+import logging
 from collections.abc import (
     Iterator,
 )
-
 from datetime import (
     datetime,
 )
-
-import json
-import logging
-
 from typing import (
     Any,
     cast,
 )
-
 from uuid import (
     UUID,
     uuid4,
 )
 
 import pytest
-
 from fastapi import (
     Request,
 )
@@ -30,7 +25,6 @@ from fastapi import (
 from app.core.security_events import (
     SecurityEventLogger,
 )
-
 
 # =========================================================
 # TEST CONTRACT
@@ -138,10 +132,10 @@ def logger_harness(
 
     python_logger = (
         logging.getLogger(
-            (
+
                 "opsflow.security.integrity."
                 f"{uuid4().hex}"
-            )
+
         )
     )
 
@@ -1013,11 +1007,11 @@ def test_account_fingerprint_depends_on_hmac_key(
             ),
             logger=(
                 logging.getLogger(
-                    (
+
                         "opsflow.security."
                         "fingerprint.first."
                         f"{uuid4().hex}"
-                    )
+
                 )
             ),
         )
@@ -1030,11 +1024,11 @@ def test_account_fingerprint_depends_on_hmac_key(
             ),
             logger=(
                 logging.getLogger(
-                    (
+
                         "opsflow.security."
                         "fingerprint.second."
                         f"{uuid4().hex}"
-                    )
+
                 )
             ),
         )
@@ -1143,10 +1137,10 @@ def test_security_event_logging_failure_never_escapes_emit(
 
     failing_logger = (
         FailingPythonLogger(
-            (
+
                 "opsflow.security."
                 "failing-test"
-            )
+
         )
     )
 

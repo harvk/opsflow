@@ -1,14 +1,10 @@
 from fastapi.testclient import TestClient
 
 from app.domain.service import Service
-
 from tests.constants import (
     PAYMENTS_INCIDENT_ID,
     PAYMENTS_SERVICE_ID,
-    SECOND_INCIDENT_ID,
-    THIRD_INCIDENT_ID,
 )
-
 
 SERVICES_URL = "/api/v1/services"
 INCIDENTS_URL = "/api/v1/incidents"

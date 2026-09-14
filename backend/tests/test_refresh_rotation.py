@@ -1,13 +1,8 @@
 from __future__ import annotations
 
-from datetime import (
-    datetime,
-    timezone,
-)
 from uuid import uuid4
 
 import pytest
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -16,30 +11,24 @@ from app.core.security import (
     decode_refresh_token,
     validate_csrf_token,
 )
-
 from app.domain.user import (
     UserRole,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     InvalidCredentialsError,
     InvalidCsrfTokenError,
     RefreshTokenReuseError,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # TEST HELPERS

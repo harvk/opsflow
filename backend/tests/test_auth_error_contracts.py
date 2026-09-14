@@ -3,11 +3,9 @@ from __future__ import annotations
 from fastapi.testclient import (
     TestClient,
 )
-
 from pytest import (
     MonkeyPatch,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -19,34 +17,26 @@ from app.core.auth_response_messages import (
     PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
     REFRESH_CREDENTIALS_INVALID_MESSAGE,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.security import (
     create_access_token,
     hash_password,
 )
-
 from app.domain.user import (
     UserRole,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     PasswordChangeError,
 )
-
 from app.services.password_reset_service import (
-    InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
 )
-
 
 TEST_PASSWORD = (
     "VerySecurePassword123!"

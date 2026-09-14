@@ -1,17 +1,15 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
+from uuid import uuid4
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import selectinload
 
 from app.models.incident import IncidentModel
 from app.models.service import ServiceModel
-
-from uuid import uuid4
-from sqlalchemy.exc import IntegrityError
-
-import pytest
-
 from tests.constants import PAYMENTS_INCIDENT_ID, PAYMENTS_SERVICE_ID
+
 
 def test_incident_has_related_service(
     db_session,
@@ -61,7 +59,7 @@ def test_incident_cannot_reference_missing_service(
 ):
     with db_session.begin_nested():
         now = datetime.now(
-            timezone.utc
+            UTC
         )
         
         incident = IncidentModel(

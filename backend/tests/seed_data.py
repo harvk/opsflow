@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID
 
 from app.domain.incident import (
@@ -10,7 +10,6 @@ from app.domain.service import (
     Service,
     ServiceStatus,
 )
-
 
 PAYMENTS_SERVICE_ID = UUID(
     "11111111-1111-1111-1111-111111111111"
@@ -25,7 +24,7 @@ PAYMENTS_INCIDENT_ID = UUID(
 )
 
 def create_seed_services() -> list[Service]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return [
         Service(
@@ -64,7 +63,7 @@ def create_seed_services() -> list[Service]:
     ]
     
 def create_seed_incidents() -> list[Incident]:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return [
         Incident(

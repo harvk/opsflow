@@ -4,11 +4,9 @@ from datetime import timedelta
 from uuid import uuid4
 
 import pytest
-
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -16,7 +14,6 @@ from sqlalchemy.orm import (
 from app.core.config import (
     settings,
 )
-
 from app.core.security import (
     TokenValidationError,
     create_access_token,
@@ -25,24 +22,19 @@ from app.core.security import (
     decode_reauthentication_token,
     hash_password,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.authentication_service import (
     AuthenticationService,
     ReauthenticationError,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 TEST_PASSWORD = (
     "VerySecurePassword123!"

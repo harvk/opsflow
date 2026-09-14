@@ -1,16 +1,9 @@
 from datetime import datetime
+from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import (
-    DateTime,
-    Enum as SqlEnum,
-    ForeignKey,
-    String,
-    Text,
-    Boolean,
-    Index,
-    text
-)
+from sqlalchemy import Boolean, DateTime, ForeignKey, Index, String, Text, text
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -19,8 +12,6 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-
-from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from app.models.service import ServiceModel

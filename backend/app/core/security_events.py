@@ -1,26 +1,21 @@
 from __future__ import annotations
 
-from collections.abc import (
-    Mapping,
-)
-
-from datetime import (
-    datetime,
-    timezone,
-)
-
-from hashlib import (
-    sha256,
-)
-
 import hmac
 import json
 import logging
-
+from collections.abc import (
+    Mapping,
+)
+from datetime import (
+    UTC,
+    datetime,
+)
+from hashlib import (
+    sha256,
+)
 from typing import (
     Literal,
 )
-
 from uuid import (
     UUID,
     uuid4,
@@ -33,7 +28,6 @@ from fastapi import (
 from app.core.config import (
     settings,
 )
-
 
 # =========================================================
 # SECURITY EVENT TYPES
@@ -226,7 +220,7 @@ class SecurityEventLogger:
                 ),
                 "occurred_at": (
                     datetime.now(
-                        timezone.utc
+                        UTC
                     )
                     .isoformat()
                 ),
@@ -445,9 +439,7 @@ class SecurityEventLogger:
 
         message = (
             f"account:{normalized}"
-            .encode(
-                "utf-8"
-            )
+            .encode()
         )
 
         return (

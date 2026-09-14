@@ -1,21 +1,19 @@
+from datetime import (
+    UTC,
+    datetime,
+)
+
 from fastapi import (
     Request,
     Response,
 )
 
-from datetime import (
-    datetime,
-    timezone,
-)
-
 from app.core.config import (
     settings,
 )
-
 from app.core.security import (
     decode_refresh_token,
 )
-
 
 SECONDS_PER_DAY = (
     24 * 60 * 60
@@ -70,7 +68,7 @@ def _refresh_cookie_max_age(
     )
 
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     remaining_seconds = int(

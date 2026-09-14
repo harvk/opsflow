@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import UUID, uuid4
 
 from app.domain.incident import (
@@ -19,7 +19,6 @@ from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
 )
-
 
 # =========================================================
 # INCIDENT SERVICE ERRORS
@@ -122,7 +121,7 @@ class IncidentService:
 
         now = (
             datetime.now(
-                timezone.utc
+                UTC
             )
         )
 
@@ -221,7 +220,7 @@ class IncidentService:
         ):
             resolved_at = (
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
             )
 
@@ -294,7 +293,7 @@ class IncidentService:
                 ),
                 updated_at=(
                     datetime.now(
-                        timezone.utc
+                        UTC
                     )
                 ),
             )

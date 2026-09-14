@@ -1,98 +1,74 @@
 from __future__ import annotations
 
+from collections.abc import (
+    Iterator,
+)
+from urllib.parse import (
+    parse_qs,
+    urlsplit,
+)
 from uuid import (
     uuid4,
 )
 
+import pytest
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import text
-
 from sqlalchemy.orm import (
     Session,
 )
-
-from app.core.config import (
-    settings,
-)
-
-from collections.abc import (
-    Iterator,
-)
-
-from app.core.password_reset_tokens import (
-    generate_password_reset_token,
-)
-
-from app.core.security import (
-    hash_password,
-    verify_password,
-)
-
-from app.domain.user import (
-    User,
-    UserRole,
-)
-
-from app.repositories.sqlalchemy_auth_session_repository import (
-    SqlAlchemyAuthSessionRepository,
-)
-
-from app.repositories.sqlalchemy_password_reset_token_repository import (
-    SqlAlchemyPasswordResetTokenRepository,
-)
-
-from app.repositories.sqlalchemy_user_repository import (
-    SqlAlchemyUserRepository,
-)
-
-from app.services.password_reset_service import (
-    PasswordResetService,
-)
-
-from app.services.user_service import (
-    UserService,
-)
-
-import pytest
 
 from app.api.dependencies import (
     get_password_reset_delivery,
     get_password_reset_link_builder,
 )
-
-from app.main import (
-    app,
+from app.core.auth_response_messages import (
+    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
 )
-
+from app.core.config import (
+    settings,
+)
 from app.core.password_reset_tokens import (
     digest_password_reset_token,
     generate_password_reset_token,
 )
-
+from app.core.security import (
+    hash_password,
+    verify_password,
+)
+from app.domain.user import (
+    User,
+    UserRole,
+)
 from app.infrastructure.aws.ses_password_reset_delivery import (
     SesPasswordResetDelivery,
 )
-
-from tests.fakes.ses_client import (
-    FailingSesClient,
+from app.main import (
+    app,
 )
-
+from app.repositories.sqlalchemy_auth_session_repository import (
+    SqlAlchemyAuthSessionRepository,
+)
+from app.repositories.sqlalchemy_password_reset_token_repository import (
+    SqlAlchemyPasswordResetTokenRepository,
+)
+from app.repositories.sqlalchemy_user_repository import (
+    SqlAlchemyUserRepository,
+)
+from app.services.password_reset_service import (
+    PasswordResetService,
+)
+from app.services.user_service import (
+    UserService,
+)
 from tests.fakes.password_reset_delivery import (
     RecordingPasswordResetDelivery,
 )
-
-from urllib.parse import (
-    parse_qs,
-    urlsplit,
+from tests.fakes.ses_client import (
+    FailingSesClient,
 )
-
-from app.core.auth_response_messages import (
-    PASSWORD_RESET_PASSWORD_REJECTED_MESSAGE,
-)
-
 
 OLD_PASSWORD = (
     "VerySecurePassword123!"

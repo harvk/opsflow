@@ -12,7 +12,6 @@ from app.core.password_reset_links import (
     PasswordResetLinkConfigurationError,
 )
 
-
 # =========================================================
 # BASIC LINK BUILDING
 # =========================================================

@@ -7,12 +7,10 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
-
 from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
 )
-
 from app.services.incident_service import (
     IncidentService,
 )

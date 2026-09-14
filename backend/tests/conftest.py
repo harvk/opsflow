@@ -1,31 +1,25 @@
 from collections.abc import (
     Generator,
 )
-
 from datetime import (
+    UTC,
     datetime,
-    timezone,
 )
-
 from typing import (
     Any,
 )
-
 from uuid import (
     uuid4,
 )
 
 import pytest
-
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import (
     create_engine,
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -35,70 +29,55 @@ from app.api.dependencies import (
     get_password_reset_throttle,
     get_ses_client,
 )
-
 from app.core.config import (
     settings,
 )
-
 from app.core.login_throttle import (
     InMemoryLoginThrottle,
 )
-
 from app.core.password_reset_throttle import (
     InMemoryPasswordResetThrottle,
 )
-
 from app.core.security import (
     create_access_token,
 )
-
 from app.db.session import (
     get_db_session,
 )
-
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
     IncidentStatus,
 )
-
 from app.domain.service import (
     Service,
     ServiceStatus,
 )
-
 from app.domain.user import (
     User,
     UserRole,
 )
-
 from app.main import (
     app,
 )
-
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
 )
-
 from app.repositories.sqlalchemy_service_repository import (
     SqlAlchemyServiceRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 from tests.constants import (
     PAYMENTS_INCIDENT_ID,
     PAYMENTS_SERVICE_ID,
     SECOND_INCIDENT_ID,
     THIRD_INCIDENT_ID,
 )
-
 
 # =========================================================
 # TEST DATABASE ENGINE
@@ -437,7 +416,7 @@ def seeded_services(
             ),
             last_deployed_at=(
                 datetime.now(
-                    timezone.utc
+                    UTC
                 )
             ),
             dependencies=[
@@ -491,7 +470,7 @@ def seeded_incidents(
 
     now = (
         datetime.now(
-            timezone.utc
+            UTC
         )
     )
 

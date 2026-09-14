@@ -5,36 +5,29 @@ from uuid import uuid4
 from fastapi.testclient import (
     TestClient,
 )
-
 from sqlalchemy import (
     select,
 )
-
 from sqlalchemy.orm import (
     Session,
-)
-
-from app.core.security import (
-    create_access_token,
-    verify_password,
-)
-
-from app.models.auth_session import (
-    AuthSessionModel,
-)
-
-from app.repositories.sqlalchemy_user_repository import (
-    SqlAlchemyUserRepository,
-)
-
-from app.services.user_service import (
-    UserService,
 )
 
 from app.core.auth_response_messages import (
     PASSWORD_CHANGE_REJECTED_MESSAGE,
 )
-
+from app.core.security import (
+    create_access_token,
+    verify_password,
+)
+from app.models.auth_session import (
+    AuthSessionModel,
+)
+from app.repositories.sqlalchemy_user_repository import (
+    SqlAlchemyUserRepository,
+)
+from app.services.user_service import (
+    UserService,
+)
 
 OLD_PASSWORD = (
     "VerySecurePassword123!"

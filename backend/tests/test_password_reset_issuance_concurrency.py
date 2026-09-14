@@ -1,32 +1,26 @@
 from __future__ import annotations
 
 import hashlib
-
 from concurrent.futures import (
     ThreadPoolExecutor,
 )
-
 from datetime import (
     datetime,
 )
-
 from threading import (
     Barrier,
     BrokenBarrierError,
 )
-
 from uuid import (
     UUID,
     uuid4,
 )
 
 import pytest
-
 from sqlalchemy import (
     create_engine,
     text,
 )
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -34,36 +28,28 @@ from sqlalchemy.orm import (
 from app.core.config import (
     settings,
 )
-
 from app.domain.password_reset_token import (
     PasswordResetToken,
 )
-
 from app.domain.user import (
     UserRole,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetService,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 # =========================================================
 # TEST DATABASE ENGINE

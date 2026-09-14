@@ -1,17 +1,15 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
 from uuid import (
     uuid4,
 )
 
 import pytest
-
 from sqlalchemy.orm import (
     Session,
 )
@@ -21,42 +19,33 @@ from app.core.password_reset_tokens import (
     digest_password_reset_token,
     generate_password_reset_token,
 )
-
 from app.core.security import (
     hash_password,
     verify_password,
 )
-
 from app.domain.auth_session import (
     AuthSession,
 )
-
 from app.domain.password_reset_token import (
     PasswordResetToken,
 )
-
 from app.repositories.sqlalchemy_auth_session_repository import (
     SqlAlchemyAuthSessionRepository,
 )
-
 from app.repositories.sqlalchemy_password_reset_token_repository import (
     SqlAlchemyPasswordResetTokenRepository,
 )
-
 from app.repositories.sqlalchemy_user_repository import (
     SqlAlchemyUserRepository,
 )
-
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
     PasswordResetService,
 )
-
 from app.services.user_service import (
     UserService,
 )
-
 
 OLD_PASSWORD = (
     "VerySecurePassword123!"
@@ -154,7 +143,7 @@ def create_auth_session(
     ),
 ) -> AuthSession:
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     auth_session = (
@@ -451,7 +440,7 @@ def test_expired_password_reset_token_is_rejected(
     )
 
     now = datetime.now(
-        timezone.utc
+        UTC
     )
 
     reset_token_repository.create(

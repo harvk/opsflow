@@ -1,7 +1,6 @@
 from starlette.datastructures import (
     MutableHeaders,
 )
-
 from starlette.types import (
     ASGIApp,
     Message,
@@ -13,7 +12,6 @@ from starlette.types import (
 from app.core.config import (
     settings,
 )
-
 
 AUTH_CACHE_CONTROL = (
     "no-store, "

@@ -1,7 +1,6 @@
 from fastapi import (
     FastAPI,
 )
-
 from fastapi.testclient import (
     TestClient,
 )
@@ -9,11 +8,9 @@ from fastapi.testclient import (
 from app.core.config import (
     settings,
 )
-
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
-
 
 # =========================================================
 # TEST APPLICATION

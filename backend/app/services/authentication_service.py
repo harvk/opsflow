@@ -1,17 +1,14 @@
 from __future__ import annotations
 
+import hmac
 from dataclasses import (
     dataclass,
 )
-
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
-
-import hmac
-
 from uuid import (
     UUID,
     uuid4,
@@ -20,12 +17,10 @@ from uuid import (
 from app.core.config import (
     settings,
 )
-
 from app.core.password_policy import (
     PasswordPolicyViolation,
     validate_new_password,
 )
-
 from app.core.security import (
     DUMMY_PASSWORD_HASH,
     ReauthenticationClaims,
@@ -43,23 +38,18 @@ from app.core.security import (
     validate_csrf_token,
     verify_password,
 )
-
 from app.domain.auth_session import (
     AuthSession,
 )
-
 from app.domain.user import (
     User,
 )
-
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
-
 from app.repositories.user_repository import (
     UserRepository,
 )
-
 
 # =========================================================
 # RESULT TYPES
@@ -149,7 +139,6 @@ class AuthenticationError(
     appropriate HTTP responses.
     """
 
-    pass
 
 
 class InvalidCredentialsError(
@@ -160,7 +149,6 @@ class InvalidCredentialsError(
     trusted.
     """
 
-    pass
 
 
 class InactiveUserError(
@@ -171,7 +159,6 @@ class InactiveUserError(
     longer active.
     """
 
-    pass
 
 
 class ReauthenticationError(
@@ -189,7 +176,6 @@ class ReauthenticationError(
         reauthentication proof belonging to another user
     """
 
-    pass
 
 
 class PasswordChangeError(
@@ -205,7 +191,6 @@ class PasswordChangeError(
         failing server-side password policy
     """
 
-    pass
 
 
 class RefreshTokenReuseError(
@@ -249,7 +234,6 @@ class InvalidCsrfTokenError(
     ordinary authentication failure.
     """
 
-    pass
 
 
 # =========================================================
@@ -615,7 +599,7 @@ class AuthenticationService:
         # -------------------------------------------------
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         revoked_sessions = (
@@ -653,7 +637,7 @@ class AuthenticationService:
         )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         expires_at = (
@@ -812,7 +796,7 @@ class AuthenticationService:
             )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         self._require_usable_session(
@@ -879,7 +863,7 @@ class AuthenticationService:
             )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         self._require_usable_session(
@@ -1006,7 +990,7 @@ class AuthenticationService:
             )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         self._require_usable_session(
@@ -1072,7 +1056,7 @@ class AuthenticationService:
         )
 
         now = datetime.now(
-            timezone.utc
+            UTC
         )
 
         return (

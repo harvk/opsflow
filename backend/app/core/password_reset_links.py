@@ -16,7 +16,6 @@ class PasswordResetLinkConfigurationError(
     trusted as an absolute HTTP(S) URL.
     """
 
-    pass
 
 
 class PasswordResetLinkBuilder:

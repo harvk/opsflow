@@ -1,9 +1,9 @@
 from __future__ import annotations
 
 from datetime import (
+    UTC,
     datetime,
     timedelta,
-    timezone,
 )
 
 from app.repositories.auth_session_repository import (
@@ -65,7 +65,7 @@ class AuthSessionMaintenanceService:
             now
             if now is not None
             else datetime.now(
-                timezone.utc
+                UTC
             )
         )
 

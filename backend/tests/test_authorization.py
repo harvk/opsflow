@@ -1,4 +1,4 @@
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from uuid import uuid4
 
 import pytest
@@ -14,7 +14,7 @@ from app.services.authorization_service import (
 def make_user(
     role: UserRole,
 ) -> User:
-    now = datetime.now(timezone.utc)
+    now = datetime.now(UTC)
 
     return User(
         id=uuid4(),
