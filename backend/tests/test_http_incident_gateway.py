@@ -12,6 +12,9 @@ from app.core.circuit_breaker import (
     CircuitBreaker,
     CircuitState,
 )
+from app.core.metrics import (
+    OperationalMetrics,
+)
 from app.core.request_context import (
     REQUEST_ID_HEADER,
     bind_request_id,
@@ -130,6 +133,10 @@ def build_gateway(
         CircuitBreaker
         | None
     ) = None,
+    metrics: (
+        OperationalMetrics
+        | None
+    ) = None,
 ) -> tuple[
     HttpIncidentGateway,
     httpx.Client,
@@ -158,6 +165,7 @@ def build_gateway(
         circuit_breaker=(
             circuit_breaker
         ),
+        metrics=metrics
     )
 
     return gateway, client
@@ -818,6 +826,113 @@ def test_safe_read_retries_timeout_and_preserves_request_id(
     ]
 
 
+def test_safe_read_metrics_distinguish_retry_attempts(
+) -> None:
+    attempt_count = 0
+
+    metrics = (
+        OperationalMetrics()
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal attempt_count
+
+        attempt_count += 1
+
+        if attempt_count == 1:
+            raise httpx.ReadTimeout(
+                "first attempt timed out",
+                request=request,
+            )
+
+        return httpx.Response(
+            200,
+            json=[],
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        read_max_attempts=2,
+        metrics=metrics,
+    )
+
+    try:
+        assert gateway.list() == []
+
+    finally:
+        client.close()
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_dependency_operations_total"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "method": "GET",
+                "outcome": "2xx",
+            },
+        )
+        == 1.0
+    )
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_dependency_attempts_total"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "method": "GET",
+                "outcome": "timeout",
+            },
+        )
+        == 1.0
+    )
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_dependency_attempts_total"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "method": "GET",
+                "outcome": "2xx",
+            },
+        )
+        == 1.0
+    )
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_dependency_retries_total"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "method": "GET",
+                "reason": "timeout",
+            },
+        )
+        == 1.0
+    )
+
+
 def test_safe_read_retries_transient_503_response(
 ) -> None:
     attempt_count = 0
@@ -1072,6 +1187,81 @@ def test_gateway_opens_circuit_after_failed_operations(
         .value
         .retry_after_seconds
         == 10
+    )
+
+
+def test_gateway_metrics_report_open_circuit(
+) -> None:
+    circuit = CircuitBreaker(
+        failure_threshold=1,
+        recovery_seconds=10.0,
+    )
+
+    metrics = (
+        OperationalMetrics()
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        raise httpx.ConnectError(
+            "connection refused",
+            request=request,
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        circuit_breaker=circuit,
+        metrics=metrics,
+    )
+
+    try:
+        with pytest.raises(
+            IncidentGatewayUnavailableError
+        ):
+            gateway.list()
+
+        with pytest.raises(
+            IncidentGatewayCircuitOpenError
+        ):
+            gateway.list()
+
+    finally:
+        client.close()
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_circuit_breaker_state"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "state": "open",
+            },
+        )
+        == 1.0
+    )
+
+    assert (
+        metrics.registry
+        .get_sample_value(
+            (
+                "opsflow_dependency_operations_total"
+            ),
+            {
+                "dependency": (
+                    "incident_service"
+                ),
+                "method": "GET",
+                "outcome": (
+                    "circuit_open"
+                ),
+            },
+        )
+        == 1.0
     )
 
 

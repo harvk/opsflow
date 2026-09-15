@@ -48,6 +48,9 @@ from app.core.login_throttle import (
     InMemoryLoginThrottle,
     LoginThrottle,
 )
+from app.core.metrics import (
+    operational_metrics,
+)
 from app.core.password_reset_links import (
     PasswordResetLinkBuilder,
 )
@@ -472,6 +475,11 @@ def get_incident_gateway(
                 ),
                 circuit_breaker=(
                     get_incident_circuit_breaker()
+                ),
+                metrics=(
+                    operational_metrics
+                    if settings.metrics_enabled
+                    else None
                 ),
             )
         )

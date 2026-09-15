@@ -9,6 +9,9 @@ from app.main import (
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
 )
+from app.middleware.metrics import (
+    MetricsMiddleware,
+)
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
 )
@@ -78,11 +81,26 @@ def test_application_middleware_is_registered_once(
     assert (
         _count_registered_middleware(
             application,
+            MetricsMiddleware,
+        )
+        == 1
+    )
+
+    assert (
+        _count_registered_middleware(
+            application,
             RequestCorrelationMiddleware,
         )
         == 1
     )
 
+"""
+application.user_middleware is stored in runtime order.
+
+Correlation must execute first. Metrics then measures the
+full logged application request without interfering with
+request-ID context.
+"""
 
 def test_request_correlation_wraps_request_logging(
 ) -> None:
@@ -109,20 +127,25 @@ def test_request_correlation_wraps_request_logging(
 
     assert (
         registered_middleware[1].cls
-        is RequestLoggingMiddleware
+        is MetricsMiddleware
     )
 
     assert (
         registered_middleware[2].cls
-        is SecurityHeadersMiddleware
+        is RequestLoggingMiddleware
     )
 
     assert (
         registered_middleware[3].cls
-        is CORSMiddleware
+        is SecurityHeadersMiddleware
     )
 
     assert (
         registered_middleware[4].cls
+        is CORSMiddleware
+    )
+
+    assert (
+        registered_middleware[5].cls
         is BrowserTrustBoundaryMiddleware
     )

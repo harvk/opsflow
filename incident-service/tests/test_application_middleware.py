@@ -8,6 +8,9 @@ from app.core.config import (
 from app.main import (
     create_app,
 )
+from app.middleware.metrics import (
+    MetricsMiddleware,
+)
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
 )
@@ -24,6 +27,7 @@ def build_test_settings(
         ),
         app_env="test",
         api_v1_prefix="/api/v1",
+        metrics_enabled=True,
         database_url=(
             "postgresql+psycopg://"
             "test:test@localhost/test"
@@ -48,7 +52,7 @@ def test_request_middleware_registration_and_order(
 
     assert len(
         application.user_middleware
-    ) == 2
+    ) == 3
 
     assert (
         application
@@ -60,6 +64,13 @@ def test_request_middleware_registration_and_order(
     assert (
         application
         .user_middleware[1]
+        .cls
+        is MetricsMiddleware
+    )
+
+    assert (
+        application
+        .user_middleware[2]
         .cls
         is RequestLoggingMiddleware
     )

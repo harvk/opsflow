@@ -74,6 +74,13 @@ class Settings(
         "http://localhost:5173"
     )
 
+    # Exposes process-local Prometheus metrics at /metrics.
+    #
+    # The Docker Backend port remains bound to 127.0.0.1 in
+    # local development.
+
+    metrics_enabled: bool = True
+
     # =====================================================
     # DATABASE SETTINGS
     # =====================================================

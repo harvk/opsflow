@@ -1,5 +1,6 @@
 from fastapi import (
     FastAPI,
+    Response,
 )
 
 from app.api.router import (
@@ -12,6 +13,13 @@ from app.core.config import (
 )
 from app.core.logging_config import (
     configure_request_logging,
+)
+from app.core.metrics import (
+    PROMETHEUS_CONTENT_TYPE,
+    operational_metrics,
+)
+from app.middleware.metrics import (
+    MetricsMiddleware,
 )
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
@@ -64,6 +72,25 @@ def create_app(
         ),
     )
 
+    if configured_settings.metrics_enabled:
+        @application.get(
+            "/metrics",
+            include_in_schema=False,
+        )
+        def get_metrics(
+        ) -> Response:
+            return Response(
+                content=(
+                    operational_metrics
+                    .render()
+                ),
+                headers={
+                    "Content-Type": (
+                        PROMETHEUS_CONTENT_TYPE
+                    )
+                },
+            )
+
     if app_settings is not None:
         application.dependency_overrides[
             get_settings
@@ -84,6 +111,14 @@ def create_app(
             .app_env
         ),
     )
+
+    if configured_settings.metrics_enabled:
+        application.add_middleware(
+            MetricsMiddleware,
+            metrics=(
+                operational_metrics
+            ),
+        )
 
     application.add_middleware(
         RequestCorrelationMiddleware,

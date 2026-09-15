@@ -361,6 +361,8 @@ services:
 
       INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS: ${INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS:-15.0}
 
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+
     # ------------------------------------------------------
     # HOST PORT
     # ------------------------------------------------------
@@ -563,6 +565,8 @@ services:
 
     environment:
       APP_ENV: development
+
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents

@@ -4,6 +4,7 @@ from collections.abc import (
     Callable,
 )
 from time import (
+    monotonic,
     sleep,
 )
 from typing import (
@@ -23,6 +24,9 @@ from app.core.circuit_breaker import (
     CircuitBreaker,
     CircuitOpenError,
     CircuitPermit,
+)
+from app.core.metrics import (
+    OperationalMetrics,
 )
 from app.core.request_context import (
     REQUEST_ID_HEADER,
@@ -68,6 +72,10 @@ _RETRYABLE_RESPONSE_STATUSES = frozenset(
     }
 )
 
+_INCIDENT_SERVICE_DEPENDENCY = (
+    "incident_service"
+)
+
 
 class HttpIncidentGateway:
     """
@@ -98,6 +106,10 @@ class HttpIncidentGateway:
         ] = sleep,
         circuit_breaker: (
             CircuitBreaker
+            | None
+        ) = None,
+        metrics: (
+            OperationalMetrics
             | None
         ) = None,
     ) -> None:
@@ -151,6 +163,10 @@ class HttpIncidentGateway:
         self._circuit_breaker = (
             circuit_breaker
         )
+
+        self._metrics = metrics
+
+        self._observe_circuit_state()
 
     # =====================================================
     # LIST / SEARCH
@@ -403,125 +419,202 @@ class HttpIncidentGateway:
             method.upper()
         )
 
-        circuit_permit = (
-            self._acquire_circuit_permission()
+        operation_started_at = (
+            monotonic()
         )
 
-        maximum_attempts = (
-            self._read_max_attempts
-            if normalized_method
-            in _RETRYABLE_READ_METHODS
-            else 1
+        operation_outcome = (
+            "unexpected_error"
         )
 
-        # A half-open probe is deliberately one transport
-        # attempt. Retrying a probe would delay the decision
-        # to reopen or close the circuit.
-        if (
-            circuit_permit is not None
-            and circuit_permit
-            .is_half_open_probe
-        ):
-            maximum_attempts = 1
+        try:
+            circuit_permit = (
+                self._acquire_circuit_permission()
+            )
 
-        request_headers = dict(
-            self._headers
-        )
+            maximum_attempts = (
+                self._read_max_attempts
+                if normalized_method
+                in _RETRYABLE_READ_METHODS
+                else 1
+            )
 
-        request_id = get_request_id()
-
-        if request_id is not None:
-            request_headers[
-                REQUEST_ID_HEADER
-            ] = request_id
-
-        for attempt_number in range(
-            1,
-            maximum_attempts + 1,
-        ):
-            try:
-                response = (
-                    self._client.request(
-                        normalized_method,
-                        url,
-                        headers=request_headers,
-                        params=params,
-                        json=json,
-                    )
-                )
-
-            except httpx.TimeoutException:
-                if (
-                    attempt_number
-                    >= maximum_attempts
-                ):
-                    self._record_circuit_failure(
-                        circuit_permit
-                    )
-
-                    raise IncidentGatewayUnavailableError(
-                        "Incident Service request timed out."
-                    ) from None
-
-                self._sleep_before_retry(
-                    attempt_number
-                )
-
-                continue
-
-            except httpx.RequestError:
-                if (
-                    attempt_number
-                    >= maximum_attempts
-                ):
-                    self._record_circuit_failure(
-                        circuit_permit
-                    )
-
-                    raise IncidentGatewayUnavailableError(
-                        "Incident Service is unavailable."
-                    ) from None
-
-                self._sleep_before_retry(
-                    attempt_number
-                )
-
-                continue
-
+            # A half-open probe receives exactly one physical
+            # transport attempt.
             if (
-                response.status_code
-                in _RETRYABLE_RESPONSE_STATUSES
-                and attempt_number
-                < maximum_attempts
+                circuit_permit is not None
+                and circuit_permit
+                .is_half_open_probe
             ):
-                self._sleep_before_retry(
-                    attempt_number
+                maximum_attempts = 1
+
+            request_headers = dict(
+                self._headers
+            )
+
+            request_id = get_request_id()
+
+            if request_id is not None:
+                request_headers[
+                    REQUEST_ID_HEADER
+                ] = request_id
+
+            for attempt_number in range(
+                1,
+                maximum_attempts + 1,
+            ):
+                try:
+                    response = (
+                        self._client.request(
+                            normalized_method,
+                            url,
+                            headers=request_headers,
+                            params=params,
+                            json=json,
+                        )
+                    )
+
+                except httpx.TimeoutException:
+                    self._record_dependency_attempt(
+                        method=normalized_method,
+                        outcome="timeout",
+                    )
+
+                    if (
+                        attempt_number
+                        >= maximum_attempts
+                    ):
+                        self._record_circuit_failure(
+                            circuit_permit
+                        )
+
+                        operation_outcome = (
+                            "timeout"
+                        )
+
+                        raise IncidentGatewayUnavailableError(
+                            "Incident Service request timed out."
+                        ) from None
+
+                    self._record_dependency_retry(
+                        method=normalized_method,
+                        reason="timeout",
+                    )
+
+                    self._sleep_before_retry(
+                        attempt_number
+                    )
+
+                    continue
+
+                except httpx.RequestError:
+                    self._record_dependency_attempt(
+                        method=normalized_method,
+                        outcome=(
+                            "transport_error"
+                        ),
+                    )
+
+                    if (
+                        attempt_number
+                        >= maximum_attempts
+                    ):
+                        self._record_circuit_failure(
+                            circuit_permit
+                        )
+
+                        operation_outcome = (
+                            "transport_error"
+                        )
+
+                        raise IncidentGatewayUnavailableError(
+                            "Incident Service is unavailable."
+                        ) from None
+
+                    self._record_dependency_retry(
+                        method=normalized_method,
+                        reason=(
+                            "transport_error"
+                        ),
+                    )
+
+                    self._sleep_before_retry(
+                        attempt_number
+                    )
+
+                    continue
+
+                attempt_outcome = (
+                    self._response_outcome(
+                        response.status_code
+                    )
                 )
 
-                continue
-
-            if response.status_code >= 500:
-                self._record_circuit_failure(
-                    circuit_permit
+                self._record_dependency_attempt(
+                    method=normalized_method,
+                    outcome=attempt_outcome,
                 )
 
-            else:
-                self._record_circuit_success(
-                    circuit_permit
+                if (
+                    response.status_code
+                    in _RETRYABLE_RESPONSE_STATUSES
+                    and attempt_number
+                    < maximum_attempts
+                ):
+                    self._record_dependency_retry(
+                        method=normalized_method,
+                        reason=(
+                            "retryable_status"
+                        ),
+                    )
+
+                    self._sleep_before_retry(
+                        attempt_number
+                    )
+
+                    continue
+
+                if (
+                    response.status_code
+                    >= 500
+                ):
+                    self._record_circuit_failure(
+                        circuit_permit
+                    )
+
+                else:
+                    self._record_circuit_success(
+                        circuit_permit
+                    )
+
+                operation_outcome = (
+                    attempt_outcome
                 )
 
-            return response
+                return response
 
-        raise RuntimeError(
-            "Incident Service retry loop exited unexpectedly."
-        )
+            raise RuntimeError(
+                "Incident Service retry loop exited unexpectedly."
+            )
 
-        # The loop either returns a response or raises one of
-        # the gateway errors above. This guard documents that
-        # invariant for static analysis.
-        raise RuntimeError(
-            "Incident Service retry loop exited unexpectedly."
-        )
+        except IncidentGatewayCircuitOpenError:
+            operation_outcome = (
+                "circuit_open"
+            )
+
+            raise
+
+        finally:
+            self._record_dependency_operation(
+                method=normalized_method,
+                outcome=operation_outcome,
+                duration_seconds=(
+                    monotonic()
+                    - operation_started_at
+                ),
+            )
+
+            self._observe_circuit_state()
 
     def _acquire_circuit_permission(
         self,
@@ -571,6 +664,97 @@ class HttpIncidentGateway:
         self._circuit_breaker.record_failure(
             permit
         )
+
+    def _record_dependency_operation(
+        self,
+        *,
+        method: str,
+        outcome: str,
+        duration_seconds: float,
+    ) -> None:
+        if self._metrics is None:
+            return
+
+        self._metrics.observe_dependency_operation(
+            dependency=(
+                _INCIDENT_SERVICE_DEPENDENCY
+            ),
+            method=method,
+            outcome=outcome,
+            duration_seconds=(
+                duration_seconds
+            ),
+        )
+
+    def _record_dependency_attempt(
+        self,
+        *,
+        method: str,
+        outcome: str,
+    ) -> None:
+        if self._metrics is None:
+            return
+
+        self._metrics.record_dependency_attempt(
+            dependency=(
+                _INCIDENT_SERVICE_DEPENDENCY
+            ),
+            method=method,
+            outcome=outcome,
+        )
+
+    def _record_dependency_retry(
+        self,
+        *,
+        method: str,
+        reason: str,
+    ) -> None:
+        if self._metrics is None:
+            return
+
+        self._metrics.record_dependency_retry(
+            dependency=(
+                _INCIDENT_SERVICE_DEPENDENCY
+            ),
+            method=method,
+            reason=reason,
+        )
+
+    def _observe_circuit_state(
+        self,
+    ) -> None:
+        if (
+            self._metrics is None
+            or self._circuit_breaker
+            is None
+        ):
+            return
+
+        self._metrics.set_circuit_state(
+            dependency=(
+                _INCIDENT_SERVICE_DEPENDENCY
+            ),
+            state=(
+                self._circuit_breaker
+                .state
+                .value
+            ),
+        )
+
+    @staticmethod
+    def _response_outcome(
+        status_code: int,
+    ) -> str:
+        if status_code < 300:
+            return "2xx"
+
+        if status_code < 400:
+            return "3xx"
+
+        if status_code < 500:
+            return "4xx"
+
+        return "5xx"
 
     def _sleep_before_retry(
         self,

@@ -1,6 +1,7 @@
 from fastapi import (
     FastAPI,
     Request,
+    Response,
     status,
 )
 from fastapi.middleware.cors import (
@@ -19,11 +20,18 @@ from app.core.config import (
 from app.core.logging_config import (
     configure_request_logging,
 )
+from app.core.metrics import (
+    PROMETHEUS_CONTENT_TYPE,
+    operational_metrics,
+)
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
+)
+from app.middleware.metrics import (
+    MetricsMiddleware,
 )
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
@@ -120,6 +128,33 @@ def create_app(
     )
 
     # =====================================================
+    # PROMETHEUS METRICS
+    # =====================================================
+    #
+    # The endpoint is deliberately excluded from OpenAPI.
+    # It contains aggregate process metrics, never request
+    # bodies, credentials, request IDs, or resource IDs.
+
+    if settings.metrics_enabled:
+        @application.get(
+            "/metrics",
+            include_in_schema=False,
+        )
+        def get_metrics(
+        ) -> Response:
+            return Response(
+                content=(
+                    operational_metrics
+                    .render()
+                ),
+                headers={
+                    "Content-Type": (
+                        PROMETHEUS_CONTENT_TYPE
+                    )
+                },
+            )
+
+    # =====================================================
     # BROWSER TRUST BOUNDARY
     # =====================================================
     #
@@ -195,8 +230,16 @@ def create_app(
     # Request logging is registered after security headers,
     # placing it outside security, CORS, and browser trust.
     #
-    # Request correlation is registered after logging and
-    # therefore remains the outermost user middleware.
+    # Metrics is registered after logging, and correlation is
+    # registered last. Because Starlette reverses middleware
+    # registration order, runtime order becomes:
+    #
+    #     correlation
+    #     metrics
+    #     request logging
+    #     security headers
+    #     CORS
+    #     browser trust
 
     application.add_middleware(
         RequestLoggingMiddleware,
@@ -209,6 +252,18 @@ def create_app(
     )
 
     # =====================================================
+    # OPERATIONAL METRICS
+    # =====================================================
+
+    if settings.metrics_enabled:
+        application.add_middleware(
+            MetricsMiddleware,
+            metrics=(
+                operational_metrics
+            ),
+        )
+
+    # =====================================================
     # REQUEST CORRELATION BOUNDARY
     # =====================================================
     #
@@ -216,7 +271,7 @@ def create_app(
     #
     # Registering correlation last makes it the outermost
     # user middleware. The request ID is therefore bound
-    # before structured request logging begins.
+    # before metrics and structured request logging execute.
 
     application.add_middleware(
         RequestCorrelationMiddleware,
