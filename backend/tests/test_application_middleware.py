@@ -12,6 +12,9 @@ from app.middleware.broswer_trust import (
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
 )
+from app.middleware.request_logging import (
+    RequestLoggingMiddleware,
+)
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
 )
@@ -22,17 +25,7 @@ def _count_registered_middleware(
     middleware_type: object,
 ) -> int:
     """
-    Count how many times a particular middleware class is
-    registered on the FastAPI application.
-
-    Starlette types Middleware.cls as an internal callable
-    middleware-factory protocol rather than as a normal
-    type[...].
-
-    Comparing by identity inside the generator avoids the
-    overly restrictive list.count() type inference while
-    still testing the exact middleware class registered at
-    runtime.
+    Count exact middleware registrations by class identity.
     """
 
     return sum(
@@ -46,14 +39,6 @@ def _count_registered_middleware(
 
 def test_application_middleware_is_registered_once(
 ) -> None:
-    """
-    The application factory must produce one authoritative
-    middleware stack.
-
-    Duplicate registrations can apply response transformations
-    more than once or create conflicting browser behavior.
-    """
-
     application = (
         create_app()
     )
@@ -85,7 +70,59 @@ def test_application_middleware_is_registered_once(
     assert (
         _count_registered_middleware(
             application,
+            RequestLoggingMiddleware,
+        )
+        == 1
+    )
+
+    assert (
+        _count_registered_middleware(
+            application,
             RequestCorrelationMiddleware,
         )
         == 1
+    )
+
+
+def test_request_correlation_wraps_request_logging(
+) -> None:
+    """
+    application.user_middleware is stored in runtime order.
+
+    Correlation must execute before logging so the ContextVar
+    already contains the current request ID.
+    """
+
+    application = (
+        create_app()
+    )
+
+    registered_middleware = (
+        application
+        .user_middleware
+    )
+
+    assert (
+        registered_middleware[0].cls
+        is RequestCorrelationMiddleware
+    )
+
+    assert (
+        registered_middleware[1].cls
+        is RequestLoggingMiddleware
+    )
+
+    assert (
+        registered_middleware[2].cls
+        is SecurityHeadersMiddleware
+    )
+
+    assert (
+        registered_middleware[3].cls
+        is CORSMiddleware
+    )
+
+    assert (
+        registered_middleware[4].cls
+        is BrowserTrustBoundaryMiddleware
     )

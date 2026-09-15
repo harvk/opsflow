@@ -10,8 +10,14 @@ from app.core.config import (
     get_settings,
     settings,
 )
+from app.core.logging_config import (
+    configure_request_logging,
+)
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
+)
+from app.middleware.request_logging import (
+    RequestLoggingMiddleware,
 )
 
 
@@ -23,14 +29,16 @@ def create_app(
 
     Browser-facing CORS, CSRF, password-reset handlers, and
     Core Backend authentication middleware are deliberately
-    absent from this service scaffold. They belong to the
-    browser-facing Core Backend boundary.
+    absent from this service. They belong to the public
+    Backend boundary.
     """
 
     configured_settings = (
         app_settings
         or settings
     )
+
+    configure_request_logging()
 
     application = (
         FastAPI(
@@ -61,10 +69,21 @@ def create_app(
             get_settings
         ] = lambda: configured_settings
 
-    # The private Incident Service still establishes its own
-    # correlation boundary. Requests normally inherit the
-    # Backend request ID, but direct health checks and internal
-    # calls must also receive an identifier.
+    # Logging is added first and correlation is added last.
+    # Because Starlette reverses registration order, the
+    # request ID is bound before request logging begins.
+
+    application.add_middleware(
+        RequestLoggingMiddleware,
+        service_name=(
+            configured_settings
+            .app_name
+        ),
+        environment=(
+            configured_settings
+            .app_env
+        ),
+    )
 
     application.add_middleware(
         RequestCorrelationMiddleware,

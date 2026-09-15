@@ -7,30 +7,33 @@ SECURITY_LOGGER_NAME = (
     "opsflow.security"
 )
 
+REQUEST_LOGGER_NAME = (
+    "opsflow.http"
+)
 
-def configure_security_logging(
+
+def _configure_message_only_logger(
+    logger_name: str,
 ) -> None:
     """
-    Configure the dedicated security-event logger.
+    Configure one OpsFlow JSON logger.
 
-    Containers capture stderr/stdout, which gives us a clean
-    migration path to AWS CloudWatch Logs later.
-
-    We deliberately emit only the message itself because the
-    SecurityEventLogger already produces JSON containing its
-    own timestamp, severity, event ID, and metadata.
+    Application code constructs the complete JSON message.
+    The Python logging layer therefore emits only the message
+    and does not prepend another timestamp or log-level label.
     """
 
     logger = logging.getLogger(
-        SECURITY_LOGGER_NAME
+        logger_name
     )
 
     logger.setLevel(
         logging.INFO
     )
 
-    # Prevent duplicate handlers if create_app() is called
-    # repeatedly during tests.
+    # Application factories are called repeatedly during
+    # tests. Reusing the existing handler prevents duplicate
+    # copies of every event.
     if logger.handlers:
         return
 
@@ -52,5 +55,35 @@ def configure_security_logging(
         handler
     )
 
-    # We own the output for this dedicated logger.
+    # OpsFlow owns output for its dedicated JSON loggers.
+    # Propagating to the root logger could duplicate events.
     logger.propagate = False
+
+
+def configure_security_logging(
+) -> None:
+    """
+    Configure the dedicated security-event logger.
+
+    The SecurityEventLogger already produces JSON containing
+    its timestamp, severity, event ID, and metadata.
+    """
+
+    _configure_message_only_logger(
+        SECURITY_LOGGER_NAME
+    )
+
+
+def configure_request_logging(
+) -> None:
+    """
+    Configure the distributed HTTP request logger.
+
+    Request events are emitted as one JSON object per line so
+    Docker and a future CloudWatch integration can ingest them
+    without parsing human-oriented prefixes.
+    """
+
+    _configure_message_only_logger(
+        REQUEST_LOGGER_NAME
+    )

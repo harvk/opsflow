@@ -16,6 +16,9 @@ from app.api.router import (
 from app.core.config import (
     settings,
 )
+from app.core.logging_config import (
+    configure_request_logging,
+)
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
@@ -24,6 +27,9 @@ from app.middleware.broswer_trust import (
 )
 from app.middleware.request_correlation import (
     RequestCorrelationMiddleware,
+)
+from app.middleware.request_logging import (
+    RequestLoggingMiddleware,
 )
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
@@ -75,6 +81,8 @@ async def password_reset_delivery_error_handler(
 
 def create_app(
 ) -> FastAPI:
+    configure_request_logging()
+
     application = (
         FastAPI(
             title=(
@@ -118,8 +126,8 @@ def create_app(
     # Starlette constructs user middleware in reverse
     # registration order.
     #
-    # This middleware is registered first so CORS and the
-    # response-security boundary can sit outside it.
+    # This middleware is registered first so CORS, security,
+    # logging, and correlation can sit outside it.
 
     application.add_middleware(
         BrowserTrustBoundaryMiddleware,
@@ -175,35 +183,40 @@ def create_app(
     # =====================================================
     # RESPONSE SECURITY BOUNDARY
     # =====================================================
-    #
-    # Starlette reverses middleware registration order.
-    #
-    # Security headers remain outside CORS and the browser
-    # trust boundary. Request correlation is registered after
-    # this middleware and becomes the final outer boundary.
-    #
-    # Security headers are therefore still applied to:
-    #
-    #     normal route responses
-    #     FastAPI exception responses
-    #     password-reset delivery failure responses
-    #     browser-trust rejections
-    #     CORS preflight responses
 
     application.add_middleware(
         SecurityHeadersMiddleware,
     )
-    
+
+    # =====================================================
+    # STRUCTURED REQUEST LOGGING
+    # =====================================================
+    #
+    # Request logging is registered after security headers,
+    # placing it outside security, CORS, and browser trust.
+    #
+    # Request correlation is registered after logging and
+    # therefore remains the outermost user middleware.
+
+    application.add_middleware(
+        RequestLoggingMiddleware,
+        service_name=(
+            settings.app_name
+        ),
+        environment=(
+            settings.app_env
+        ),
+    )
+
     # =====================================================
     # REQUEST CORRELATION BOUNDARY
     # =====================================================
     #
     # Starlette reverses middleware registration order.
     #
-    # Registering request correlation last makes it the
-    # outermost user middleware. This ensures X-Request-ID is
-    # attached even when a response originates from another
-    # middleware rather than from a route.
+    # Registering correlation last makes it the outermost
+    # user middleware. The request ID is therefore bound
+    # before structured request logging begins.
 
     application.add_middleware(
         RequestCorrelationMiddleware,
