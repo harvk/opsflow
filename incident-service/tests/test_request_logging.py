@@ -331,10 +331,10 @@ def test_not_found_response_is_logged_without_query_string(
         application
     ) as client:
         response = client.get(
-            
+
                 "/missing"
                 "?token=secret-query-value"
-            
+
         )
 
     assert response.status_code == 404

@@ -13,10 +13,10 @@ from sqlalchemy.orm import Session
 from app.api.dependencies import (
     get_service_catalog_gateway,
 )
+from app.core.config import Settings
 from app.core.request_context import (
     REQUEST_ID_HEADER,
 )
-from app.core.config import Settings
 from app.db.session import get_db_session
 from app.gateways.unavailable_service_catalog_gateway import (
     UnavailableServiceCatalogGateway,
@@ -529,7 +529,7 @@ def test_create_fails_closed_when_catalog_is_unavailable(
             "is unavailable."
         )
     )
-    
+
 def test_authentication_failure_preserves_request_id(
     api_client: tuple[
         TestClient,

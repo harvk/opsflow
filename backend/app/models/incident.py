@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 
 class IncidentModel(Base):
     __tablename__ = "incidents"
-    
+
     __table_args__ = (
         Index(
             "ix_incidents_service_status",
@@ -108,7 +108,7 @@ class IncidentModel(Base):
         DateTime(timezone=True),
         nullable=False,
     )
-    
+
     source: Mapped[str] = mapped_column(
         String(80),
         nullable=False,
@@ -129,16 +129,4 @@ class IncidentModel(Base):
     service: Mapped["ServiceModel"] = relationship(
         "ServiceModel",
         back_populates="incidents",
-    )
-
-    __table_args__ = (
-        Index(
-            "ix_incidents_service_status",
-            "service_id",
-            "status",
-        ),
-        Index(
-            "ix_incidents_created_at",
-            "created_at",
-        ),
     )

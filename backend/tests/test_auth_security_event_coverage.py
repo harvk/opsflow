@@ -483,7 +483,7 @@ def event_matches_requirement(
             False
         )
 
-    if not (
+    return (
         set(
             requirement
             .required_detail_keys
@@ -491,13 +491,6 @@ def event_matches_requirement(
         .issubset(
             event.detail_keys
         )
-    ):
-        return (
-            False
-        )
-
-    return (
-        True
     )
 
 

@@ -277,7 +277,7 @@ class SqlAlchemyAuthSessionRepository(
         return (
             max(result.rowcount, 0)
         )
-        
+
     # =====================================================
     # MAINTENANCE
     # =====================================================

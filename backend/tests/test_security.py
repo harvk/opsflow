@@ -161,8 +161,8 @@ def test_completely_invalid_token_is_rejected() -> None:
         decode_access_token(
             "this-is-not-a-jwt"
         )
-        
-        
+
+
 def test_refresh_token_round_trip(
 ) -> None:
     user_id = uuid4()

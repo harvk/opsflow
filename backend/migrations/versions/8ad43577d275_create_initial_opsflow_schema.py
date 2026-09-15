@@ -1,7 +1,7 @@
 """create initial opsflow schema
 
 Revision ID: 8ad43577d275
-Revises: 
+Revises:
 Create Date: 2026-09-05 09:43:41.118446
 
 """

@@ -29,7 +29,7 @@ def test_incident_has_related_service(
     assert incident.service is not None
     assert incident.service.id == PAYMENTS_SERVICE_ID
     assert incident.service.name == "Payments API"
-    
+
 def test_service_has_related_incidents(
     db_session,
     seeded_incidents,
@@ -53,7 +53,7 @@ def test_service_has_related_incidents(
     }
 
     assert PAYMENTS_INCIDENT_ID in incident_ids
-    
+
 def test_incident_cannot_reference_missing_service(
     db_session,
 ):
@@ -61,7 +61,7 @@ def test_incident_cannot_reference_missing_service(
         now = datetime.now(
             UTC
         )
-        
+
         incident = IncidentModel(
             id=uuid4(),
             service_id=uuid4(),
@@ -78,14 +78,14 @@ def test_incident_cannot_reference_missing_service(
             created_at=now,
             updated_at=now,
         )
-    
+
         db_session.add(incident)
-    
+
         with pytest.raises(IntegrityError):
             db_session.flush()
 
     db_session.rollback()
-    
+
 def test_deleting_service_deletes_related_incidents(
     db_session,
     seeded_incidents,

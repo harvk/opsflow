@@ -96,7 +96,7 @@ class SqlAlchemyUserRepository(UserRepository):
             user=self._to_domain(model),
             hashed_password=model.hashed_password,
         )
-        
+
     def update_password_hash_if_current(
         self,
         *,

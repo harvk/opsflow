@@ -39,8 +39,8 @@ def test_viewer_can_list_services(
     )
 
     assert response.status_code == 200
-    
-    
+
+
 def test_viewer_cannot_create_service(
     client: TestClient,
     viewer_headers: dict[str, str],
@@ -59,8 +59,8 @@ def test_viewer_cannot_create_service(
             "to perform this action."
         )
     }
-    
-    
+
+
 def test_operator_can_create_service(
     client: TestClient,
     operator_headers: dict[str, str],
@@ -72,8 +72,8 @@ def test_operator_can_create_service(
     )
 
     assert response.status_code == 201
-    
-    
+
+
 def test_operator_cannot_delete_service(
     client: TestClient,
     operator_headers: dict[str, str],
@@ -84,8 +84,8 @@ def test_operator_cannot_delete_service(
     )
 
     assert response.status_code == 403
-    
-    
+
+
 def test_admin_can_delete_service(
     client: TestClient,
     admin_headers: dict[str, str],
@@ -97,8 +97,8 @@ def test_admin_can_delete_service(
     )
 
     assert response.status_code == 204
-    
-    
+
+
 def test_operator_can_update_incident(
     client: TestClient,
     operator_headers: dict[str, str],
@@ -116,8 +116,8 @@ def test_operator_can_update_incident(
     )
 
     assert response.status_code == 200
-    
-    
+
+
 def test_operator_cannot_delete_incident(
     client: TestClient,
     operator_headers: dict[str, str],
@@ -132,8 +132,8 @@ def test_operator_cannot_delete_incident(
     )
 
     assert response.status_code == 403
-    
-    
+
+
 def test_admin_can_delete_incident(
     client: TestClient,
     admin_headers: dict[str, str],
@@ -148,8 +148,8 @@ def test_admin_can_delete_incident(
     )
 
     assert response.status_code == 204
-    
-    
+
+
 def test_anonymous_delete_service_returns_401(
     client: TestClient,
 ) -> None:
@@ -158,8 +158,8 @@ def test_anonymous_delete_service_returns_401(
     )
 
     assert response.status_code == 401
-    
-    
+
+
 def test_viewer_delete_service_returns_403(
     client: TestClient,
     viewer_headers: dict[str, str],

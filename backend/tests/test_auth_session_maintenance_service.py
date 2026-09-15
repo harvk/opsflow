@@ -252,7 +252,7 @@ def test_cleanup_requires_timezone_aware_time(
         )
     )
 
-    naive_time = datetime(
+    naive_time = datetime(  # noqa: DTZ001 - intentionally naive test input
         2026,
         9,
         7,

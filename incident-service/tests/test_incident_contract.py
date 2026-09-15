@@ -96,7 +96,7 @@ def test_incident_response_serializes_camel_case_contract() -> None:
     assert serialized["severity"] == "SEV-2"
     assert serialized["status"] == "Investigating"
     assert serialized["customerImpacting"] is True
-    
+
     expected_timestamp = (
         timestamp.isoformat()
         .replace(
@@ -107,7 +107,7 @@ def test_incident_response_serializes_camel_case_contract() -> None:
 
     assert serialized["acknowledgedAt"] == expected_timestamp
     assert serialized["startedAt"] == expected_timestamp
-    
+
     assert serialized["resolvedAt"] is None
     assert "service_id" not in serialized
     assert "customer_impacting" not in serialized

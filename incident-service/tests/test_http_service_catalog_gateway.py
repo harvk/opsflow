@@ -32,11 +32,11 @@ def test_service_exists_sends_token_and_returns_true(
         assert request.method == "GET"
 
         assert request.url == httpx.URL(
-            
+
                 f"{CORE_BACKEND_URL}"
                 "/internal/services/"
                 f"{service_id}/exists"
-            
+
         )
 
         assert request.headers[

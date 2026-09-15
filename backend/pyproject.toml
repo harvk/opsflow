@@ -15,13 +15,15 @@ dependencies = [
     "sqlalchemy",
     "psycopg[binary]",
     "alembic",
+    "prometheus-client==0.26.0",
+
 ]
 
 [project.optional-dependencies]
 dev = [
-    "pytest",
-    "httpx",
-    "ruff",
+    "pytest==9.1.1",
+    "httpx==0.28.1",
+    "ruff==0.16.6",
 ]
 
 [tool.pytest.ini_options]

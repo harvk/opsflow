@@ -5,7 +5,6 @@ from typing import Any, Final
 
 from app.main import app
 
-
 HTTP_METHODS: Final[frozenset[str]] = frozenset(
     {
         "delete",

@@ -15,7 +15,6 @@ from app.api.routes import (
     services,
 )
 
-
 api_router = (
     APIRouter()
 )

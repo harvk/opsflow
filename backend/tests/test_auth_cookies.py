@@ -74,13 +74,13 @@ def create_request(
     return Request(
         scope
     )
-    
-    
+
+
 # =========================================================
 # COOKIE HELPER
 # =========================================================
-    
-    
+
+
 def create_refresh_token_for_cookie_test(
 ) -> str:
     return (

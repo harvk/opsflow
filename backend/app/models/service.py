@@ -100,7 +100,7 @@ class ServiceModel(Base):
         cascade="all, delete-orphan",
         lazy="selectin",
     )
-    
+
     incidents: Mapped[list[IncidentModel]] = relationship(
         "IncidentModel",
         back_populates="service",

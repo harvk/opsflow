@@ -293,7 +293,7 @@ def test_non_auth_response_is_not_forced_into_auth_cache_policy(
     assert_baseline_security_headers(
         response
     )
-    
+
 def test_auth_route_not_found_response_is_not_cacheable(
     client: TestClient,
 ) -> None:
@@ -322,7 +322,7 @@ def test_auth_route_not_found_response_is_not_cacheable(
     assert_baseline_security_headers(
         response
     )
-    
+
 def test_similar_non_auth_path_is_not_treated_as_auth_boundary(
     client: TestClient,
 ) -> None:

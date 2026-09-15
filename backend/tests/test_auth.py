@@ -1058,7 +1058,7 @@ def test_logout_without_refresh_cookie_is_idempotent(
         )
         is None
     )
-    
+
 def test_login_rate_limits_repeated_account_failures(
     client: TestClient,
     db_session: Session,
@@ -1217,7 +1217,7 @@ def test_login_rate_limits_source_across_accounts(
             get_login_throttle,
             None,
         )
-        
+
 def test_failed_login_emits_security_event(
     client: TestClient,
     db_session: Session,
@@ -1294,7 +1294,7 @@ def test_failed_login_emits_security_event(
         "password"
         not in event
     )
-    
+
 def test_successful_login_emits_security_event(
     client: TestClient,
     db_session: Session,
@@ -1360,7 +1360,7 @@ def test_successful_login_emits_security_event(
         success_events[0]["user_id"]
         == user.id
     )
-    
+
 def test_invalid_access_token_emits_security_event(
     client,
     monkeypatch,
