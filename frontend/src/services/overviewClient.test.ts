@@ -124,6 +124,23 @@ const overviewResponse: OverviewResponse = {
       updatedAt: "2026-09-14T14:42:00Z",
     },
   ],
+  incidentDataAvailable: true,
+};
+
+const degradedOverviewResponse: OverviewResponse = {
+  summary: {
+    ...overviewResponse.summary,
+
+    activeIncidents: null,
+
+    customerImpactingIncidents: null,
+  },
+
+  services: overviewResponse.services,
+
+  incidents: [],
+
+  incidentDataAvailable: false,
 };
 
 /*
@@ -175,6 +192,22 @@ describe("getOverview", () => {
     expect(result.incidents[0].severity).toBe("SEV-2");
 
     expect(result.incidents[0].customerImpacting).toBe(true);
+  });
+
+  it("returns an explicitly degraded successful response", async () => {
+    apiFetchMock.mockResolvedValueOnce(jsonResponse(degradedOverviewResponse));
+
+    const result = await getOverview();
+
+    expect(result.incidentDataAvailable).toBe(false);
+
+    expect(result.summary.activeIncidents).toBeNull();
+
+    expect(result.summary.customerImpactingIncidents).toBeNull();
+
+    expect(result.incidents).toEqual([]);
+
+    expect(result.services).toEqual(overviewResponse.services);
   });
 
   it.each([401, 403, 500, 502, 503, 504])(

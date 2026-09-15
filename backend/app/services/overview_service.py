@@ -17,6 +17,9 @@ from app.domain.service import (
     Service,
     ServiceStatus,
 )
+from app.gateways.incident_gateway import (
+    IncidentGatewayError,
+)
 from app.schemas.incident import (
     IncidentResponse,
 )
@@ -27,7 +30,6 @@ from app.schemas.overview import (
 from app.schemas.service import (
     ServiceResponse,
 )
-
 
 OVERVIEW_COLLECTION_LIMIT: Final[int] = 100
 
@@ -104,10 +106,15 @@ class OverviewService:
         self,
     ) -> OverviewResponse:
         """
-        Return one internally consistent Overview snapshot.
+        Return one Overview snapshot.
 
-        Summary values are calculated only from the Services
-        and Incidents included in this response.
+        Service Catalog data is required because the Backend
+        owns that data locally.
+
+        Incident Management data is optional for this composed
+        read. A known IncidentGateway failure produces an
+        explicitly degraded response while preserving current
+        Service Catalog information.
         """
 
         services = (
@@ -122,19 +129,28 @@ class OverviewService:
             )
         )
 
-        incidents = (
-            self._incident_gateway
-            .list(
-                search=None,
-                service_id=None,
-                severity=None,
-                status=None,
-                offset=0,
-                limit=(
-                    OVERVIEW_COLLECTION_LIMIT
-                ),
-            )
+        incidents: (
+            list[Incident]
+            | None
         )
+
+        try:
+            incidents = (
+                self._incident_gateway
+                .list(
+                    search=None,
+                    service_id=None,
+                    severity=None,
+                    status=None,
+                    offset=0,
+                    limit=(
+                        OVERVIEW_COLLECTION_LIMIT
+                    ),
+                )
+            )
+
+        except IncidentGatewayError:
+            incidents = None
 
         service_responses = [
             ServiceResponse.model_validate(
@@ -143,12 +159,16 @@ class OverviewService:
             for service in services
         ]
 
-        incident_responses = [
-            IncidentResponse.model_validate(
-                incident
-            )
-            for incident in incidents
-        ]
+        incident_responses = (
+            []
+            if incidents is None
+            else [
+                IncidentResponse.model_validate(
+                    incident
+                )
+                for incident in incidents
+            ]
+        )
 
         summary = (
             self._build_summary(
@@ -166,6 +186,10 @@ class OverviewService:
                 incidents=(
                     incident_responses
                 ),
+                incident_data_available=(
+                    incidents
+                    is not None
+                ),
             )
         )
 
@@ -173,25 +197,59 @@ class OverviewService:
     def _build_summary(
         *,
         services: list[Service],
-        incidents: list[Incident],
+        incidents: (
+            list[Incident]
+            | None
+        ),
     ) -> OverviewSummary:
         """
         Calculate Overview totals from the returned domain
         collections.
 
-        A resolved incident is not active. A resolved incident
-        marked customer-impacting is also excluded from the
-        active customer-impacting count.
+        Null incident counts mean Incident Management was
+        unavailable. Numeric zero means Incident Management
+        responded successfully and contained no matching
+        active incidents.
         """
 
-        active_incidents = [
-            incident
-            for incident in incidents
-            if (
-                incident.status
-                != IncidentStatus.RESOLVED
+        active_incident_count: (
+            int
+            | None
+        )
+
+        customer_impacting_count: (
+            int
+            | None
+        )
+
+        if incidents is None:
+            active_incident_count = None
+            customer_impacting_count = None
+
+        else:
+            active_incidents = [
+                incident
+                for incident in incidents
+                if (
+                    incident.status
+                    != IncidentStatus.RESOLVED
+                )
+            ]
+
+            active_incident_count = (
+                len(
+                    active_incidents
+                )
             )
-        ]
+
+            customer_impacting_count = (
+                sum(
+                    incident
+                    .customer_impacting
+                    for incident
+                    in active_incidents
+                )
+            )
 
         return (
             OverviewSummary(
@@ -222,16 +280,10 @@ class OverviewService:
                     )
                 ),
                 active_incidents=(
-                    len(
-                        active_incidents
-                    )
+                    active_incident_count
                 ),
                 customer_impacting_incidents=(
-                    sum(
-                        incident.customer_impacting
-                        for incident
-                        in active_incidents
-                    )
+                    customer_impacting_count
                 ),
             )
         )

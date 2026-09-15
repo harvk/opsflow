@@ -8,14 +8,8 @@ from app.api.dependencies import (
     ServiceServiceDependency,
     require_permission,
 )
-from app.api.incident_gateway_errors import (
-    incident_gateway_http_exception,
-)
 from app.domain.authorization import (
     Permission,
-)
-from app.gateways.incident_gateway import (
-    IncidentGatewayError,
 )
 from app.schemas.overview import (
     OverviewResponse,
@@ -23,7 +17,6 @@ from app.schemas.overview import (
 from app.services.overview_service import (
     OverviewService,
 )
-
 
 router = APIRouter()
 
@@ -50,6 +43,11 @@ def get_overview(
     """
     Compose Service Catalog and Incident Management data for
     the public OpsFlow Overview page.
+
+    Known IncidentGateway failures are handled inside
+    OverviewService and produce an explicitly degraded
+    response. Authentication, authorization, Service Catalog,
+    and unexpected application failures remain fail-closed.
     """
 
     overview_service = (
@@ -63,15 +61,7 @@ def get_overview(
         )
     )
 
-    try:
-        return (
-            overview_service
-            .get_overview()
-        )
-
-    except IncidentGatewayError as exc:
-        raise (
-            incident_gateway_http_exception(
-                exc
-            )
-        ) from exc
+    return (
+        overview_service
+        .get_overview()
+    )

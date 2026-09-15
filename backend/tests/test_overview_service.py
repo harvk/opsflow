@@ -9,6 +9,8 @@ from uuid import (
     uuid4,
 )
 
+import pytest
+
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -18,11 +20,13 @@ from app.domain.service import (
     Service,
     ServiceStatus,
 )
+from app.gateways.incident_gateway import (
+    IncidentGatewayUnavailableError,
+)
 from app.services.overview_service import (
     OVERVIEW_COLLECTION_LIMIT,
     OverviewService,
 )
-
 
 NOW = datetime(
     2026,
@@ -92,6 +96,40 @@ class StubIncidentLister:
         return list(
             self._incidents
         )
+
+
+class FailingIncidentLister(
+    StubIncidentLister
+):
+    def __init__(
+        self,
+        error: Exception,
+    ) -> None:
+        super().__init__(
+            []
+        )
+
+        self._error = error
+
+    def list(
+        self,
+        *,
+        search: str | None = None,
+        service_id: UUID | None = None,
+        severity: IncidentSeverity | None = None,
+        status: IncidentStatus | None = None,
+        offset: int = 0,
+        limit: int = 50,
+    ) -> list[Incident]:
+        assert search is None
+        assert service_id is None
+        assert severity is None
+        assert status is None
+
+        self.received_offset = offset
+        self.received_limit = limit
+
+        raise self._error
 
 
 def build_service(
@@ -297,6 +335,12 @@ def test_get_overview_composes_collections_and_summary(
     ) == 4
 
     assert (
+        response
+        .incident_data_available
+        is True
+    )
+
+    assert (
         service_lister
         .received_offset
         == 0
@@ -339,6 +383,15 @@ def test_get_overview_serializes_summary_as_camel_case(
             mode="json",
             by_alias=True,
         )
+    )
+
+    assert payload[
+        "incidentDataAvailable"
+    ] is True
+
+    assert (
+        "incident_data_available"
+        not in payload
     )
 
     summary = payload[
@@ -390,3 +443,178 @@ def test_get_overview_serializes_summary_as_camel_case(
     assert "customerImpacting" in (
         first_incident
     )
+
+
+def test_get_overview_preserves_service_data_when_incidents_are_unavailable(
+) -> None:
+    service_lister = (
+        StubServiceLister(
+            [
+                build_service(
+                    ServiceStatus.HEALTHY
+                ),
+                build_service(
+                    ServiceStatus.DEGRADED
+                ),
+            ]
+        )
+    )
+
+    incident_lister = (
+        FailingIncidentLister(
+            IncidentGatewayUnavailableError(
+                "Incident Management unavailable."
+            )
+        )
+    )
+
+    overview_service = (
+        OverviewService(
+            service_service=(
+                service_lister
+            ),
+            incident_gateway=(
+                incident_lister
+            ),
+        )
+    )
+
+    response = (
+        overview_service
+        .get_overview()
+    )
+
+    assert (
+        response
+        .incident_data_available
+        is False
+    )
+
+    assert (
+        response.incidents
+        == []
+    )
+
+    assert (
+        response
+        .summary
+        .total_services
+        == 2
+    )
+
+    assert (
+        response
+        .summary
+        .healthy_services
+        == 1
+    )
+
+    assert (
+        response
+        .summary
+        .degraded_services
+        == 1
+    )
+
+    assert (
+        response
+        .summary
+        .critical_services
+        == 0
+    )
+
+    assert (
+        response
+        .summary
+        .active_incidents
+        is None
+    )
+
+    assert (
+        response
+        .summary
+        .customer_impacting_incidents
+        is None
+    )
+
+    assert len(
+        response.services
+    ) == 2
+
+    assert (
+        service_lister
+        .received_limit
+        == OVERVIEW_COLLECTION_LIMIT
+    )
+
+    assert (
+        incident_lister
+        .received_limit
+        == OVERVIEW_COLLECTION_LIMIT
+    )
+
+    payload = (
+        response.model_dump(
+            mode="json",
+            by_alias=True,
+        )
+    )
+
+    assert payload[
+        "incidentDataAvailable"
+    ] is False
+
+    assert payload[
+        "summary"
+    ][
+        "activeIncidents"
+    ] is None
+
+    assert payload[
+        "summary"
+    ][
+        "customerImpactingIncidents"
+    ] is None
+
+
+def test_get_overview_does_not_hide_unexpected_incident_errors(
+) -> None:
+    service_lister = (
+        StubServiceLister(
+            [
+                build_service(
+                    ServiceStatus.HEALTHY
+                )
+            ]
+        )
+    )
+
+    incident_lister = (
+        FailingIncidentLister(
+            RuntimeError(
+                "Unexpected incident failure."
+            )
+        )
+    )
+
+    overview_service = (
+        OverviewService(
+            service_service=(
+                service_lister
+            ),
+            incident_gateway=(
+                incident_lister
+            ),
+        )
+    )
+
+    with pytest.raises(
+        RuntimeError,
+        match=(
+            "Unexpected incident failure"
+        ),
+    ):
+        (
+            overview_service
+            .get_overview()
+        )

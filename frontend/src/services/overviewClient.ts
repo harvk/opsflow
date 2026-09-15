@@ -72,9 +72,9 @@ export interface OverviewSummary {
 
   criticalServices: number;
 
-  activeIncidents: number;
+  activeIncidents: number | null;
 
-  customerImpactingIncidents: number;
+  customerImpactingIncidents: number | null;
 }
 
 /*
@@ -89,6 +89,8 @@ export interface OverviewResponse {
   services: ServiceDetails[];
 
   incidents: OverviewIncident[];
+
+  incidentDataAvailable: boolean;
 }
 
 /*

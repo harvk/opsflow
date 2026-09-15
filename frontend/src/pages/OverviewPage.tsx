@@ -34,7 +34,19 @@ const INITIAL_OVERVIEW_STATE: AsyncState<OverviewResponse> = {
  * =========================================================
  */
 
-function buildDashboardMetrics(summary: OverviewSummary): Metric[] {
+function buildDashboardMetrics(
+  summary: OverviewSummary,
+  incidentDataAvailable: boolean,
+): Metric[] {
+  const activeIncidents = summary.activeIncidents;
+
+  const customerImpactingIncidents = summary.customerImpactingIncidents;
+
+  const hasIncidentData =
+    incidentDataAvailable &&
+    activeIncidents !== null &&
+    customerImpactingIncidents !== null;
+
   const serviceHealthAccent: Metric["accent"] =
     summary.criticalServices > 0
       ? "danger"
@@ -42,11 +54,17 @@ function buildDashboardMetrics(summary: OverviewSummary): Metric[] {
         ? "warning"
         : "success";
 
-  const incidentAccent: Metric["accent"] =
-    summary.activeIncidents > 0 ? "danger" : "success";
+  const incidentAccent: Metric["accent"] = !hasIncidentData
+    ? "warning"
+    : (activeIncidents ?? 0) > 0
+      ? "danger"
+      : "success";
 
-  const customerImpactAccent: Metric["accent"] =
-    summary.customerImpactingIncidents > 0 ? "danger" : "primary";
+  const customerImpactAccent: Metric["accent"] = !hasIncidentData
+    ? "warning"
+    : (customerImpactingIncidents ?? 0) > 0
+      ? "danger"
+      : "primary";
 
   return [
     {
@@ -80,10 +98,11 @@ function buildDashboardMetrics(summary: OverviewSummary): Metric[] {
 
       label: "Active incidents",
 
-      value: String(summary.activeIncidents),
+      value: hasIncidentData ? String(activeIncidents) : "Unavailable",
 
-      supportingText:
-        summary.activeIncidents === 0
+      supportingText: !hasIncidentData
+        ? "Incident Management data is temporarily unavailable"
+        : activeIncidents === 0
           ? "No active incidents"
           : "Open, investigating, or monitoring",
 
@@ -94,10 +113,13 @@ function buildDashboardMetrics(summary: OverviewSummary): Metric[] {
 
       label: "Customer-impacting",
 
-      value: String(summary.customerImpactingIncidents),
+      value: hasIncidentData
+        ? String(customerImpactingIncidents)
+        : "Unavailable",
 
-      supportingText:
-        summary.customerImpactingIncidents === 0
+      supportingText: !hasIncidentData
+        ? "Customer-impact status cannot currently be verified"
+        : customerImpactingIncidents === 0
           ? "No active customer impact"
           : "Active incidents affecting customers",
 
@@ -154,7 +176,7 @@ function getOverviewErrorMessage(error: unknown): string {
 
     if (error.status === 502 || error.status === 503 || error.status === 504) {
       return (
-        "Incident Management is temporarily unavailable. " +
+        "The OpsFlow Overview service is temporarily unavailable. " +
         "Try loading the Overview again."
       );
     }
@@ -222,11 +244,15 @@ export default function OverviewPage() {
 
   const metrics =
     overviewState.status === "success"
-      ? buildDashboardMetrics(overviewState.data.summary)
+      ? buildDashboardMetrics(
+          overviewState.data.summary,
+          overviewState.data.incidentDataAvailable,
+        )
       : [];
 
   const activities =
-    overviewState.status === "success"
+    overviewState.status === "success" &&
+    overviewState.data.incidentDataAvailable
       ? buildRecentActivity(overviewState.data.incidents)
       : [];
 
@@ -285,6 +311,25 @@ export default function OverviewPage() {
 
       {overviewState.status === "success" ? (
         <>
+          {!overviewState.data.incidentDataAvailable ? (
+            <div className="alert alert-warning" role="status">
+              <h2 className="h5">Incident data temporarily unavailable</h2>
+
+              <p>
+                Service Catalog data is current, but OpsFlow could not retrieve
+                Incident Management data. Incident metrics and recent activity
+                are marked unavailable rather than being reported as zero.
+              </p>
+
+              <button
+                type="button"
+                className="btn btn-outline-dark"
+                onClick={retryOverviewRequest}
+              >
+                Retry incident data
+              </button>
+            </div>
+          ) : null}
           <section className="mb-4" aria-label="Key performance indicators">
             <div className="row g-4">
               {metrics.map((metric) => (
@@ -302,7 +347,10 @@ export default function OverviewPage() {
 
           <div className="row g-4">
             <div className="col-12 col-xl-8">
-              <RecentActivity activities={activities} />
+              <RecentActivity
+                activities={activities}
+                incidentDataAvailable={overviewState.data.incidentDataAvailable}
+              />
             </div>
 
             <div className="col-12 col-xl-4">

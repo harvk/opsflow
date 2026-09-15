@@ -85,6 +85,86 @@ def test_overview_route_uses_overview_response_schema(
         "/OverviewResponse"
     )
 
+def test_overview_schema_exposes_incident_availability(
+) -> None:
+    openapi_schema = (
+        app.openapi()
+    )
+
+    schemas = (
+        openapi_schema[
+            "components"
+        ][
+            "schemas"
+        ]
+    )
+
+    response_schema = schemas[
+        "OverviewResponse"
+    ]
+
+    response_properties = (
+        response_schema[
+            "properties"
+        ]
+    )
+
+    assert (
+        response_properties[
+            "incidentDataAvailable"
+        ][
+            "type"
+        ]
+        == "boolean"
+    )
+
+    assert (
+        "incidentDataAvailable"
+        in response_schema[
+            "required"
+        ]
+    )
+
+    summary_schema = schemas[
+        "OverviewSummary"
+    ]
+
+    active_incident_schema = (
+        summary_schema[
+            "properties"
+        ][
+            "activeIncidents"
+        ]
+    )
+
+    customer_impact_schema = (
+        summary_schema[
+            "properties"
+        ][
+            "customerImpactingIncidents"
+        ]
+    )
+
+    assert any(
+        option.get(
+            "type"
+        )
+        == "null"
+        for option in active_incident_schema[
+            "anyOf"
+        ]
+    )
+
+    assert any(
+        option.get(
+            "type"
+        )
+        == "null"
+        for option in customer_impact_schema[
+            "anyOf"
+        ]
+    )
+
 
 def test_overview_route_requires_authentication(
 ) -> None:

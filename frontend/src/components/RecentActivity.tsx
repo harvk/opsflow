@@ -2,6 +2,8 @@ import type { ActivityItem } from "../types/dashboard";
 
 interface RecentActivityProps {
   activities: ActivityItem[];
+
+  incidentDataAvailable: boolean;
 }
 
 function formatActivityTime(value: string): string {
@@ -12,7 +14,10 @@ function formatActivityTime(value: string): string {
   }).format(new Date(value));
 }
 
-export default function RecentActivity({ activities }: RecentActivityProps) {
+export default function RecentActivity({
+  activities,
+  incidentDataAvailable,
+}: RecentActivityProps) {
   return (
     <section
       className="card border-0 shadow-sm h-100"
@@ -29,7 +34,11 @@ export default function RecentActivity({ activities }: RecentActivityProps) {
           </p>
         </div>
 
-        {activities.length === 0 ? (
+        {!incidentDataAvailable ? (
+          <p className="text-warning-emphasis mb-0" role="status">
+            Recent incident activity is temporarily unavailable.
+          </p>
+        ) : activities.length === 0 ? (
           <p className="text-secondary mb-0" role="status">
             No recent incident activity is available.
           </p>

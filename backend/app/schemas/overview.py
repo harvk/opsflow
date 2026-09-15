@@ -36,16 +36,21 @@ class OverviewSummary(
     OverviewSchema
 ):
     """
-    Aggregate operational counts calculated from the Service
-    and Incident collections returned in the same response.
+    Aggregate operational counts calculated from the data
+    sources represented in the same response.
+
+    Incident counts are null when Incident Management could
+    not be queried. A numeric zero therefore continues to mean
+    that Incident Management was available and returned no
+    matching active incidents.
     """
 
     total_services: int
     healthy_services: int
     degraded_services: int
     critical_services: int
-    active_incidents: int
-    customer_impacting_incidents: int
+    active_incidents: int | None
+    customer_impacting_incidents: int | None
 
 
 class OverviewResponse(
@@ -57,8 +62,13 @@ class OverviewResponse(
     Service data remains owned by the Backend Service Catalog.
     Incident data remains owned by Incident Management and is
     obtained through IncidentGateway.
+
+    incident_data_available explicitly distinguishes an empty
+    successful Incident result from a degraded response where
+    Incident Management could not be queried.
     """
 
     summary: OverviewSummary
     services: list[ServiceResponse]
     incidents: list[IncidentResponse]
+    incident_data_available: bool
