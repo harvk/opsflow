@@ -397,11 +397,17 @@ class SecurityEventLogger:
             )
 
 
-        except Exception:
+        except Exception:  # noqa: BLE001
+
             # Security telemetry is extremely important,
             # but failure of the logging subsystem must not
             # break authentication or create information
             # disclosure.
+            #
+            # This is an intentional exception boundary. It
+            # protects authentication from failures raised by
+            # payload construction, sanitization, serialization,
+            # or the configured logging handler.
             #
             # A production monitoring layer should separately
             # detect unavailable log delivery.

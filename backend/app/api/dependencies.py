@@ -38,12 +38,18 @@ from app.core.auth_error_codes import (
 from app.core.auth_response_messages import (
     ACCESS_CREDENTIALS_INVALID_MESSAGE,
 )
+from app.core.circuit_breaker import (
+    CircuitBreaker,
+)
 from app.core.config import (
     settings,
 )
 from app.core.login_throttle import (
     InMemoryLoginThrottle,
     LoginThrottle,
+)
+from app.core.metrics import (
+    operational_metrics,
 )
 from app.core.password_reset_links import (
     PasswordResetLinkBuilder,
@@ -410,6 +416,30 @@ def get_incident_http_client(
         )
     )
 
+@lru_cache(
+    maxsize=1
+)
+def get_incident_circuit_breaker(
+) -> CircuitBreaker:
+    """
+    Construct the process-local Incident Service circuit.
+
+    HttpIncidentGateway objects are created through FastAPI's
+    dependency graph, but all of them must share this breaker
+    state across requests in the current Backend process.
+    """
+
+    return CircuitBreaker(
+        failure_threshold=(
+            settings
+            .incident_service_circuit_failure_threshold
+        ),
+        recovery_seconds=(
+            settings
+            .incident_service_circuit_recovery_seconds
+        ),
+    )
+
 
 def get_incident_gateway(
     incident_service: (
@@ -434,6 +464,22 @@ def get_incident_gateway(
                     settings
                     .incident_service_token
                     .get_secret_value()
+                ),
+                read_max_attempts=(
+                    settings
+                    .incident_service_read_max_attempts
+                ),
+                read_backoff_seconds=(
+                    settings
+                    .incident_service_read_backoff_seconds
+                ),
+                circuit_breaker=(
+                    get_incident_circuit_breaker()
+                ),
+                metrics=(
+                    operational_metrics
+                    if settings.metrics_enabled
+                    else None
                 ),
             )
         )

@@ -32,10 +32,10 @@ def test_internal_service_endpoint_requires_token(
     client: TestClient,
 ) -> None:
     response = client.get(
-        
+
             "/api/v1/internal/services/"
             f"{uuid4()}/exists"
-        
+
     )
 
     assert response.status_code == 401

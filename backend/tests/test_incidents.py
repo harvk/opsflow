@@ -458,7 +458,7 @@ def test_delete_incident_returns_204(
     )
 
     assert get_response.status_code == 404
-    
+
 def test_incidents_require_authentication(
     client: TestClient,
 ) -> None:

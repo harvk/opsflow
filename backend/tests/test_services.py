@@ -79,7 +79,7 @@ def test_create_service_returns_201(
         SERVICES_URL,
         json=payload,
         headers=auth_headers
-        
+
     )
 
     assert response.status_code == 201
@@ -210,7 +210,7 @@ def test_delete_service_returns_204(
     )
 
     assert get_response.status_code == 404
-    
+
 def test_services_require_authentication(
     client: TestClient,
 ) -> None:

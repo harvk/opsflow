@@ -33,7 +33,7 @@ class UserRepository(Protocol):
         email: str,
     ) -> UserAuthRecord | None:
         ...
-        
+
     def update_password_hash_if_current(
         self,
         *,

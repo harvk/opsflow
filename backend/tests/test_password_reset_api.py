@@ -898,7 +898,7 @@ def test_successful_password_reset_clears_existing_auth_cookies(
         )
         is None
     )
-    
+
 def test_password_reset_request_is_throttled_by_account(
     client: TestClient,
     db_session: Session,
@@ -951,7 +951,7 @@ def test_password_reset_request_is_throttled_by_account(
             "requests. Please try again later."
         )
     }
-    
+
 def test_password_reset_throttle_returns_retry_after(
     client: TestClient,
     db_session: Session,
@@ -1015,7 +1015,7 @@ def test_password_reset_throttle_returns_retry_after(
         )
         >= 1
     )
-    
+
 def test_password_reset_throttle_response_is_not_cacheable(
     client: TestClient,
     db_session: Session,
@@ -1070,7 +1070,7 @@ def test_password_reset_throttle_response_is_not_cacheable(
         ].lower()
         == "no-cache"
     )
-    
+
 def test_password_reset_request_is_throttled_by_ip(
     client: TestClient,
 ) -> None:
@@ -1112,7 +1112,7 @@ def test_password_reset_request_is_throttled_by_ip(
         blocked_response.status_code
         == 429
     )
-    
+
 @pytest.fixture
 def recording_password_reset_delivery(
 ) -> Iterator[
@@ -1146,7 +1146,7 @@ def recording_password_reset_delivery(
         )
 
         get_password_reset_link_builder.cache_clear()
-    
+
 def test_password_reset_request_delivers_for_existing_account(
     client: TestClient,
     db_session: Session,
@@ -1188,7 +1188,7 @@ def test_password_reset_request_delivers_for_existing_account(
         message.recipient_email
         == user.email
     )
-    
+
 def test_password_reset_delivery_contains_reset_credential(
     client: TestClient,
     db_session: Session,
@@ -1260,7 +1260,7 @@ def test_password_reset_delivery_contains_reset_credential(
         raw_token
         not in response.text
     )
-    
+
 def test_unknown_account_does_not_generate_delivery(
     client: TestClient,
     recording_password_reset_delivery: (
@@ -1294,7 +1294,7 @@ def test_unknown_account_does_not_generate_delivery(
         .messages
         == []
     )
-    
+
 def test_inactive_account_does_not_generate_delivery(
     client: TestClient,
     db_session: Session,
@@ -1333,7 +1333,7 @@ def test_inactive_account_does_not_generate_delivery(
         .messages
         == []
     )
-    
+
 def test_delivered_reset_link_can_complete_password_reset(
     client: TestClient,
     db_session: Session,
@@ -1434,7 +1434,7 @@ def test_delivered_reset_link_can_complete_password_reset(
         OLD_PASSWORD,
         auth_record.hashed_password,
     )
-    
+
 def test_throttled_password_reset_request_does_not_deliver(
     client: TestClient,
     db_session: Session,
@@ -1499,7 +1499,7 @@ def test_throttled_password_reset_request_does_not_deliver(
         recording_password_reset_delivery
         .messages
     ) == max_requests
-    
+
 @pytest.fixture
 def failing_password_reset_delivery(
 ) -> Iterator[
@@ -1528,7 +1528,7 @@ def failing_password_reset_delivery(
             get_password_reset_delivery,
             None,
         )
-        
+
 def test_password_reset_delivery_failure_is_enumeration_safe(
     client: TestClient,
     db_session: Session,
@@ -1597,7 +1597,7 @@ def test_password_reset_delivery_failure_is_enumeration_safe(
     assert_no_store_headers(
         unknown_response
     )
-    
+
 def test_failed_delivery_rolls_back_new_reset_credential(
     client: TestClient,
     db_session: Session,

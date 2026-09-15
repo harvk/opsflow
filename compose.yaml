@@ -353,6 +353,16 @@ services:
 
       INCIDENT_SERVICE_TIMEOUT_SECONDS: ${INCIDENT_SERVICE_TIMEOUT_SECONDS:-3.0}
 
+      INCIDENT_SERVICE_READ_MAX_ATTEMPTS: ${INCIDENT_SERVICE_READ_MAX_ATTEMPTS:-2}
+
+      INCIDENT_SERVICE_READ_BACKOFF_SECONDS: ${INCIDENT_SERVICE_READ_BACKOFF_SECONDS:-0.1}
+
+      INCIDENT_SERVICE_CIRCUIT_FAILURE_THRESHOLD: ${INCIDENT_SERVICE_CIRCUIT_FAILURE_THRESHOLD:-3}
+
+      INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS: ${INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS:-15.0}
+
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
+
     # ------------------------------------------------------
     # HOST PORT
     # ------------------------------------------------------
@@ -508,14 +518,17 @@ services:
   # INCIDENT SERVICE
   # ========================================================
   #
-  # Standalone Incident Management service.
+  # Independently deployed Incident Management service.
   #
   # During the current strangler phase:
   #
-  #   - the service exposes only its health contract
+  #   - it exposes the private Incident Management API
   #   - it is reachable from the Core Backend by Docker DNS
-  #   - it is not published directly to the host
-  #   - Core Backend traffic still uses LocalIncidentGateway
+  #   - it is not published directly to the Windows host
+  #   - the Backend uses HttpIncidentGateway when
+  #     INCIDENT_GATEWAY_MODE=http
+  #   - the Backend may revert to LocalIncidentGateway by
+  #     setting INCIDENT_GATEWAY_MODE=local
   #
   # ========================================================
 
@@ -552,6 +565,8 @@ services:
 
     environment:
       APP_ENV: development
+
+      METRICS_ENABLED: ${METRICS_ENABLED:-true}
 
       DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents

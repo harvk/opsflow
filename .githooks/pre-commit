@@ -1,0 +1,46 @@
+#!/usr/bin/env sh
+
+set -eu
+
+repository_root="$(
+  git rev-parse --show-toplevel
+)"
+
+cd "$repository_root"
+
+echo "Running OpsFlow trailing-whitespace cleanup..."
+
+if [ -x "backend/.venv/Scripts/python.exe" ]; then
+  backend/.venv/Scripts/python.exe \
+    scripts/trim_trailing_whitespace.py \
+    --fix-unstaged
+elif command -v py >/dev/null 2>&1; then
+  py -3 \
+    scripts/trim_trailing_whitespace.py \
+    --fix-unstaged
+elif command -v python >/dev/null 2>&1; then
+  python \
+    scripts/trim_trailing_whitespace.py \
+    --fix-unstaged
+else
+  echo "Python could not be found." >&2
+  echo "Commit stopped before any Git data was changed." >&2
+  exit 1
+fi
+
+echo "Checking unstaged changes..."
+
+if ! git diff --check; then
+  echo "Unstaged whitespace errors remain." >&2
+  exit 1
+fi
+
+echo "Checking staged changes..."
+
+if ! git diff --cached --check; then
+  echo "The staged snapshot still contains whitespace errors." >&2
+  echo "Review the corrected files, stage them again, and retry." >&2
+  exit 1
+fi
+
+echo "OpsFlow whitespace checks passed."

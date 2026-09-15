@@ -317,7 +317,7 @@ def test_ses_delivery_rejects_naive_expiration(
                 RESET_URL
             ),
             expires_at=(
-                datetime(
+                datetime(  # noqa: DTZ001 - intentionally naive test input
                     2026,
                     9,
                     7,

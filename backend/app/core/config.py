@@ -74,6 +74,13 @@ class Settings(
         "http://localhost:5173"
     )
 
+    # Exposes process-local Prometheus metrics at /metrics.
+    #
+    # The Docker Backend port remains bound to 127.0.0.1 in
+    # local development.
+
+    metrics_enabled: bool = True
+
     # =====================================================
     # DATABASE SETTINGS
     # =====================================================
@@ -102,8 +109,8 @@ class Settings(
     #     Core Backend delegates Incident Management to the
     #     independent Incident Service over HTTP.
     #
-    # Local remains the safe default until the container
-    # integration and rollback verification are complete.
+    # Read retries apply only to safe HTTP methods. Incident
+    # mutations are never automatically retried.
     #
     # =====================================================
 
@@ -125,6 +132,58 @@ class Settings(
         default=3.0,
         gt=0,
         le=30,
+    )
+
+    # Number of consecutive failed logical gateway
+    # operations required to open the process-local circuit.
+    #
+    # A read that exhausts multiple retry attempts counts as
+    # one failed operation.
+
+    incident_service_circuit_failure_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+    )
+
+    # Time the circuit remains open before allowing one
+    # half-open probe request.
+
+    incident_service_circuit_recovery_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        le=300,
+    )
+
+    # Total attempts, including the initial request.
+    #
+    # A value of:
+    #
+    #     1 -> no retries
+    #     2 -> one retry
+    #     3 -> two retries
+    #
+    # The upper bound prevents configuration mistakes from
+    # creating an excessive retry storm.
+
+    incident_service_read_max_attempts: int = Field(
+        default=2,
+        ge=1,
+        le=3,
+    )
+
+    # Initial exponential-backoff delay.
+    #
+    # With three attempts and a 0.1-second initial delay, the
+    # delays would be:
+    #
+    #     after attempt 1 -> 0.1 seconds
+    #     after attempt 2 -> 0.2 seconds
+
+    incident_service_read_backoff_seconds: float = Field(
+        default=0.1,
+        ge=0,
+        le=1,
     )
 
     # =====================================================

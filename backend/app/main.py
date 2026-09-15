@@ -1,6 +1,7 @@
 from fastapi import (
     FastAPI,
     Request,
+    Response,
     status,
 )
 from fastapi.middleware.cors import (
@@ -16,11 +17,27 @@ from app.api.router import (
 from app.core.config import (
     settings,
 )
+from app.core.logging_config import (
+    configure_request_logging,
+)
+from app.core.metrics import (
+    PROMETHEUS_CONTENT_TYPE,
+    operational_metrics,
+)
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
 from app.middleware.broswer_trust import (
     BrowserTrustBoundaryMiddleware,
+)
+from app.middleware.metrics import (
+    MetricsMiddleware,
+)
+from app.middleware.request_correlation import (
+    RequestCorrelationMiddleware,
+)
+from app.middleware.request_logging import (
+    RequestLoggingMiddleware,
 )
 from app.middleware.security_headers import (
     SecurityHeadersMiddleware,
@@ -72,6 +89,8 @@ async def password_reset_delivery_error_handler(
 
 def create_app(
 ) -> FastAPI:
+    configure_request_logging()
+
     application = (
         FastAPI(
             title=(
@@ -109,14 +128,41 @@ def create_app(
     )
 
     # =====================================================
+    # PROMETHEUS METRICS
+    # =====================================================
+    #
+    # The endpoint is deliberately excluded from OpenAPI.
+    # It contains aggregate process metrics, never request
+    # bodies, credentials, request IDs, or resource IDs.
+
+    if settings.metrics_enabled:
+        @application.get(
+            "/metrics",
+            include_in_schema=False,
+        )
+        def get_metrics(
+        ) -> Response:
+            return Response(
+                content=(
+                    operational_metrics
+                    .render()
+                ),
+                headers={
+                    "Content-Type": (
+                        PROMETHEUS_CONTENT_TYPE
+                    )
+                },
+            )
+
+    # =====================================================
     # BROWSER TRUST BOUNDARY
     # =====================================================
     #
     # Starlette constructs user middleware in reverse
     # registration order.
     #
-    # This middleware is registered first so CORS and the
-    # response-security boundary can sit outside it.
+    # This middleware is registered first so CORS, security,
+    # logging, and correlation can sit outside it.
 
     application.add_middleware(
         BrowserTrustBoundaryMiddleware,
@@ -137,6 +183,9 @@ def create_app(
     #
     #     X-Auth-Error-Code
     #         stable authentication error contract
+    #
+    #     X-Request-ID
+    #         distributed request correlation
 
     application.add_middleware(
         CORSMiddleware,
@@ -157,32 +206,75 @@ def create_app(
             "Authorization",
             "Content-Type",
             "X-CSRF-Token",
+            "X-Request-ID",
         ],
         expose_headers=[
             "Retry-After",
             "X-Auth-Error-Code",
+            "X-Request-ID",
         ],
     )
 
     # =====================================================
     # RESPONSE SECURITY BOUNDARY
     # =====================================================
-    #
-    # Starlette reverses middleware registration order.
-    #
-    # Because this middleware is registered last, it becomes
-    # the outermost user middleware.
-    #
-    # That means security headers are also applied to:
-    #
-    #     normal route responses
-    #     FastAPI exception responses
-    #     password-reset delivery failure responses
-    #     browser-trust rejections
-    #     CORS preflight responses
 
     application.add_middleware(
         SecurityHeadersMiddleware,
+    )
+
+    # =====================================================
+    # STRUCTURED REQUEST LOGGING
+    # =====================================================
+    #
+    # Request logging is registered after security headers,
+    # placing it outside security, CORS, and browser trust.
+    #
+    # Metrics is registered after logging, and correlation is
+    # registered last. Because Starlette reverses middleware
+    # registration order, runtime order becomes:
+    #
+    #     correlation
+    #     metrics
+    #     request logging
+    #     security headers
+    #     CORS
+    #     browser trust
+
+    application.add_middleware(
+        RequestLoggingMiddleware,
+        service_name=(
+            settings.app_name
+        ),
+        environment=(
+            settings.app_env
+        ),
+    )
+
+    # =====================================================
+    # OPERATIONAL METRICS
+    # =====================================================
+
+    if settings.metrics_enabled:
+        application.add_middleware(
+            MetricsMiddleware,
+            metrics=(
+                operational_metrics
+            ),
+        )
+
+    # =====================================================
+    # REQUEST CORRELATION BOUNDARY
+    # =====================================================
+    #
+    # Starlette reverses middleware registration order.
+    #
+    # Registering correlation last makes it the outermost
+    # user middleware. The request ID is therefore bound
+    # before metrics and structured request logging execute.
+
+    application.add_middleware(
+        RequestCorrelationMiddleware,
     )
 
     return application

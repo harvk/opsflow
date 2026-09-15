@@ -1,10 +1,13 @@
 import pytest
-from fastapi import status
+from fastapi import (
+    status,
+)
 
 from app.api.incident_gateway_errors import (
     incident_gateway_http_exception,
 )
 from app.gateways.incident_gateway import (
+    IncidentGatewayCircuitOpenError,
     IncidentGatewayError,
     IncidentGatewayProtocolError,
     IncidentGatewayUnavailableError,
@@ -16,14 +19,26 @@ from app.gateways.incident_gateway import (
         "gateway_error",
         "expected_status",
         "expected_detail",
+        "expected_headers",
     ),
     [
+        (
+            IncidentGatewayCircuitOpenError(
+                retry_after_seconds=7.2
+            ),
+            status.HTTP_503_SERVICE_UNAVAILABLE,
+            "Incident service is unavailable.",
+            {
+                "Retry-After": "8"
+            },
+        ),
         (
             IncidentGatewayUnavailableError(
                 "internal transport detail"
             ),
             status.HTTP_503_SERVICE_UNAVAILABLE,
             "Incident service is unavailable.",
+            None,
         ),
         (
             IncidentGatewayProtocolError(
@@ -34,6 +49,7 @@ from app.gateways.incident_gateway import (
                 "Incident service returned "
                 "an invalid response."
             ),
+            None,
         ),
     ],
 )
@@ -41,6 +57,10 @@ def test_incident_gateway_error_translation(
     gateway_error: IncidentGatewayError,
     expected_status: int,
     expected_detail: str,
+    expected_headers: (
+        dict[str, str]
+        | None
+    ),
 ) -> None:
     http_error = (
         incident_gateway_http_exception(
@@ -56,6 +76,11 @@ def test_incident_gateway_error_translation(
     assert (
         http_error.detail
         == expected_detail
+    )
+
+    assert (
+        http_error.headers
+        == expected_headers
     )
 
     assert (

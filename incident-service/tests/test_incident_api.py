@@ -14,6 +14,9 @@ from app.api.dependencies import (
     get_service_catalog_gateway,
 )
 from app.core.config import Settings
+from app.core.request_context import (
+    REQUEST_ID_HEADER,
+)
 from app.db.session import get_db_session
 from app.gateways.unavailable_service_catalog_gateway import (
     UnavailableServiceCatalogGateway,
@@ -525,4 +528,41 @@ def test_create_fails_closed_when_catalog_is_unavailable(
             "Service Catalog validation "
             "is unavailable."
         )
+    )
+
+def test_authentication_failure_preserves_request_id(
+    api_client: tuple[
+        TestClient,
+        UUID,
+    ],
+) -> None:
+    client, _service_id = api_client
+
+    client.headers.pop(
+        INTERNAL_TOKEN_HEADER
+    )
+
+    supplied_request_id = (
+        "private-api-auth-failure:9.6.4"
+    )
+
+    response = client.get(
+        "/api/v1/incidents",
+        headers={
+            INTERNAL_TOKEN_HEADER: (
+                "incorrect-internal-token"
+            ),
+            REQUEST_ID_HEADER: (
+                supplied_request_id
+            ),
+        },
+    )
+
+    assert response.status_code == 401
+
+    assert (
+        response.headers[
+            REQUEST_ID_HEADER
+        ]
+        == supplied_request_id
     )

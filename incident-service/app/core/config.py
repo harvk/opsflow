@@ -49,6 +49,11 @@ class Settings(
         "/api/v1"
     )
 
+    # Exposes process-local Prometheus metrics at /metrics.
+    # The Incident Service remains private in Compose.
+
+    metrics_enabled: bool = True
+
     database_url: str
 
     core_backend_url: str

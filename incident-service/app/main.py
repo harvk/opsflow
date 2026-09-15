@@ -1,5 +1,6 @@
 from fastapi import (
     FastAPI,
+    Response,
 )
 
 from app.api.router import (
@@ -9,6 +10,22 @@ from app.core.config import (
     Settings,
     get_settings,
     settings,
+)
+from app.core.logging_config import (
+    configure_request_logging,
+)
+from app.core.metrics import (
+    PROMETHEUS_CONTENT_TYPE,
+    operational_metrics,
+)
+from app.middleware.metrics import (
+    MetricsMiddleware,
+)
+from app.middleware.request_correlation import (
+    RequestCorrelationMiddleware,
+)
+from app.middleware.request_logging import (
+    RequestLoggingMiddleware,
 )
 
 
@@ -20,14 +37,16 @@ def create_app(
 
     Browser-facing CORS, CSRF, password-reset handlers, and
     Core Backend authentication middleware are deliberately
-    absent from this service scaffold. They belong to the
-    browser-facing Core Backend boundary.
+    absent from this service. They belong to the public
+    Backend boundary.
     """
 
     configured_settings = (
         app_settings
         or settings
     )
+
+    configure_request_logging()
 
     application = (
         FastAPI(
@@ -53,10 +72,57 @@ def create_app(
         ),
     )
 
+    if configured_settings.metrics_enabled:
+        @application.get(
+            "/metrics",
+            include_in_schema=False,
+        )
+        def get_metrics(
+        ) -> Response:
+            return Response(
+                content=(
+                    operational_metrics
+                    .render()
+                ),
+                headers={
+                    "Content-Type": (
+                        PROMETHEUS_CONTENT_TYPE
+                    )
+                },
+            )
+
     if app_settings is not None:
         application.dependency_overrides[
             get_settings
         ] = lambda: configured_settings
+
+    # Logging is added first and correlation is added last.
+    # Because Starlette reverses registration order, the
+    # request ID is bound before request logging begins.
+
+    application.add_middleware(
+        RequestLoggingMiddleware,
+        service_name=(
+            configured_settings
+            .app_name
+        ),
+        environment=(
+            configured_settings
+            .app_env
+        ),
+    )
+
+    if configured_settings.metrics_enabled:
+        application.add_middleware(
+            MetricsMiddleware,
+            metrics=(
+                operational_metrics
+            ),
+        )
+
+    application.add_middleware(
+        RequestCorrelationMiddleware,
+    )
 
     return application
 

@@ -61,7 +61,7 @@ def create_seed_services() -> list[Service]:
             incidents=[]
         ),
     ]
-    
+
 def create_seed_incidents() -> list[Incident]:
     now = datetime.now(UTC)
 
