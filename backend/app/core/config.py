@@ -127,6 +127,27 @@ class Settings(
         le=30,
     )
 
+    # Number of consecutive failed logical gateway
+    # operations required to open the process-local circuit.
+    #
+    # A read that exhausts multiple retry attempts counts as
+    # one failed operation.
+
+    incident_service_circuit_failure_threshold: int = Field(
+        default=3,
+        ge=1,
+        le=20,
+    )
+
+    # Time the circuit remains open before allowing one
+    # half-open probe request.
+
+    incident_service_circuit_recovery_seconds: float = Field(
+        default=15.0,
+        gt=0,
+        le=300,
+    )
+
     # Total attempts, including the initial request.
     #
     # A value of:

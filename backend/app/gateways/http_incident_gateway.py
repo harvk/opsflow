@@ -19,6 +19,11 @@ from pydantic import (
     ValidationError,
 )
 
+from app.core.circuit_breaker import (
+    CircuitBreaker,
+    CircuitOpenError,
+    CircuitPermit,
+)
 from app.core.request_context import (
     REQUEST_ID_HEADER,
     get_request_id,
@@ -29,6 +34,7 @@ from app.domain.incident import (
     IncidentStatus,
 )
 from app.gateways.incident_gateway import (
+    IncidentGatewayCircuitOpenError,
     IncidentGatewayProtocolError,
     IncidentGatewayUnavailableError,
 )
@@ -90,6 +96,10 @@ class HttpIncidentGateway:
             [float],
             None,
         ] = sleep,
+        circuit_breaker: (
+            CircuitBreaker
+            | None
+        ) = None,
     ) -> None:
         normalized_url = (
             incident_service_url
@@ -137,6 +147,10 @@ class HttpIncidentGateway:
         )
 
         self._sleeper = sleeper
+
+        self._circuit_breaker = (
+            circuit_breaker
+        )
 
     # =====================================================
     # LIST / SEARCH
@@ -389,12 +403,26 @@ class HttpIncidentGateway:
             method.upper()
         )
 
+        circuit_permit = (
+            self._acquire_circuit_permission()
+        )
+
         maximum_attempts = (
             self._read_max_attempts
             if normalized_method
             in _RETRYABLE_READ_METHODS
             else 1
         )
+
+        # A half-open probe is deliberately one transport
+        # attempt. Retrying a probe would delay the decision
+        # to reopen or close the circuit.
+        if (
+            circuit_permit is not None
+            and circuit_permit
+            .is_half_open_probe
+        ):
+            maximum_attempts = 1
 
         request_headers = dict(
             self._headers
@@ -427,6 +455,10 @@ class HttpIncidentGateway:
                     attempt_number
                     >= maximum_attempts
                 ):
+                    self._record_circuit_failure(
+                        circuit_permit
+                    )
+
                     raise IncidentGatewayUnavailableError(
                         "Incident Service request timed out."
                     ) from None
@@ -442,6 +474,10 @@ class HttpIncidentGateway:
                     attempt_number
                     >= maximum_attempts
                 ):
+                    self._record_circuit_failure(
+                        circuit_permit
+                    )
+
                     raise IncidentGatewayUnavailableError(
                         "Incident Service is unavailable."
                     ) from None
@@ -464,13 +500,76 @@ class HttpIncidentGateway:
 
                 continue
 
+            if response.status_code >= 500:
+                self._record_circuit_failure(
+                    circuit_permit
+                )
+
+            else:
+                self._record_circuit_success(
+                    circuit_permit
+                )
+
             return response
+
+        raise RuntimeError(
+            "Incident Service retry loop exited unexpectedly."
+        )
 
         # The loop either returns a response or raises one of
         # the gateway errors above. This guard documents that
         # invariant for static analysis.
         raise RuntimeError(
             "Incident Service retry loop exited unexpectedly."
+        )
+
+    def _acquire_circuit_permission(
+        self,
+    ) -> CircuitPermit | None:
+        if self._circuit_breaker is None:
+            return None
+
+        try:
+            return (
+                self._circuit_breaker
+                .acquire_permission()
+            )
+
+        except CircuitOpenError as exc:
+            raise (
+                IncidentGatewayCircuitOpenError(
+                    retry_after_seconds=(
+                        exc.retry_after_seconds
+                    )
+                )
+            ) from None
+
+    def _record_circuit_success(
+        self,
+        permit: CircuitPermit | None,
+    ) -> None:
+        if (
+            self._circuit_breaker is None
+            or permit is None
+        ):
+            return
+
+        self._circuit_breaker.record_success(
+            permit
+        )
+
+    def _record_circuit_failure(
+        self,
+        permit: CircuitPermit | None,
+    ) -> None:
+        if (
+            self._circuit_breaker is None
+            or permit is None
+        ):
+            return
+
+        self._circuit_breaker.record_failure(
+            permit
         )
 
     def _sleep_before_retry(

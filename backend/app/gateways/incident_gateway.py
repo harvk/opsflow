@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+from math import (
+    ceil,
+)
 from typing import Protocol
 from uuid import UUID
 
@@ -28,6 +31,34 @@ class IncidentGatewayUnavailableError(
     Raised when the configured Incident Management provider
     cannot complete a request.
     """
+
+
+class IncidentGatewayCircuitOpenError(
+    IncidentGatewayUnavailableError
+):
+    """
+    Raised when the Incident Service circuit rejects a call
+    before any network request is attempted.
+
+    The public API may expose the bounded retry interval, but
+    not internal breaker state or dependency details.
+    """
+
+    def __init__(
+        self,
+        *,
+        retry_after_seconds: float,
+    ) -> None:
+        self.retry_after_seconds = max(
+            1,
+            ceil(
+                retry_after_seconds
+            ),
+        )
+
+        super().__init__(
+            "Incident Service circuit breaker is open."
+        )
 
 
 class IncidentGatewayProtocolError(
