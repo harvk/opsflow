@@ -435,6 +435,14 @@ def get_incident_gateway(
                     .incident_service_token
                     .get_secret_value()
                 ),
+                read_max_attempts=(
+                    settings
+                    .incident_service_read_max_attempts
+                ),
+                read_backoff_seconds=(
+                    settings
+                    .incident_service_read_backoff_seconds
+                ),
             )
         )
 

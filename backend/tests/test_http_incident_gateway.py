@@ -13,7 +13,6 @@ from app.core.request_context import (
     bind_request_id,
     reset_request_id,
 )
-
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -77,11 +76,28 @@ INCIDENT_RESPONSE = {
 }
 
 
+def no_sleep(
+    _delay_seconds: float,
+) -> None:
+    """
+    Test sleeper that deliberately performs no wall-clock
+    delay.
+    """
+    return
+
+
 def build_gateway(
     handler: Callable[
         [httpx.Request],
         httpx.Response,
     ],
+    *,
+    read_max_attempts: int = 1,
+    read_backoff_seconds: float = 0.0,
+    sleeper: Callable[
+        [float],
+        None,
+    ] = no_sleep,
 ) -> tuple[
     HttpIncidentGateway,
     httpx.Client,
@@ -100,6 +116,13 @@ def build_gateway(
         internal_token=(
             INTERNAL_TOKEN
         ),
+        read_max_attempts=(
+            read_max_attempts
+        ),
+        read_backoff_seconds=(
+            read_backoff_seconds
+        ),
+        sleeper=sleeper,
     )
 
     return gateway, client
@@ -114,7 +137,7 @@ def assert_internal_authentication(
         ]
         == INTERNAL_TOKEN
     )
-    
+
 def test_gateway_propagates_only_the_current_request_id(
 ) -> None:
     observed_request_ids: list[
@@ -681,6 +704,279 @@ def test_delete_accepts_no_content(
 
     finally:
         client.close()
+
+
+def test_safe_read_retries_timeout_and_preserves_request_id(
+) -> None:
+    attempt_count = 0
+
+    observed_request_ids: list[
+        str | None
+    ] = []
+
+    observed_delays: list[
+        float
+    ] = []
+
+    request_id = (
+        "safe-read-retry:9.6.6"
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal attempt_count
+
+        attempt_count += 1
+
+        observed_request_ids.append(
+            request.headers.get(
+                REQUEST_ID_HEADER
+            )
+        )
+
+        if attempt_count == 1:
+            raise httpx.ReadTimeout(
+                "first attempt timed out",
+                request=request,
+            )
+
+        return httpx.Response(
+            200,
+            json=[],
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        read_max_attempts=2,
+        read_backoff_seconds=0.25,
+        sleeper=(
+            observed_delays.append
+        ),
+    )
+
+    context_token = bind_request_id(
+        request_id
+    )
+
+    try:
+        try:
+            assert gateway.list() == []
+
+        finally:
+            reset_request_id(
+                context_token
+            )
+
+    finally:
+        client.close()
+
+    assert attempt_count == 2
+
+    assert observed_request_ids == [
+        request_id,
+        request_id,
+    ]
+
+    assert observed_delays == [
+        0.25
+    ]
+
+
+def test_safe_read_retries_transient_503_response(
+) -> None:
+    attempt_count = 0
+
+    observed_delays: list[
+        float
+    ] = []
+
+    def handler(
+        _request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal attempt_count
+
+        attempt_count += 1
+
+        if attempt_count == 1:
+            return httpx.Response(
+                503,
+                json={
+                    "detail": (
+                        "Temporarily unavailable."
+                    )
+                },
+            )
+
+        return httpx.Response(
+            200,
+            json=[],
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        read_max_attempts=2,
+        read_backoff_seconds=0.1,
+        sleeper=(
+            observed_delays.append
+        ),
+    )
+
+    try:
+        assert gateway.list() == []
+
+    finally:
+        client.close()
+
+    assert attempt_count == 2
+
+    assert observed_delays == [
+        0.1
+    ]
+
+
+def test_safe_read_stops_at_configured_attempt_limit(
+) -> None:
+    attempt_count = 0
+
+    observed_delays: list[
+        float
+    ] = []
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        nonlocal attempt_count
+
+        attempt_count += 1
+
+        raise httpx.ConnectError(
+            "connection refused",
+            request=request,
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        read_max_attempts=3,
+        read_backoff_seconds=0.25,
+        sleeper=(
+            observed_delays.append
+        ),
+    )
+
+    try:
+        with pytest.raises(
+            IncidentGatewayUnavailableError,
+            match=(
+                "Incident Service "
+                "is unavailable"
+            ),
+        ):
+            gateway.list()
+
+    finally:
+        client.close()
+
+    assert attempt_count == 3
+
+    assert observed_delays == [
+        0.25,
+        0.5,
+    ]
+
+
+def test_mutations_are_never_automatically_retried(
+) -> None:
+    observed_methods: list[
+        str
+    ] = []
+
+    observed_delays: list[
+        float
+    ] = []
+
+    create_payload = IncidentCreate(
+        title="Checkout latency",
+        service_id=SERVICE_ID,
+        severity=(
+            IncidentSeverity.SEV_2
+        ),
+        summary=(
+            "Checkout latency is elevated."
+        ),
+        assignee="Platform Team",
+    )
+
+    update_payload = IncidentUpdate(
+        summary=(
+            "Checkout latency remains elevated."
+        )
+    )
+
+    def handler(
+        request: httpx.Request,
+    ) -> httpx.Response:
+        observed_methods.append(
+            request.method
+        )
+
+        raise httpx.ConnectError(
+            "connection refused",
+            request=request,
+        )
+
+    gateway, client = build_gateway(
+        handler,
+        read_max_attempts=3,
+        read_backoff_seconds=0.25,
+        sleeper=(
+            observed_delays.append
+        ),
+    )
+
+    operations: list[
+        Callable[
+            [HttpIncidentGateway],
+            object,
+        ]
+    ] = [
+        lambda active_gateway: (
+            active_gateway.create(
+                create_payload
+            )
+        ),
+        lambda active_gateway: (
+            active_gateway.update(
+                INCIDENT_ID,
+                update_payload,
+            )
+        ),
+        lambda active_gateway: (
+            active_gateway.delete(
+                INCIDENT_ID
+            )
+        ),
+    ]
+
+    try:
+        for operation in operations:
+            with pytest.raises(
+                IncidentGatewayUnavailableError
+            ):
+                operation(
+                    gateway
+                )
+
+    finally:
+        client.close()
+
+    assert observed_methods == [
+        "POST",
+        "PATCH",
+        "DELETE",
+    ]
+
+    assert observed_delays == []
 
 
 def test_timeout_becomes_unavailable_error(

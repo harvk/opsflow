@@ -1,16 +1,28 @@
 from __future__ import annotations
 
-from typing import Any
-from uuid import UUID
+from collections.abc import (
+    Callable,
+)
+from time import (
+    sleep,
+)
+from typing import (
+    Any,
+)
+from uuid import (
+    UUID,
+)
 
 import httpx
-from pydantic import TypeAdapter, ValidationError
+from pydantic import (
+    TypeAdapter,
+    ValidationError,
+)
 
 from app.core.request_context import (
     REQUEST_ID_HEADER,
     get_request_id,
 )
-
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -34,6 +46,22 @@ _INCIDENT_LIST_ADAPTER = TypeAdapter(
     list[IncidentResponse]
 )
 
+_RETRYABLE_READ_METHODS = frozenset(
+    {
+        "GET",
+        "HEAD",
+        "OPTIONS",
+    }
+)
+
+_RETRYABLE_RESPONSE_STATUSES = frozenset(
+    {
+        502,
+        503,
+        504,
+    }
+)
+
 
 class HttpIncidentGateway:
     """
@@ -43,6 +71,11 @@ class HttpIncidentGateway:
     into the Incident Service's private HTTP contract. It
     owns transport concerns only; authorization and business
     rules remain in their respective application services.
+
+    Safe read operations receive a bounded retry policy.
+    Mutating operations are attempted exactly once because
+    the Incident Service does not currently expose idempotency
+    keys for mutation deduplication.
     """
 
     def __init__(
@@ -51,6 +84,12 @@ class HttpIncidentGateway:
         client: httpx.Client,
         incident_service_url: str,
         internal_token: str,
+        read_max_attempts: int = 1,
+        read_backoff_seconds: float = 0.0,
+        sleeper: Callable[
+            [float],
+            None,
+        ] = sleep,
     ) -> None:
         normalized_url = (
             incident_service_url
@@ -68,14 +107,36 @@ class HttpIncidentGateway:
                 "internal_token must not be empty."
             )
 
+        if read_max_attempts < 1:
+            raise ValueError(
+                "read_max_attempts must be at least 1."
+            )
+
+        if read_backoff_seconds < 0:
+            raise ValueError(
+                "read_backoff_seconds must not be negative."
+            )
+
         self._client = client
+
         self._incidents_url = (
             f"{normalized_url}/incidents"
         )
+
         self._headers = {
             "Accept": "application/json",
             "X-OpsFlow-Internal-Token": internal_token,
         }
+
+        self._read_max_attempts = (
+            read_max_attempts
+        )
+
+        self._read_backoff_seconds = (
+            read_backoff_seconds
+        )
+
+        self._sleeper = sleeper
 
     # =====================================================
     # LIST / SEARCH
@@ -91,22 +152,35 @@ class HttpIncidentGateway:
         offset: int = 0,
         limit: int = 50,
     ) -> list[Incident]:
-        params: dict[str, str | int] = {
+        params: dict[
+            str,
+            str | int,
+        ] = {
             "offset": offset,
             "limit": limit,
         }
 
         if search is not None:
-            params["search"] = search
+            params[
+                "search"
+            ] = search
 
         if service_id is not None:
-            params["serviceId"] = str(service_id)
+            params[
+                "serviceId"
+            ] = str(
+                service_id
+            )
 
         if severity is not None:
-            params["severity"] = severity.value
+            params[
+                "severity"
+            ] = severity.value
 
         if status is not None:
-            params["status"] = status.value
+            params[
+                "status"
+            ] = status.value
 
         response = self._request(
             "GET",
@@ -133,7 +207,10 @@ class HttpIncidentGateway:
     ) -> Incident:
         response = self._request(
             "GET",
-            f"{self._incidents_url}/{incident_id}",
+            (
+                f"{self._incidents_url}/"
+                f"{incident_id}"
+            ),
         )
 
         if response.status_code == 404:
@@ -202,7 +279,10 @@ class HttpIncidentGateway:
     ) -> Incident:
         response = self._request(
             "PATCH",
-            f"{self._incidents_url}/{incident_id}",
+            (
+                f"{self._incidents_url}/"
+                f"{incident_id}"
+            ),
             json=payload.model_dump(
                 mode="json",
                 by_alias=True,
@@ -249,7 +329,10 @@ class HttpIncidentGateway:
     ) -> None:
         response = self._request(
             "DELETE",
-            f"{self._incidents_url}/{incident_id}",
+            (
+                f"{self._incidents_url}/"
+                f"{incident_id}"
+            ),
         )
 
         if response.status_code == 404:
@@ -302,6 +385,17 @@ class HttpIncidentGateway:
             | None
         ) = None,
     ) -> httpx.Response:
+        normalized_method = (
+            method.upper()
+        )
+
+        maximum_attempts = (
+            self._read_max_attempts
+            if normalized_method
+            in _RETRYABLE_READ_METHODS
+            else 1
+        )
+
         request_headers = dict(
             self._headers
         )
@@ -313,24 +407,93 @@ class HttpIncidentGateway:
                 REQUEST_ID_HEADER
             ] = request_id
 
-        try:
-            return self._client.request(
-                method,
-                url,
-                headers=request_headers,
-                params=params,
-                json=json,
+        for attempt_number in range(
+            1,
+            maximum_attempts + 1,
+        ):
+            try:
+                response = (
+                    self._client.request(
+                        normalized_method,
+                        url,
+                        headers=request_headers,
+                        params=params,
+                        json=json,
+                    )
+                )
+
+            except httpx.TimeoutException:
+                if (
+                    attempt_number
+                    >= maximum_attempts
+                ):
+                    raise IncidentGatewayUnavailableError(
+                        "Incident Service request timed out."
+                    ) from None
+
+                self._sleep_before_retry(
+                    attempt_number
+                )
+
+                continue
+
+            except httpx.RequestError:
+                if (
+                    attempt_number
+                    >= maximum_attempts
+                ):
+                    raise IncidentGatewayUnavailableError(
+                        "Incident Service is unavailable."
+                    ) from None
+
+                self._sleep_before_retry(
+                    attempt_number
+                )
+
+                continue
+
+            if (
+                response.status_code
+                in _RETRYABLE_RESPONSE_STATUSES
+                and attempt_number
+                < maximum_attempts
+            ):
+                self._sleep_before_retry(
+                    attempt_number
+                )
+
+                continue
+
+            return response
+
+        # The loop either returns a response or raises one of
+        # the gateway errors above. This guard documents that
+        # invariant for static analysis.
+        raise RuntimeError(
+            "Incident Service retry loop exited unexpectedly."
+        )
+
+    def _sleep_before_retry(
+        self,
+        completed_attempts: int,
+    ) -> None:
+        delay_seconds = (
+            self._read_backoff_seconds
+            * (
+                2
+                ** (
+                    completed_attempts
+                    - 1
+                )
             )
+        )
 
-        except httpx.TimeoutException:
-            raise IncidentGatewayUnavailableError(
-                "Incident Service request timed out."
-            ) from None
+        if delay_seconds <= 0:
+            return
 
-        except httpx.RequestError:
-            raise IncidentGatewayUnavailableError(
-                "Incident Service is unavailable."
-            ) from None
+        self._sleeper(
+            delay_seconds
+        )
 
     # =====================================================
     # HTTP STATUS TRANSLATION
@@ -420,7 +583,8 @@ class HttpIncidentGateway:
             Incident(
                 **item.model_dump()
             )
-            for item in validated_items
+            for item
+            in validated_items
         ]
 
     # =====================================================
