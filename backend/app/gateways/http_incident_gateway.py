@@ -97,11 +97,10 @@ class HttpIncidentGateway:
     the Incident Service does not currently expose idempotency
     keys for mutation deduplication.
 
-    During the controlled authentication migration, the
-    gateway can add a scoped service bearer credential while
-    retaining the legacy internal-token header. The legacy
-    header is removed only after the receiving service has
-    completed service-JWT verification rollout.
+    Every outbound request carries a short-lived, scoped
+    service bearer credential. Read operations receive only
+    incidents:read; mutations receive only incidents:write.
+    The removed shared-secret header is never transmitted.
     """
 
     def __init__(
@@ -109,15 +108,8 @@ class HttpIncidentGateway:
         *,
         client: httpx.Client,
         incident_service_url: str,
-        internal_token: str,
-        service_token_provider: (
-            ServiceTokenProvider
-            | None
-        ) = None,
-        incident_service_audience: (
-            str
-            | None
-        ) = None,
+        service_token_provider: ServiceTokenProvider,
+        incident_service_audience: str,
         read_max_attempts: int = 1,
         read_backoff_seconds: float = 0.0,
         sleeper: Callable[
@@ -144,45 +136,19 @@ class HttpIncidentGateway:
                 "incident_service_url must not be empty."
             )
 
-        if not internal_token:
+        if service_token_provider is None:
             raise ValueError(
-                "internal_token must not be empty."
+                "service_token_provider is required."
             )
 
-        service_identity_is_partial = (
-            (
-                service_token_provider
-                is None
-            )
-            != (
-                incident_service_audience
-                is None
-            )
+        normalized_audience = (
+            incident_service_audience.strip()
         )
 
-        if service_identity_is_partial:
+        if not normalized_audience:
             raise ValueError(
-                "service_token_provider and "
-                "incident_service_audience must be "
-                "configured together."
+                "incident_service_audience must not be empty."
             )
-
-        normalized_audience: (
-            str
-            | None
-        ) = None
-
-        if incident_service_audience is not None:
-            normalized_audience = (
-                incident_service_audience
-                .strip()
-            )
-
-            if not normalized_audience:
-                raise ValueError(
-                    "incident_service_audience "
-                    "must not be empty."
-                )
 
         if read_max_attempts < 1:
             raise ValueError(
@@ -202,7 +168,6 @@ class HttpIncidentGateway:
 
         self._headers = {
             "Accept": "application/json",
-            "X-OpsFlow-Internal-Token": internal_token,
         }
 
         self._service_token_provider = (
@@ -543,10 +508,9 @@ class HttpIncidentGateway:
                         )
                     )
 
-                    if service_authorization is not None:
-                        attempt_headers[
-                            "Authorization"
-                        ] = service_authorization
+                    attempt_headers[
+                        "Authorization"
+                    ] = service_authorization
 
                     response = (
                         self._client.request(
@@ -717,21 +681,7 @@ class HttpIncidentGateway:
     def _create_service_authorization(
         self,
         method: str,
-    ) -> str | None:
-        if self._service_token_provider is None:
-            return None
-
-        audience = (
-            self
-            ._incident_service_audience
-        )
-
-        if audience is None:
-            raise ServiceTokenCreationError(
-                "The Incident Service audience "
-                "is unavailable."
-            )
-
+    ) -> str:
         scope = (
             ServiceScope.INCIDENTS_READ
             if method
@@ -743,7 +693,10 @@ class HttpIncidentGateway:
             self
             ._service_token_provider
             .create_token(
-                audience=audience,
+                audience=(
+                    self
+                    ._incident_service_audience
+                ),
                 scopes={
                     scope
                 },

@@ -463,11 +463,6 @@ def get_incident_gateway(
                     settings
                     .incident_service_url
                 ),
-                internal_token=(
-                    settings
-                    .incident_service_token
-                    .get_secret_value()
-                ),
                 service_token_provider=(
                     get_service_token_provider()
                 ),

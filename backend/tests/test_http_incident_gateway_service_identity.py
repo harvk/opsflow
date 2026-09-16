@@ -3,6 +3,10 @@ from __future__ import annotations
 from collections.abc import (
     Collection,
 )
+from inspect import (
+    Parameter,
+    signature,
+)
 from uuid import (
     UUID,
 )
@@ -42,10 +46,6 @@ INCIDENT_SERVICE_URL = (
 
 INCIDENT_SERVICE_AUDIENCE = (
     "opsflow-incident-service"
-)
-
-INTERNAL_TOKEN = (
-    "test-internal-token-that-is-at-least-32-characters"
 )
 
 READ_TOKEN = "read-service-token"
@@ -164,9 +164,6 @@ def build_gateway(
         incident_service_url=(
             INCIDENT_SERVICE_URL
         ),
-        internal_token=(
-            INTERNAL_TOKEN
-        ),
         service_token_provider=(
             provider
         ),
@@ -194,9 +191,10 @@ def test_read_uses_bearer_token_with_read_scope(
             "Authorization"
         ] == f"Bearer {READ_TOKEN}"
 
-        assert request.headers[
+        assert (
             "X-OpsFlow-Internal-Token"
-        ] == INTERNAL_TOKEN
+            not in request.headers
+        )
 
         return httpx.Response(
             200,
@@ -242,9 +240,10 @@ def test_mutations_use_bearer_token_with_write_scope(
             "Authorization"
         ] == f"Bearer {WRITE_TOKEN}"
 
-        assert request.headers[
+        assert (
             "X-OpsFlow-Internal-Token"
-        ] == INTERNAL_TOKEN
+            not in request.headers
+        )
 
         if request.method == "POST":
             return httpx.Response(
@@ -442,28 +441,28 @@ def test_token_creation_failure_is_fail_closed(
     )
 
 
-@pytest.mark.parametrize(
-    (
-        "provider",
-        "audience",
-    ),
-    [
-        (
-            RecordingServiceTokenProvider(),
-            None,
-        ),
-        (
-            None,
-            INCIDENT_SERVICE_AUDIENCE,
-        ),
-    ],
-)
-def test_partial_service_identity_configuration_is_rejected(
-    provider: (
-        RecordingServiceTokenProvider
-        | None
-    ),
-    audience: str | None,
+def test_service_identity_configuration_is_required(
+) -> None:
+    parameters = signature(
+        HttpIncidentGateway
+    ).parameters
+
+    assert (
+        parameters[
+            "service_token_provider"
+        ].default
+        is Parameter.empty
+    )
+
+    assert (
+        parameters[
+            "incident_service_audience"
+        ].default
+        is Parameter.empty
+    )
+
+
+def test_blank_service_identity_audience_is_rejected(
 ) -> None:
     client = httpx.Client(
         transport=httpx.MockTransport(
@@ -478,7 +477,8 @@ def test_partial_service_identity_configuration_is_rejected(
         with pytest.raises(
             ValueError,
             match=(
-                "must be configured together"
+                "incident_service_audience "
+                "must not be empty"
             ),
         ):
             HttpIncidentGateway(
@@ -486,14 +486,11 @@ def test_partial_service_identity_configuration_is_rejected(
                 incident_service_url=(
                     INCIDENT_SERVICE_URL
                 ),
-                internal_token=(
-                    INTERNAL_TOKEN
-                ),
                 service_token_provider=(
-                    provider
+                    RecordingServiceTokenProvider()
                 ),
                 incident_service_audience=(
-                    audience
+                    "   "
                 ),
             )
 
