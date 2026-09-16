@@ -347,6 +347,16 @@ services:
 
       INCIDENT_SERVICE_TOKEN: ${INCIDENT_SERVICE_TOKEN:?INCIDENT_SERVICE_TOKEN is required}
 
+      SERVICE_IDENTITY_PRIVATE_KEY_PATH: /run/secrets/core_service_identity_private_key
+
+      SERVICE_IDENTITY_KEY_ID: ${SERVICE_IDENTITY_KEY_ID:-core-backend-key-1}
+
+      SERVICE_IDENTITY_ISSUER: ${SERVICE_IDENTITY_ISSUER:-opsflow-core-backend}
+
+      SERVICE_IDENTITY_TOKEN_TTL_SECONDS: ${SERVICE_IDENTITY_TOKEN_TTL_SECONDS:-60}
+
+      INCIDENT_SERVICE_AUDIENCE: ${INCIDENT_SERVICE_AUDIENCE:-opsflow-incident-service}
+
       INCIDENT_GATEWAY_MODE: ${INCIDENT_GATEWAY_MODE:-http}
 
       INCIDENT_SERVICE_URL: ${INCIDENT_SERVICE_URL:-http://incident-service:8000/api/v1}
@@ -362,6 +372,20 @@ services:
       INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS: ${INCIDENT_SERVICE_CIRCUIT_RECOVERY_SECONDS:-15.0}
 
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
+
+    # ------------------------------------------------------
+    # SERVICE-IDENTITY PRIVATE KEY
+    # ------------------------------------------------------
+    #
+    # The private RSA key is mounted as a read-only Compose
+    # secret. It is not copied into the image and is not
+    # stored in an environment variable.
+    #
+    # Only the Core Backend receives this signing key.
+
+    secrets:
+      - source: core_service_identity_private_key
+        target: core_service_identity_private_key
 
     # ------------------------------------------------------
     # HOST PORT
@@ -773,6 +797,14 @@ services:
 volumes:
   opsflow_postgres_data:
     name: opsflow_postgres_data
+
+# ==========================================================
+# FILE-BACKED LOCAL DEVELOPMENT SECRETS
+# ==========================================================
+
+secrets:
+  core_service_identity_private_key:
+    file: ${CORE_SERVICE_IDENTITY_PRIVATE_KEY_FILE:-./.opsflow-secrets/core-service-identity-private.pem}
 
 # ==========================================================
 # NETWORKS

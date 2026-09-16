@@ -4,7 +4,7 @@ on:
   push:
     branches:
       - main
-      - feature/distributed-resilience
+      - feature/distributed-authentication
   pull_request:
   workflow_dispatch:
 
@@ -91,6 +91,16 @@ jobs:
             "httpx==0.28.1" \
             "pytest==9.1.1" \
             "ruff==0.16.6"
+
+      - name: Validate service identity key generator
+        run: |
+          output_directory="${RUNNER_TEMP}/opsflow-service-identity"
+
+          python scripts/generate_service_identity_keys.py \
+            --output-directory "${output_directory}"
+
+          test -s "${output_directory}/core-service-identity-private.pem"
+          test -s "${output_directory}/core-service-identity-public.pem"
 
       - name: Create Backend test database
         run: |
@@ -241,6 +251,20 @@ jobs:
           cp .env.docker.example .env.docker
           cp backend/.env.example backend/.env
 
+      - name: Generate ephemeral Core service identity key
+        run: |
+          mkdir -p .opsflow-secrets
+
+          openssl genpkey \
+            -algorithm RSA \
+            -pkeyopt rsa_keygen_bits:2048 \
+            -out .opsflow-secrets/core-service-identity-private.pem
+
+          openssl pkey \
+            -in .opsflow-secrets/core-service-identity-private.pem \
+            -pubout \
+            -out .opsflow-secrets/core-service-identity-public.pem
+
       - name: Validate Compose configuration
         run: docker compose --env-file .env.docker config --quiet
 
@@ -267,6 +291,16 @@ jobs:
         run: |
           curl --fail --silent --show-error http://localhost:8000/metrics \
             | grep "opsflow_http_requests_total"
+
+      - name: Check Core service identity issuance
+        run: |
+          docker compose --env-file .env.docker exec -T backend \
+            python -c "from app.core.config import settings; from app.core.service_identity import ServiceScope; from app.core.service_identity_provider import get_service_token_provider; token = get_service_token_provider().create_token(audience=settings.incident_service_audience, scopes={ServiceScope.INCIDENTS_READ}); assert token.count('.') == 2; print('Core service identity issuance passed')"
+
+      - name: Verify Incident Service cannot access Core private key
+        run: |
+          docker compose --env-file .env.docker exec -T incident-service \
+            /bin/sh -c 'test ! -e /run/secrets/core_service_identity_private_key'
 
       - name: Check private Incident Service health
         run: |

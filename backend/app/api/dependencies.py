@@ -61,6 +61,9 @@ from app.core.password_reset_throttle import (
 from app.core.security_events import (
     security_event_logger,
 )
+from app.core.service_identity_provider import (
+    get_service_token_provider,
+)
 from app.db.session import (
     get_db_session,
 )
@@ -464,6 +467,13 @@ def get_incident_gateway(
                     settings
                     .incident_service_token
                     .get_secret_value()
+                ),
+                service_token_provider=(
+                    get_service_token_provider()
+                ),
+                incident_service_audience=(
+                    settings
+                    .incident_service_audience
                 ),
                 read_max_attempts=(
                     settings

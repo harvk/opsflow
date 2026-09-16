@@ -97,6 +97,39 @@ class Settings(
         min_length=32,
     )
 
+    # The legacy shared token remains during the controlled
+    # migration to asymmetric service credentials. It will
+    # be removed only after both services issue and verify
+    # scoped service JWTs.
+
+    service_identity_private_key_path: Path = Field(
+        default=(
+            BACKEND_DIR
+            / "secrets"
+            / "core-service-identity-private.pem"
+        ),
+    )
+
+    service_identity_key_id: str = Field(
+        default="core-backend-key-1",
+        min_length=1,
+        max_length=128,
+    )
+
+    service_identity_issuer: Literal[
+        "opsflow-core-backend"
+    ] = "opsflow-core-backend"
+
+    service_identity_token_ttl_seconds: int = Field(
+        default=60,
+        ge=30,
+        le=120,
+    )
+
+    incident_service_audience: Literal[
+        "opsflow-incident-service"
+    ] = "opsflow-incident-service"
+
     # =====================================================
     # INCIDENT GATEWAY
     # =====================================================
