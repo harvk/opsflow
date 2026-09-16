@@ -4,10 +4,16 @@ from functools import (
 from pathlib import (
     Path,
 )
+from typing import (
+    Annotated,
+    Self,
+)
 
 from pydantic import (
     Field,
     SecretStr,
+    StringConstraints,
+    model_validator,
 )
 from pydantic_settings import (
     BaseSettings,
@@ -24,6 +30,25 @@ INCIDENT_SERVICE_ENV_FILE = (
     INCIDENT_SERVICE_DIR
     / ".env"
 )
+
+OPSFLOW_SECRETS_DIR = (
+    INCIDENT_SERVICE_DIR
+    .parent
+    / ".opsflow-secrets"
+)
+
+DEFAULT_SERVICE_IDENTITY_PUBLIC_KEY_FILE = (
+    OPSFLOW_SECRETS_DIR
+    / "core-service-identity-public.pem"
+)
+
+NonEmptyText = Annotated[
+    str,
+    StringConstraints(
+        strip_whitespace=True,
+        min_length=1,
+    ),
+]
 
 
 class Settings(
@@ -58,6 +83,9 @@ class Settings(
 
     core_backend_url: str
 
+    # Retained temporarily while the existing shared-token
+    # transport is replaced by scoped RS256 credentials.
+
     incident_service_token: SecretStr = Field(
         min_length=32,
     )
@@ -68,12 +96,73 @@ class Settings(
         le=30,
     )
 
+    # Core Backend service-identity verification contract.
+
+    service_identity_issuer: NonEmptyText = (
+        "opsflow-core-backend"
+    )
+
+    service_identity_audience: NonEmptyText = (
+        "opsflow-incident-service"
+    )
+
+    service_identity_key_id: NonEmptyText = (
+        "core-backend-key-1"
+    )
+
+    service_identity_public_key_file: Path = (
+        DEFAULT_SERVICE_IDENTITY_PUBLIC_KEY_FILE
+    )
+
+    service_identity_previous_key_id: (
+        NonEmptyText | None
+    ) = None
+
+    service_identity_previous_public_key_file: (
+        Path | None
+    ) = None
+
+    service_identity_clock_skew_seconds: int = Field(
+        default=5,
+        ge=0,
+        le=30,
+    )
+
     model_config = SettingsConfigDict(
         env_file=INCIDENT_SERVICE_ENV_FILE,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
+
+    @model_validator(
+        mode="after",
+    )
+    def validate_previous_verification_key(
+        self,
+    ) -> Self:
+        previous_key_id_is_set = (
+            self.service_identity_previous_key_id
+            is not None
+        )
+
+        previous_key_file_is_set = (
+            self
+            .service_identity_previous_public_key_file
+            is not None
+        )
+
+        if (
+            previous_key_id_is_set
+            != previous_key_file_is_set
+        ):
+            raise ValueError(
+                "Previous service-identity key ID and "
+                "public-key file must be configured "
+                "together."
+            )
+
+        return self
 
 
 @lru_cache
