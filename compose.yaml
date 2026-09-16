@@ -18,9 +18,8 @@
 #   frontend healthy
 #
 #
-# The Incident Service currently starts independently from
-# the database/migration chain. Its persistence layer and
-# production traffic switch are introduced in later phases.
+# Both Python services start only after their corresponding
+# database migrations complete successfully.
 #
 # Network segmentation:
 #
@@ -601,6 +600,28 @@ services:
 
       SERVICE_CATALOG_TIMEOUT_SECONDS: 3.0
 
+      SERVICE_IDENTITY_ISSUER: ${SERVICE_IDENTITY_ISSUER:-opsflow-core-backend}
+
+      SERVICE_IDENTITY_AUDIENCE: ${INCIDENT_SERVICE_AUDIENCE:-opsflow-incident-service}
+
+      SERVICE_IDENTITY_KEY_ID: ${SERVICE_IDENTITY_KEY_ID:-core-backend-key-1}
+
+      SERVICE_IDENTITY_PUBLIC_KEY_FILE: /run/secrets/core_service_identity_public_key
+
+      SERVICE_IDENTITY_CLOCK_SKEW_SECONDS: ${SERVICE_IDENTITY_CLOCK_SKEW_SECONDS:-5}
+
+    # ------------------------------------------------------
+    # SERVICE-IDENTITY PUBLIC KEY
+    # ------------------------------------------------------
+    #
+    # The Incident Service receives only the RSA public key
+    # required to verify Core Backend service credentials.
+    # It never receives the private signing key.
+
+    secrets:
+      - source: core_service_identity_public_key
+        target: core_service_identity_public_key
+
     depends_on:
       incident-migrate:
         condition: service_completed_successfully
@@ -805,6 +826,9 @@ volumes:
 secrets:
   core_service_identity_private_key:
     file: ${CORE_SERVICE_IDENTITY_PRIVATE_KEY_FILE:-./.opsflow-secrets/core-service-identity-private.pem}
+
+  core_service_identity_public_key:
+    file: ${CORE_SERVICE_IDENTITY_PUBLIC_KEY_FILE:-./.opsflow-secrets/core-service-identity-public.pem}
 
 # ==========================================================
 # NETWORKS
