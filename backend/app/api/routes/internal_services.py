@@ -9,7 +9,7 @@ from fastapi import (
 
 from app.api.dependencies import (
     ServiceRepositoryDependency,
-    require_incident_service_token,
+    require_services_read,
 )
 from app.schemas.internal_service_catalog import (
     ServiceExistenceResponse,
@@ -19,7 +19,7 @@ router = (
     APIRouter(
         dependencies=[
             Depends(
-                require_incident_service_token
+                require_services_read
             ),
         ],
     )

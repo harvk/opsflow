@@ -344,8 +344,6 @@ services:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
-      INCIDENT_SERVICE_TOKEN: ${INCIDENT_SERVICE_TOKEN:?INCIDENT_SERVICE_TOKEN is required}
-
       SERVICE_IDENTITY_PRIVATE_KEY_PATH: /run/secrets/core_service_identity_private_key
 
       SERVICE_IDENTITY_KEY_ID: ${SERVICE_IDENTITY_KEY_ID:-core-backend-key-1}
@@ -355,6 +353,16 @@ services:
       SERVICE_IDENTITY_TOKEN_TTL_SECONDS: ${SERVICE_IDENTITY_TOKEN_TTL_SECONDS:-60}
 
       INCIDENT_SERVICE_AUDIENCE: ${INCIDENT_SERVICE_AUDIENCE:-opsflow-incident-service}
+
+      INCIDENT_SERVICE_IDENTITY_ISSUER: ${INCIDENT_SERVICE_IDENTITY_ISSUER:-opsflow-incident-service}
+
+      CORE_BACKEND_SERVICE_AUDIENCE: ${CORE_BACKEND_SERVICE_AUDIENCE:-opsflow-core-backend}
+
+      INCIDENT_SERVICE_IDENTITY_KEY_ID: ${INCIDENT_SERVICE_IDENTITY_KEY_ID:-incident-service-key-1}
+
+      INCIDENT_SERVICE_IDENTITY_PUBLIC_KEY_PATH: /run/secrets/incident_service_identity_public_key
+
+      INCIDENT_SERVICE_IDENTITY_CLOCK_SKEW_SECONDS: ${INCIDENT_SERVICE_IDENTITY_CLOCK_SKEW_SECONDS:-5}
 
       INCIDENT_GATEWAY_MODE: ${INCIDENT_GATEWAY_MODE:-http}
 
@@ -373,18 +381,23 @@ services:
       METRICS_ENABLED: ${METRICS_ENABLED:-true}
 
     # ------------------------------------------------------
-    # SERVICE-IDENTITY PRIVATE KEY
+    # SERVICE-IDENTITY KEY BOUNDARY
     # ------------------------------------------------------
     #
     # The private RSA key is mounted as a read-only Compose
     # secret. It is not copied into the image and is not
     # stored in an environment variable.
     #
-    # Only the Core Backend receives this signing key.
+    # Core receives its private signing key and the Incident
+    # Service public verification key. It receives neither
+    # the Core public key nor the Incident private key.
 
     secrets:
       - source: core_service_identity_private_key
         target: core_service_identity_private_key
+
+      - source: incident_service_identity_public_key
+        target: incident_service_identity_public_key
 
     # ------------------------------------------------------
     # HOST PORT
@@ -596,8 +609,6 @@ services:
 
       CORE_BACKEND_URL: http://backend:8000/api/v1
 
-      INCIDENT_SERVICE_TOKEN: ${INCIDENT_SERVICE_TOKEN:?INCIDENT_SERVICE_TOKEN is required}
-
       SERVICE_CATALOG_TIMEOUT_SECONDS: 3.0
 
       SERVICE_IDENTITY_ISSUER: ${SERVICE_IDENTITY_ISSUER:-opsflow-core-backend}
@@ -610,17 +621,30 @@ services:
 
       SERVICE_IDENTITY_CLOCK_SKEW_SECONDS: ${SERVICE_IDENTITY_CLOCK_SKEW_SECONDS:-5}
 
+      SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_PATH: /run/secrets/incident_service_identity_private_key
+
+      SERVICE_IDENTITY_SIGNING_KEY_ID: ${INCIDENT_SERVICE_IDENTITY_KEY_ID:-incident-service-key-1}
+
+      SERVICE_IDENTITY_SIGNING_ISSUER: ${INCIDENT_SERVICE_IDENTITY_ISSUER:-opsflow-incident-service}
+
+      SERVICE_IDENTITY_SIGNING_TOKEN_TTL_SECONDS: ${INCIDENT_SERVICE_IDENTITY_TOKEN_TTL_SECONDS:-60}
+
+      CORE_BACKEND_AUDIENCE: ${CORE_BACKEND_SERVICE_AUDIENCE:-opsflow-core-backend}
+
     # ------------------------------------------------------
-    # SERVICE-IDENTITY PUBLIC KEY
+    # SERVICE-IDENTITY KEY BOUNDARY
     # ------------------------------------------------------
     #
-    # The Incident Service receives only the RSA public key
-    # required to verify Core Backend service credentials.
-    # It never receives the private signing key.
+    # Incident receives the Core public verification key and
+    # its own private signing key. It receives neither the
+    # Core private key nor its own public key.
 
     secrets:
       - source: core_service_identity_public_key
         target: core_service_identity_public_key
+
+      - source: incident_service_identity_private_key
+        target: incident_service_identity_private_key
 
     depends_on:
       incident-migrate:
@@ -829,6 +853,12 @@ secrets:
 
   core_service_identity_public_key:
     file: ${CORE_SERVICE_IDENTITY_PUBLIC_KEY_FILE:-./.opsflow-secrets/core-service-identity-public.pem}
+
+  incident_service_identity_private_key:
+    file: ${INCIDENT_SERVICE_IDENTITY_PRIVATE_KEY_FILE:-./.opsflow-secrets/incident-service-identity-private.pem}
+
+  incident_service_identity_public_key:
+    file: ${INCIDENT_SERVICE_IDENTITY_PUBLIC_KEY_FILE:-./.opsflow-secrets/incident-service-identity-public.pem}
 
 # ==========================================================
 # NETWORKS

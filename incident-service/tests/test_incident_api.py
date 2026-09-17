@@ -10,9 +10,6 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import (
-    SecretStr,
-)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
@@ -34,11 +31,6 @@ from app.gateways.unavailable_service_catalog_gateway import (
     UnavailableServiceCatalogGateway,
 )
 from app.main import create_app
-
-TEST_INTERNAL_TOKEN = (
-    "test-internal-token-that-is-"
-    "at-least-32-characters"
-)
 
 AUTHORIZATION_HEADER = (
     "Authorization"
@@ -161,11 +153,6 @@ def build_test_settings(
         core_backend_url=(
             "http://core-backend.test"
             "/api/v1"
-        ),
-        incident_service_token=(
-            SecretStr(
-                TEST_INTERNAL_TOKEN
-            )
         ),
     )
 

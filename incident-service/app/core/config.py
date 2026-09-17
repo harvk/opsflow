@@ -11,7 +11,6 @@ from typing import (
 
 from pydantic import (
     Field,
-    SecretStr,
     StringConstraints,
     model_validator,
 )
@@ -40,6 +39,11 @@ OPSFLOW_SECRETS_DIR = (
 DEFAULT_SERVICE_IDENTITY_PUBLIC_KEY_FILE = (
     OPSFLOW_SECRETS_DIR
     / "core-service-identity-public.pem"
+)
+
+DEFAULT_SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_FILE = (
+    OPSFLOW_SECRETS_DIR
+    / "incident-service-identity-private.pem"
 )
 
 NonEmptyText = Annotated[
@@ -83,13 +87,6 @@ class Settings(
 
     core_backend_url: str
 
-    # Retained temporarily while the existing shared-token
-    # transport is replaced by scoped RS256 credentials.
-
-    incident_service_token: SecretStr = Field(
-        min_length=32,
-    )
-
     service_catalog_timeout_seconds: float = Field(
         default=3.0,
         gt=0,
@@ -126,6 +123,32 @@ class Settings(
         default=5,
         ge=0,
         le=30,
+    )
+
+    # Incident Service outbound signing identity. These
+    # settings are separate from the inbound Core Backend
+    # verification settings above.
+
+    service_identity_signing_private_key_path: Path = (
+        DEFAULT_SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_FILE
+    )
+
+    service_identity_signing_key_id: NonEmptyText = (
+        "incident-service-key-1"
+    )
+
+    service_identity_signing_issuer: NonEmptyText = (
+        "opsflow-incident-service"
+    )
+
+    service_identity_signing_token_ttl_seconds: int = Field(
+        default=60,
+        ge=30,
+        le=120,
+    )
+
+    core_backend_audience: NonEmptyText = (
+        "opsflow-core-backend"
     )
 
     model_config = SettingsConfigDict(

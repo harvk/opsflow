@@ -1,7 +1,3 @@
-from pydantic import (
-    SecretStr,
-)
-
 from app.core.config import (
     Settings,
 )
@@ -34,12 +30,6 @@ def build_test_settings(
         ),
         core_backend_url=(
             "http://core-backend.test/api/v1"
-        ),
-        incident_service_token=(
-            SecretStr(
-                "test-internal-token-that-is-"
-                "at-least-32-characters"
-            )
         ),
     )
 

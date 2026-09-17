@@ -390,9 +390,12 @@ cp incident-service/.env.example incident-service/.env
 ```
 
 Replace every placeholder secret in the real local files.
-The same `INCIDENT_SERVICE_TOKEN` value must be used by the
-Core Backend and Incident Service.
-Do not commit the real environment files. 2. Validate Compose configuration
+Service private keys remain file-backed under the ignored
+`.opsflow-secrets/` directory and are distributed through
+read-only Compose secrets. Do not commit real environment
+files or key material.
+
+2. Validate Compose configuration
 
 ```bash
 docker compose --env-file .env.docker config --quiet

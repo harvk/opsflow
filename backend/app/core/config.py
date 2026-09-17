@@ -50,6 +50,12 @@ BACKEND_ENV_FILE = (
     / ".env"
 )
 
+OPSFLOW_SECRETS_DIR = (
+    BACKEND_DIR
+    .parent
+    / ".opsflow-secrets"
+)
+
 
 class Settings(
     BaseSettings
@@ -93,15 +99,6 @@ class Settings(
     # SERVICE-TO-SERVICE AUTHENTICATION
     # =====================================================
 
-    incident_service_token: SecretStr = Field(
-        min_length=32,
-    )
-
-    # The legacy shared token remains during the controlled
-    # migration to asymmetric service credentials. It will
-    # be removed only after both services issue and verify
-    # scoped service JWTs.
-
     service_identity_private_key_path: Path = Field(
         default=(
             BACKEND_DIR
@@ -129,6 +126,37 @@ class Settings(
     incident_service_audience: Literal[
         "opsflow-incident-service"
     ] = "opsflow-incident-service"
+
+    # Incident Service inbound verification contract. These
+    # settings are separate from Core's outbound signing
+    # identity above.
+
+    incident_service_identity_issuer: Literal[
+        "opsflow-incident-service"
+    ] = "opsflow-incident-service"
+
+    core_backend_service_audience: Literal[
+        "opsflow-core-backend"
+    ] = "opsflow-core-backend"
+
+    incident_service_identity_key_id: str = Field(
+        default="incident-service-key-1",
+        min_length=1,
+        max_length=128,
+    )
+
+    incident_service_identity_public_key_path: Path = Field(
+        default=(
+            OPSFLOW_SECRETS_DIR
+            / "incident-service-identity-public.pem"
+        ),
+    )
+
+    incident_service_identity_clock_skew_seconds: int = Field(
+        default=5,
+        ge=0,
+        le=30,
+    )
 
     # =====================================================
     # INCIDENT GATEWAY

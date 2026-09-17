@@ -80,9 +80,6 @@ def build_settings(
         "core_backend_url": (
             "http://backend:8000/api/v1"
         ),
-        "incident_service_token": (
-            "test-internal-token-at-least-32-characters"
-        ),
         "service_identity_key_id": (
             "core-current"
         ),

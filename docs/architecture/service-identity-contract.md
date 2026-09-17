@@ -61,9 +61,9 @@ caller's public RSA key.
 
 The services do not share private signing keys.
 
-The existing static `INCIDENT_SERVICE_TOKEN` credential and
-`X-OpsFlow-Internal-Token` header will be retired after the
-service JWT migration is complete.
+The former static shared credential and custom internal-token
+header have been retired. Protected internal routes accept
+only scoped bearer service JWTs.
 
 ## Trust Boundaries
 
@@ -170,14 +170,8 @@ header:
 Authorization: Bearer <service-jwt>
 ```
 
-The custom header below is deprecated:
-
-```text
-X-OpsFlow-Internal-Token
-```
-
-After migration, protected internal routes must not accept
-the deprecated header.
+Protected internal routes must not accept the retired custom
+shared-secret header.
 
 ## JOSE Header Contract
 
@@ -739,8 +733,8 @@ During implementation:
 4. Update both receiving dependencies.
 5. Update Compose key mounts and configuration.
 6. Add distributed positive and negative tests.
-7. Remove `INCIDENT_SERVICE_TOKEN`.
-8. Remove `X-OpsFlow-Internal-Token`.
+7. Remove the static shared credential.
+8. Remove the custom shared-secret header.
 9. Remove shared-secret tests.
 10. Verify that no committed source still references the
     retired credential.

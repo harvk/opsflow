@@ -67,7 +67,6 @@ jobs:
       SECURITY_EVENT_HMAC_KEY: backend-ci-security-event-hmac-secret
       AWS_REGION: us-east-1
       SES_FROM_EMAIL: admin@example.com
-      INCIDENT_SERVICE_TOKEN: ci-incident-service-token-at-least-32-characters
       INCIDENT_GATEWAY_MODE: local
       METRICS_ENABLED: "true"
 
@@ -148,7 +147,6 @@ jobs:
       DATABASE_URL: postgresql+psycopg://opsflow:opsflow_ci_password@localhost:5432/opsflow_incidents
       TEST_DATABASE_URL: postgresql+psycopg://opsflow:opsflow_ci_password@localhost:5432/opsflow_incidents_test
       CORE_BACKEND_URL: http://backend:8000/api/v1
-      INCIDENT_SERVICE_TOKEN: ci-incident-service-token-at-least-32-characters
       METRICS_ENABLED: "true"
 
     steps:

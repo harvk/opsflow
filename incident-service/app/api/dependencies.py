@@ -37,6 +37,9 @@ from app.core.service_identity import (
 from app.core.service_identity_loader import (
     build_service_token_verifier,
 )
+from app.core.service_token_provider import (
+    get_service_token_provider,
+)
 from app.db.session import (
     get_db_session,
 )
@@ -270,10 +273,12 @@ def get_service_catalog_gateway(
                     app_settings
                     .core_backend_url
                 ),
-                internal_token=(
+                service_token_provider=(
+                    get_service_token_provider()
+                ),
+                core_backend_audience=(
                     app_settings
-                    .incident_service_token
-                    .get_secret_value()
+                    .core_backend_audience
                 ),
             )
         )

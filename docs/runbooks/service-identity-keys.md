@@ -1,35 +1,51 @@
-Service Identity Key Provisioning
+# Service Identity Key Provisioning
+
 This runbook provisions and validates the local-development
-RSA key pair used for OpsFlow service identity.
+RSA key pairs used for bidirectional OpsFlow service identity.
+
 The Core Backend signs short-lived service JWTs with the
 private key. The Incident Service verifies those JWTs with
-the matching public key.
+the matching public key. The Incident Service owns a separate
+private key for tokens sent to Core, and Core receives only
+that identity's public key.
+
 This procedure does not provision production credentials.
 Production deployments must use the secret-management and
 workload-identity facilities of the selected platform.
-Security boundary
-Component Private key Public key
-Core Backend Mounted Not mounted
-Incident Service Not mounted Mounted
-Frontend Not mounted Not mounted
-PostgreSQL Not mounted Not mounted
+
+## Security boundary
+
+| Component | Core private | Core public | Incident private | Incident public |
+|---|---:|---:|---:|---:|
+| Core Backend | Mounted | No | No | Mounted |
+| Incident Service | No | Mounted | Mounted | No |
+| Frontend | No | No | No | No |
+| PostgreSQL | No | No | No | No |
+
 The private key:
-is generated locally;
-is stored below `.opsflow-secrets/`;
-is excluded from Git;
-is mounted only into the Backend container;
-is never copied into an image;
-is never stored in an environment variable;
-is never printed by the application.
+
+- is generated locally;
+- is stored below `.opsflow-secrets/`;
+- is excluded from Git;
+- is mounted only into its owning service container;
+- is never copied into an image;
+- is never stored in an environment variable;
+- is never printed by the application.
+
 The public key is not confidential, but it is still managed
 as a file-backed Compose secret so distribution remains
 explicit and auditable.
-Generate the local key pair
+
+## Generate the local key pairs
+
 Run from the repository root in Git Bash:
 
 ```bash
 ./backend/.venv/Scripts/python.exe \
   scripts/generate_service_identity_keys.py
+
+./incident-service/.venv/Scripts/python.exe \
+  scripts/generate_incident_service_identity_keys.py
 ```
 
 The command creates:
@@ -37,12 +53,15 @@ The command creates:
 ```text
 .opsflow-secrets/
 ├── core-service-identity-private.pem
-└── core-service-identity-public.pem
+├── core-service-identity-public.pem
+├── incident-service-identity-private.pem
+└── incident-service-identity-public.pem
 ```
 
 The generator refuses to overwrite either file. Never
 replace a private key while retaining the same key ID.
-Verify local files without printing key material
+
+## Verify local files without printing key material
 
 ```bash
 test -f ./.opsflow-secrets/core-service-identity-private.pem \
@@ -52,6 +71,14 @@ test -f ./.opsflow-secrets/core-service-identity-private.pem \
 test -f ./.opsflow-secrets/core-service-identity-public.pem \
   && echo "PASS: public key exists" \
   || echo "FAIL: public key is missing"
+
+test -f ./.opsflow-secrets/incident-service-identity-private.pem \
+  && echo "PASS: Incident private key exists" \
+  || echo "FAIL: Incident private key is missing"
+
+test -f ./.opsflow-secrets/incident-service-identity-public.pem \
+  && echo "PASS: Incident public key exists" \
+  || echo "FAIL: Incident public key is missing"
 ```
 
 Confirm that the public key matches the private key:
@@ -71,17 +98,40 @@ openssl pkey \
 ```
 
 The two fingerprints must match.
-Verify Git exclusion
+
+Repeat the match check for the Incident Service pair:
+
+```bash
+openssl pkey \
+  -in ./.opsflow-secrets/incident-service-identity-private.pem \
+  -pubout \
+  -outform DER \
+  | sha256sum
+
+openssl pkey \
+  -pubin \
+  -in ./.opsflow-secrets/incident-service-identity-public.pem \
+  -outform DER \
+  | sha256sum
+```
+
+Those two fingerprints must also match.
+
+## Verify Git exclusion
 
 ```bash
 git check-ignore -v \
   .opsflow-secrets/core-service-identity-private.pem \
-  .opsflow-secrets/core-service-identity-public.pem
+  .opsflow-secrets/core-service-identity-public.pem \
+  .opsflow-secrets/incident-service-identity-private.pem \
+  .opsflow-secrets/incident-service-identity-public.pem
 ```
 
 Both paths must be reported as ignored. Never use
 `git add -f` on either key.
-Validate resolved Compose configuration
+
+## Validate resolved Compose configuration
+
 Always supply the project Compose environment file:
 
 ```bash
@@ -94,7 +144,7 @@ printing key contents:
 ```bash
 docker compose --env-file .env.docker config \
   | grep -n -A 3 -B 1 \
-      "core_service_identity"
+      "service_identity"
 ```
 
 The Backend receives the private key at:
@@ -109,7 +159,19 @@ The Incident Service receives the public key at:
 /run/secrets/core_service_identity_public_key
 ```
 
-Start the distributed stack
+The Incident Service receives its private key at:
+
+```text
+/run/secrets/incident_service_identity_private_key
+```
+
+The Backend receives the Incident public key at:
+
+```text
+/run/secrets/incident_service_identity_public_key
+```
+
+## Start the distributed stack
 
 ```bash
 docker compose --env-file .env.docker up -d --build
@@ -119,22 +181,27 @@ docker compose --env-file .env.docker ps
 
 Wait until both `backend` and `incident-service` report
 healthy before continuing.
-Verify runtime key isolation
-Verify the Backend receives only the private key:
+
+## Verify runtime key isolation
+
+Verify the Backend receives only its private key and the
+Incident public key:
 
 ```bash
 docker compose --env-file .env.docker exec -T backend \
-  python -c "from pathlib import Path; private_key = Path('/run/secrets/core_service_identity_private_key'); public_key = Path('/run/secrets/core_service_identity_public_key'); assert private_key.is_file(); assert not public_key.exists(); print('PASS: Backend key isolation verified')"
+  python -c "from pathlib import Path; core_private = Path('/run/secrets/core_service_identity_private_key'); core_public = Path('/run/secrets/core_service_identity_public_key'); incident_private = Path('/run/secrets/incident_service_identity_private_key'); incident_public = Path('/run/secrets/incident_service_identity_public_key'); assert core_private.is_file(); assert not core_public.exists(); assert not incident_private.exists(); assert incident_public.is_file(); print('PASS: Backend key isolation verified')"
 ```
 
-Verify the Incident Service receives only the public key:
+Verify the Incident Service receives the Core public key and
+only its own private key:
 
 ```bash
 docker compose --env-file .env.docker exec -T incident-service \
-  python -c "from pathlib import Path; private_key = Path('/run/secrets/core_service_identity_private_key'); public_key = Path('/run/secrets/core_service_identity_public_key'); assert not private_key.exists(); assert public_key.is_file(); print('PASS: Incident Service key isolation verified')"
+  python -c "from pathlib import Path; core_private = Path('/run/secrets/core_service_identity_private_key'); core_public = Path('/run/secrets/core_service_identity_public_key'); incident_private = Path('/run/secrets/incident_service_identity_private_key'); incident_public = Path('/run/secrets/incident_service_identity_public_key'); assert not core_private.exists(); assert core_public.is_file(); assert incident_private.is_file(); assert not incident_public.exists(); print('PASS: Incident Service key isolation verified')"
 ```
 
-Verify a real signed request
+## Verify a real signed request
+
 The following command creates a short-lived read credential
 inside the Backend container and calls the private Incident
 Service. It never prints the token.
@@ -144,7 +211,8 @@ docker compose --env-file .env.docker exec -T backend \
   python -c "import httpx; from app.core.config import settings; from app.core.service_identity import ServiceScope; from app.core.service_identity_provider import get_service_token_provider; token = get_service_token_provider().create_token(audience=settings.incident_service_audience, scopes={ServiceScope.INCIDENTS_READ}); response = httpx.get('http://incident-service:8000/api/v1/incidents', headers={'Authorization': f'Bearer {token}'}, timeout=5.0); assert response.status_code == 200, (response.status_code, response.text); print('PASS: signed Incident Service read accepted')"
 ```
 
-Verify rejection contracts
+## Verify rejection contracts
+
 Missing credentials must produce `401` and advertise the
 Bearer challenge:
 
@@ -160,26 +228,30 @@ docker compose --env-file .env.docker exec -T backend \
   python -c "import httpx; from app.core.config import settings; from app.core.service_identity import ServiceScope; from app.core.service_identity_provider import get_service_token_provider; token = get_service_token_provider().create_token(audience=settings.incident_service_audience, scopes={ServiceScope.INCIDENTS_WRITE}); response = httpx.get('http://incident-service:8000/api/v1/incidents', headers={'Authorization': f'Bearer {token}'}, timeout=5.0); assert response.status_code == 403, (response.status_code, response.text); print('PASS: insufficient scope rejected')"
 ```
 
-Current migration boundary
-The Incident Service now enforces scoped bearer service
-credentials. The normal Core Backend Incident gateway still
-uses the legacy shared header until Phase 10.5.
-Therefore, do not treat Backend Overview or Incident gateway
-failures as a 10.4D key-distribution failure. Phase 10.5
-updates that gateway to mint and send bearer credentials.
-Rotation preparation
+## Current migration boundary
+
+Core-to-Incident bearer authentication is active. The reverse
+Incident-to-Core path retains the shared header until the
+Phase 10.6 route cutover. Phase 10.6D distributes the reverse
+keypair but does not change live authentication by itself.
+
+## Rotation preparation
+
 The current local-development key ID is:
 
 ```text
 core-backend-key-1
+incident-service-key-1
 ```
 
 Rotation requires:
-Generate a new RSA key pair.
-Assign a new key ID.
-Distribute the new public key to verifiers.
-Retain the previous public key during a bounded overlap.
-Switch the issuer to the new private key and key ID.
-Wait longer than the maximum service-token lifetime.
-Remove the previous public key.
+
+1. Generate a new RSA key pair.
+2. Assign a new key ID.
+3. Distribute the new public key to verifiers.
+4. Retain the previous public key during a bounded overlap.
+5. Switch the issuer to the new private key and key ID.
+6. Wait longer than the maximum service-token lifetime.
+7. Remove the previous public key.
+
 Never replace a private key under an existing key ID.
