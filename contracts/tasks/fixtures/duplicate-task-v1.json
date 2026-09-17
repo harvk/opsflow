@@ -1,0 +1,18 @@
+{
+  "task_id": "019921c6-6e6a-72c0-b4c8-1583c7324d40",
+  "kind": "task",
+  "task_type": "incident.notification.requested",
+  "schema_version": "1.0",
+  "created_at": "2026-09-17T13:00:05Z",
+  "producer": "opsflow-task-publisher",
+  "correlation_id": "019921c6-6114-7a84-bde7-44034281e503",
+  "causation_id": null,
+  "idempotency_key": "incident:123:notification:opened",
+  "payload": {
+    "incident_id": 123,
+    "notification_type": "incident-opened"
+  },
+  "metadata": {
+    "environment": "development"
+  }
+}
