@@ -563,6 +563,13 @@ Frontend Oxlint, Vitest, and production build
 Docker Compose build and smoke verification
 The Compose smoke job executes only after the first four jobs
 succeed.
+
+The distributed-authentication CI gates, runtime key-isolation
+checks, and local reproduction commands are documented in:
+
+```text
+docs/runbooks/distributed-authentication-ci.md
+```
 Controlled Incident Service Outage Drill
 Stop only Incident Service:
 
@@ -602,8 +609,12 @@ Incident Service outage drill.
 Security Boundaries
 Real environment files are ignored by Git.
 The Incident Service is not published to the Windows host.
-Service-to-service requests require a shared internal token.
-The internal token must never use a `VITE_*` variable.
+Service-to-service requests require short-lived, scoped,
+asymmetrically signed JWT credentials.
+Each service retains its own private signing key and receives
+only the other service's public verification key.
+Service credentials and key paths must never use a `VITE_*`
+variable.
 Browser requests terminate at the Core Backend.
 Runtime containers execute as non-root users.
 Runtime application source is root-owned and read-only.

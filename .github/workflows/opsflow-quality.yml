@@ -35,6 +35,9 @@ jobs:
       - name: Check Git whitespace errors
         run: git diff --check
 
+      - name: Check distributed-authentication production contract
+        run: python scripts/check_distributed_auth_contract.py
+
   backend:
     name: Backend
     runs-on: ubuntu-latest
@@ -79,17 +82,15 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: backend/requirements-runtime.txt
+          cache-dependency-path: |
+            backend/requirements.txt
+            backend/requirements-runtime.txt
 
       - name: Install Backend dependencies
         working-directory: backend
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          python -m pip install \
-            "httpx==0.28.1" \
-            "pytest==9.1.1" \
-            "ruff==0.16.6"
+          python -m pip install -r requirements.txt
 
       - name: Validate service identity key generator
         run: |
@@ -100,6 +101,16 @@ jobs:
 
           test -s "${output_directory}/core-service-identity-private.pem"
           test -s "${output_directory}/core-service-identity-public.pem"
+
+      - name: Validate Incident Service identity key generator
+        run: |
+          output_directory="${RUNNER_TEMP}/opsflow-incident-service-identity"
+
+          python scripts/generate_incident_service_identity_keys.py \
+            --output-directory "${output_directory}"
+
+          test -s "${output_directory}/incident-service-identity-private.pem"
+          test -s "${output_directory}/incident-service-identity-public.pem"
 
       - name: Create Backend test database
         run: |
@@ -118,6 +129,15 @@ jobs:
       - name: Run Backend Ruff checks
         working-directory: backend
         run: python -m ruff check app tests
+
+      - name: Run Backend distributed-authentication security tests
+        working-directory: backend
+        run: |
+          python -m pytest -q \
+            tests/test_service_token_verifier.py \
+            tests/test_service_auth_adversarial.py \
+            tests/test_service_security_events.py \
+            tests/test_metrics.py
 
       - name: Run Backend tests
         working-directory: backend
@@ -158,17 +178,15 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: incident-service/requirements-runtime.txt
+          cache-dependency-path: |
+            incident-service/requirements.txt
+            incident-service/requirements-runtime.txt
 
       - name: Install Incident Service dependencies
         working-directory: incident-service
         run: |
           python -m pip install --upgrade pip
-          python -m pip install -r requirements-runtime.txt
-          python -m pip install \
-            "httpx==0.28.1" \
-            "pytest==9.1.1" \
-            "ruff==0.16.6"
+          python -m pip install -r requirements.txt
 
       - name: Create Incident Service test database
         run: |
@@ -187,6 +205,15 @@ jobs:
       - name: Run Incident Service Ruff checks
         working-directory: incident-service
         run: python -m ruff check app tests
+
+      - name: Run Incident Service distributed-authentication security tests
+        working-directory: incident-service
+        run: |
+          python -m pytest -q \
+            tests/test_service_identity.py \
+            tests/test_service_auth_adversarial.py \
+            tests/test_service_security_events.py \
+            tests/test_metrics.py
 
       - name: Run Incident Service tests
         working-directory: incident-service
@@ -249,7 +276,7 @@ jobs:
           cp .env.docker.example .env.docker
           cp backend/.env.example backend/.env
 
-      - name: Generate ephemeral Core service identity key
+      - name: Generate ephemeral service identity keys
         run: |
           mkdir -p .opsflow-secrets
 
@@ -263,8 +290,23 @@ jobs:
             -pubout \
             -out .opsflow-secrets/core-service-identity-public.pem
 
+          openssl genpkey \
+            -algorithm RSA \
+            -pkeyopt rsa_keygen_bits:2048 \
+            -out .opsflow-secrets/incident-service-identity-private.pem
+
+          openssl pkey \
+            -in .opsflow-secrets/incident-service-identity-private.pem \
+            -pubout \
+            -out .opsflow-secrets/incident-service-identity-public.pem
+
       - name: Validate Compose configuration
         run: docker compose --env-file .env.docker config --quiet
+
+      - name: Validate service identity Compose key boundaries
+        run: |
+          python scripts/validate_service_identity_compose.py \
+            --env-file .env.docker
 
       - name: Build Compose images
         run: |
@@ -295,10 +337,99 @@ jobs:
           docker compose --env-file .env.docker exec -T backend \
             python -c "from app.core.config import settings; from app.core.service_identity import ServiceScope; from app.core.service_identity_provider import get_service_token_provider; token = get_service_token_provider().create_token(audience=settings.incident_service_audience, scopes={ServiceScope.INCIDENTS_READ}); assert token.count('.') == 2; print('Core service identity issuance passed')"
 
-      - name: Verify Incident Service cannot access Core private key
+      - name: Verify Backend runtime key isolation
+        run: |
+          docker compose --env-file .env.docker exec -T backend \
+            python - <<'PY'
+          from pathlib import Path
+
+          assert Path(
+              "/run/secrets/core_service_identity_private_key"
+          ).is_file()
+          assert Path(
+              "/run/secrets/incident_service_identity_public_key"
+          ).is_file()
+          assert not Path(
+              "/run/secrets/core_service_identity_public_key"
+          ).exists()
+          assert not Path(
+              "/run/secrets/incident_service_identity_private_key"
+          ).exists()
+          print("Backend runtime key isolation passed")
+          PY
+
+      - name: Verify Incident Service runtime key isolation
         run: |
           docker compose --env-file .env.docker exec -T incident-service \
-            /bin/sh -c 'test ! -e /run/secrets/core_service_identity_private_key'
+            python - <<'PY'
+          from pathlib import Path
+
+          assert Path(
+              "/run/secrets/core_service_identity_public_key"
+          ).is_file()
+          assert Path(
+              "/run/secrets/incident_service_identity_private_key"
+          ).is_file()
+          assert not Path(
+              "/run/secrets/core_service_identity_private_key"
+          ).exists()
+          assert not Path(
+              "/run/secrets/incident_service_identity_public_key"
+          ).exists()
+          print("Incident Service runtime key isolation passed")
+          PY
+
+      - name: Check Core-signed request to Incident Service
+        run: |
+          docker compose --env-file .env.docker exec -T backend \
+            python - <<'PY'
+          import httpx
+
+          from app.core.config import settings
+          from app.core.service_identity import ServiceScope
+          from app.core.service_identity_provider import (
+              get_service_token_provider,
+          )
+
+          token = get_service_token_provider().create_token(
+              audience=settings.incident_service_audience,
+              scopes={ServiceScope.INCIDENTS_READ},
+          )
+          response = httpx.get(
+              "http://incident-service:8000/api/v1/incidents",
+              headers={"Authorization": f"Bearer {token}"},
+              timeout=5.0,
+          )
+          response.raise_for_status()
+          print("Core-signed request to Incident Service passed")
+          PY
+
+      - name: Check Incident-signed request to Core Backend
+        run: |
+          docker compose --env-file .env.docker exec -T incident-service \
+            python - <<'PY'
+          import httpx
+
+          from app.core.config import get_settings
+          from app.core.service_identity import ServiceScope
+          from app.core.service_token_provider import (
+              get_service_token_provider,
+          )
+
+          settings = get_settings()
+          token = get_service_token_provider().create_token(
+              audience=settings.core_backend_audience,
+              scopes={ServiceScope.SERVICES_READ},
+          )
+          response = httpx.get(
+              f"{settings.core_backend_url}/internal/services/"
+              "00000000-0000-4000-8000-000000000001/exists",
+              headers={"Authorization": f"Bearer {token}"},
+              timeout=5.0,
+          )
+          response.raise_for_status()
+          print("Incident-signed request to Core Backend passed")
+          PY
 
       - name: Check private Incident Service health
         run: |

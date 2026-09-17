@@ -17,11 +17,11 @@ DEFAULT_OUTPUT_DIRECTORY = Path(
 )
 
 PRIVATE_KEY_FILENAME = (
-    "incident-service-identity-private.pem"
+    "core-service-identity-private.pem"
 )
 
 PUBLIC_KEY_FILENAME = (
-    "incident-service-identity-public.pem"
+    "core-service-identity-public.pem"
 )
 
 RSA_KEY_SIZE = 2048
@@ -31,7 +31,7 @@ def parse_arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=(
             "Generate the local-development RSA keypair "
-            "owned by the OpsFlow Incident Service. "
+            "owned by the OpsFlow Core Backend. "
             "Existing keys are never overwritten."
         )
     )
@@ -131,7 +131,7 @@ def main() -> None:
     ).hexdigest()
 
     print(
-        "Generated Incident Service identity keypair."
+        "Generated Core Backend identity keypair."
     )
     print(
         f"Private key: {private_key_path}"
