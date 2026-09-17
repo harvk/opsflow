@@ -4,6 +4,14 @@ from uuid import (
 
 import httpx
 
+from app.core.service_identity import (
+    ServiceIdentityError,
+    ServiceScope,
+)
+from app.core.service_token_provider import (
+    ServiceTokenCreationError,
+    ServiceTokenProvider,
+)
 from app.services.exceptions import (
     ServiceCatalogUnavailableError,
 )
@@ -23,7 +31,8 @@ class HttpServiceCatalogGateway:
         *,
         client: httpx.Client,
         core_backend_url: str,
-        internal_token: str,
+        service_token_provider: ServiceTokenProvider,
+        core_backend_audience: str,
     ) -> None:
         self._client = client
 
@@ -32,9 +41,18 @@ class HttpServiceCatalogGateway:
             .rstrip("/")
         )
 
-        self._internal_token = (
-            internal_token
+        self._service_token_provider = (
+            service_token_provider
         )
+
+        self._core_backend_audience = (
+            core_backend_audience.strip()
+        )
+
+        if not self._core_backend_audience:
+            raise ValueError(
+                "core_backend_audience must not be empty."
+            )
 
     def service_exists(
         self,
@@ -47,21 +65,42 @@ class HttpServiceCatalogGateway:
         )
 
         try:
+            token = (
+                self
+                ._service_token_provider
+                .create_token(
+                    audience=(
+                        self
+                        ._core_backend_audience
+                    ),
+                    scopes={
+                        ServiceScope.SERVICES_READ
+                    },
+                )
+            )
+
+            if not isinstance(token, str) or not token:
+                raise ServiceTokenCreationError(
+                    "The service-token provider returned "
+                    "an invalid credential."
+                )
+
             response = (
                 self._client
                 .get(
                     endpoint,
                     headers={
-                        (
-                            "X-OpsFlow-"
-                            "Internal-Token"
-                        ): (
-                            self
-                            ._internal_token
+                        "Authorization": (
+                            f"Bearer {token}"
                         ),
                     },
                 )
             )
+
+        except ServiceIdentityError:
+            raise self._unavailable(
+                service_id
+            ) from None
 
         except httpx.RequestError as exc:
             raise self._unavailable(

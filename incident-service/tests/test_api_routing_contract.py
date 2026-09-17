@@ -18,6 +18,10 @@ HTTP_METHODS: Final[frozenset[str]] = frozenset(
 EXPECTED_INCIDENT_OPERATIONS: Final[frozenset[tuple[str, str]]] = frozenset(
     {
         ("GET", "/api/v1/incidents"),
+        (
+            "GET",
+            "/api/v1/incidents/{incident_id}",
+        ),
         ("POST", "/api/v1/incidents"),
         ("PATCH", "/api/v1/incidents/{incident_id}"),
         ("DELETE", "/api/v1/incidents/{incident_id}"),
@@ -120,3 +124,91 @@ def test_incident_service_openapi_does_not_publish_service_catalog_routes() -> N
     }
 
     assert service_catalog_paths == set()
+
+
+def test_incident_operations_publish_bearer_security() -> None:
+    for path, path_item in _openapi_paths().items():
+        if not path.startswith(
+            "/api/v1/incidents"
+        ):
+            continue
+
+        assert isinstance(
+            path_item,
+            dict,
+        )
+
+        for method in HTTP_METHODS:
+            operation = path_item.get(
+                method
+            )
+
+            if not isinstance(
+                operation,
+                dict,
+            ):
+                continue
+
+            assert operation.get(
+                "security"
+            ) == [
+                {
+                    "ServiceBearer": [],
+                }
+            ]
+
+
+def test_health_operation_remains_public() -> None:
+    health_operation = _openapi_paths()[
+        "/api/v1/health"
+    ]["get"]
+
+    assert isinstance(
+        health_operation,
+        dict,
+    )
+
+    assert not health_operation.get(
+        "security"
+    )
+
+
+def test_openapi_publishes_service_bearer_scheme() -> None:
+    components = app.openapi().get(
+        "components"
+    )
+
+    assert isinstance(
+        components,
+        dict,
+    )
+
+    security_schemes = components.get(
+        "securitySchemes"
+    )
+
+    assert isinstance(
+        security_schemes,
+        dict,
+    )
+
+    service_bearer = security_schemes.get(
+        "ServiceBearer"
+    )
+
+    assert isinstance(
+        service_bearer,
+        dict,
+    )
+
+    assert service_bearer.get(
+        "type"
+    ) == "http"
+
+    assert service_bearer.get(
+        "scheme"
+    ) == "bearer"
+
+    assert service_bearer.get(
+        "bearerFormat"
+    ) == "JWT"

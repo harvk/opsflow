@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import json
-from collections.abc import Callable
+from collections.abc import (
+    Callable,
+    Collection,
+)
 from uuid import UUID
 
 import httpx
@@ -19,6 +22,9 @@ from app.core.request_context import (
     REQUEST_ID_HEADER,
     bind_request_id,
     reset_request_id,
+)
+from app.core.service_identity import (
+    ServiceScope,
 )
 from app.domain.incident import (
     Incident,
@@ -54,9 +60,11 @@ INCIDENT_SERVICE_URL = (
     "http://incident-service:8000/api/v1"
 )
 
-INTERNAL_TOKEN = (
-    "test-internal-token-that-is-at-least-32-characters"
+INCIDENT_SERVICE_AUDIENCE = (
+    "opsflow-incident-service"
 )
+
+SERVICE_TOKEN = "signed-service-jwt"
 
 INCIDENT_RESPONSE = {
     "id": str(INCIDENT_ID),
@@ -106,6 +114,38 @@ class FakeClock:
         )
 
 
+class RecordingServiceTokenProvider:
+    def __init__(
+        self,
+        *,
+        token: str = SERVICE_TOKEN,
+    ) -> None:
+        self.token = token
+        self.calls: list[
+            tuple[
+                str,
+                frozenset[ServiceScope],
+            ]
+        ] = []
+
+    def create_token(
+        self,
+        *,
+        audience: str,
+        scopes: Collection[
+            ServiceScope
+        ],
+    ) -> str:
+        self.calls.append(
+            (
+                audience,
+                frozenset(scopes),
+            )
+        )
+
+        return self.token
+
+
 def no_sleep(
     _delay_seconds: float,
 ) -> None:
@@ -137,6 +177,10 @@ def build_gateway(
         OperationalMetrics
         | None
     ) = None,
+    service_token_provider: (
+        RecordingServiceTokenProvider
+        | None
+    ) = None,
 ) -> tuple[
     HttpIncidentGateway,
     httpx.Client,
@@ -147,13 +191,19 @@ def build_gateway(
         )
     )
 
+    provider = (
+        service_token_provider
+        or RecordingServiceTokenProvider()
+    )
+
     gateway = HttpIncidentGateway(
         client=client,
         incident_service_url=(
             INCIDENT_SERVICE_URL
         ),
-        internal_token=(
-            INTERNAL_TOKEN
+        service_token_provider=provider,
+        incident_service_audience=(
+            INCIDENT_SERVICE_AUDIENCE
         ),
         read_max_attempts=(
             read_max_attempts
@@ -171,15 +221,89 @@ def build_gateway(
     return gateway, client
 
 
-def assert_internal_authentication(
+def assert_service_authentication(
     request: httpx.Request,
 ) -> None:
     assert (
         request.headers[
-            "X-OpsFlow-Internal-Token"
+            "Authorization"
         ]
-        == INTERNAL_TOKEN
+        == f"Bearer {SERVICE_TOKEN}"
     )
+
+    assert (
+        "X-OpsFlow-Internal-Token"
+        not in request.headers
+    )
+
+
+def test_read_uses_only_incidents_read_scope(
+) -> None:
+    provider = RecordingServiceTokenProvider()
+
+    gateway, client = build_gateway(
+        lambda _request: httpx.Response(
+            200,
+            json=[],
+        ),
+        service_token_provider=provider,
+    )
+
+    try:
+        assert gateway.list() == []
+
+    finally:
+        client.close()
+
+    assert provider.calls == [
+        (
+            INCIDENT_SERVICE_AUDIENCE,
+            frozenset(
+                {
+                    ServiceScope.INCIDENTS_READ
+                }
+            ),
+        )
+    ]
+
+
+def test_mutation_uses_only_incidents_write_scope(
+) -> None:
+    provider = RecordingServiceTokenProvider()
+
+    gateway, client = build_gateway(
+        lambda _request: httpx.Response(
+            201,
+            json=INCIDENT_RESPONSE,
+        ),
+        service_token_provider=provider,
+    )
+
+    payload = IncidentCreate(
+        title="Checkout latency",
+        service_id=SERVICE_ID,
+        severity=IncidentSeverity.SEV_2,
+        summary="Checkout latency is elevated.",
+        assignee="Platform Team",
+        source="monitoring",
+    )
+
+    try:
+        gateway.create(payload)
+
+    finally:
+        client.close()
+
+    assert provider.calls == [
+        (
+            INCIDENT_SERVICE_AUDIENCE,
+            frozenset(
+                {
+                    ServiceScope.INCIDENTS_WRITE
+                }
+            ),
+        )
+    ]
 
 def test_gateway_propagates_only_the_current_request_id(
 ) -> None:
@@ -196,7 +320,7 @@ def test_gateway_propagates_only_the_current_request_id(
             )
         )
 
-        assert_internal_authentication(
+        assert_service_authentication(
             request
         )
 
@@ -288,7 +412,7 @@ def test_list_translates_filters_and_response(
             "status": "Investigating",
         }
 
-        assert_internal_authentication(
+        assert_service_authentication(
             request
         )
 
@@ -439,7 +563,7 @@ def test_get_by_id_returns_domain_incident(
             f"{INCIDENT_ID}"
         )
 
-        assert_internal_authentication(
+        assert_service_authentication(
             request
         )
 
@@ -530,7 +654,7 @@ def test_create_sends_camel_case_payload(
             "/api/v1/incidents"
         )
 
-        assert_internal_authentication(
+        assert_service_authentication(
             request
         )
 
@@ -725,7 +849,7 @@ def test_delete_accepts_no_content(
             f"{INCIDENT_ID}"
         )
 
-        assert_internal_authentication(
+        assert_service_authentication(
             request
         )
 
@@ -752,6 +876,8 @@ def test_delete_accepts_no_content(
 def test_safe_read_retries_timeout_and_preserves_request_id(
 ) -> None:
     attempt_count = 0
+
+    provider = RecordingServiceTokenProvider()
 
     observed_request_ids: list[
         str | None
@@ -796,6 +922,7 @@ def test_safe_read_retries_timeout_and_preserves_request_id(
         sleeper=(
             observed_delays.append
         ),
+        service_token_provider=provider,
     )
 
     context_token = bind_request_id(
@@ -823,6 +950,25 @@ def test_safe_read_retries_timeout_and_preserves_request_id(
 
     assert observed_delays == [
         0.25
+    ]
+
+    assert provider.calls == [
+        (
+            INCIDENT_SERVICE_AUDIENCE,
+            frozenset(
+                {
+                    ServiceScope.INCIDENTS_READ
+                }
+            ),
+        ),
+        (
+            INCIDENT_SERVICE_AUDIENCE,
+            frozenset(
+                {
+                    ServiceScope.INCIDENTS_READ
+                }
+            ),
+        ),
     ]
 
 
@@ -1496,7 +1642,7 @@ def test_connection_failure_does_not_disclose_token(
     finally:
         client.close()
 
-    assert INTERNAL_TOKEN not in str(
+    assert SERVICE_TOKEN not in str(
         captured_error.value
     )
 

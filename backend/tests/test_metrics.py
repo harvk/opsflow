@@ -1,3 +1,4 @@
+import pytest
 from fastapi import (
     FastAPI,
 )
@@ -250,6 +251,62 @@ def test_circuit_state_is_one_hot(
         == 0.0
     )
 
+
+def test_service_security_metrics_use_bounded_labels(
+) -> None:
+    metrics = OperationalMetrics()
+
+    metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    metrics.record_service_authentication(
+        outcome="failure",
+        reason="invalid_signature",
+    )
+    metrics.record_service_authorization(
+        outcome="denied",
+        scope="services:read",
+    )
+
+    assert metrics.registry.get_sample_value(
+        "opsflow_service_authentication_attempts_total",
+        {
+            "outcome": "failure",
+            "reason": "invalid_signature",
+        },
+    ) == 1.0
+
+    assert metrics.registry.get_sample_value(
+        "opsflow_service_authorization_decisions_total",
+        {
+            "outcome": "denied",
+            "scope": "services:read",
+        },
+    ) == 1.0
+
+
+def test_service_security_metrics_reject_unbounded_labels(
+) -> None:
+    metrics = OperationalMetrics()
+
+    with pytest.raises(
+        ValueError,
+        match="authentication reason",
+    ):
+        metrics.record_service_authentication(
+            outcome="failure",
+            reason="attacker-controlled-value",
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="authorization scope",
+    ):
+        metrics.record_service_authorization(
+            outcome="denied",
+            scope="services:delete",
+        )
 
 def test_backend_exposes_metrics_outside_openapi(
 ) -> None:

@@ -1,8 +1,9 @@
 from collections.abc import (
+    Callable,
     Generator,
 )
-from secrets import (
-    compare_digest,
+from functools import (
+    lru_cache,
 )
 from typing import (
     Annotated,
@@ -11,9 +12,12 @@ from typing import (
 import httpx
 from fastapi import (
     Depends,
-    Header,
     HTTPException,
     status,
+)
+from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
 )
 from sqlalchemy.orm import (
     Session,
@@ -22,6 +26,25 @@ from sqlalchemy.orm import (
 from app.core.config import (
     Settings,
     get_settings,
+)
+from app.core.metrics import (
+    operational_metrics,
+)
+from app.core.service_identity import (
+    INVALID_SERVICE_CREDENTIALS_MESSAGE,
+    ServiceAuthenticationError,
+    ServicePrincipal,
+    ServiceScope,
+    ServiceTokenVerifier,
+)
+from app.core.service_identity_loader import (
+    build_service_token_verifier,
+)
+from app.core.service_security_events import (
+    service_security_event_logger,
+)
+from app.core.service_token_provider import (
+    get_service_token_provider,
 )
 from app.db.session import (
     get_db_session,
@@ -51,61 +74,195 @@ SettingsDependency = Annotated[
 
 
 # =========================================================
-# INTERNAL SERVICE AUTHENTICATION
+# SERVICE-IDENTITY AUTHENTICATION
 # =========================================================
 
-InternalServiceTokenHeader = Annotated[
-    str | None,
-    Header(
-        alias=(
-            "X-OpsFlow-Internal-Token"
-        ),
+service_bearer_scheme = HTTPBearer(
+    scheme_name="ServiceBearer",
+    description=(
+        "Short-lived OpsFlow RS256 service credential."
+    ),
+    bearerFormat="JWT",
+    auto_error=False,
+)
+
+ServiceBearerCredentials = Annotated[
+    HTTPAuthorizationCredentials | None,
+    Depends(
+        service_bearer_scheme
     ),
 ]
 
 
-def require_core_backend_token(
-    app_settings: SettingsDependency,
-    supplied_token: (
-        InternalServiceTokenHeader
-    ) = None,
-) -> None:
+@lru_cache(
+    maxsize=1,
+)
+def get_service_token_verifier(
+) -> ServiceTokenVerifier:
     """
-    Authenticate requests originating from Core Backend.
+    Build one process-local verifier from trusted settings.
 
-    Missing and incorrect credentials deliberately produce
-    the same response so the endpoint does not reveal which
-    part of the credential check failed.
+    The cached verifier parses public keys once rather than
+    repeating PEM and RSA validation for every request.
     """
 
-    expected_token = (
-        app_settings
-        .incident_service_token
-        .get_secret_value()
+    return build_service_token_verifier(
+        get_settings()
     )
 
-    token_is_valid = (
-        supplied_token is not None
-        and compare_digest(
-            supplied_token.encode(
-                "utf-8"
-            ),
-            expected_token.encode(
-                "utf-8"
-            ),
-        )
+
+ServiceTokenVerifierDependency = Annotated[
+    ServiceTokenVerifier,
+    Depends(
+        get_service_token_verifier
+    ),
+]
+
+
+def _service_authentication_error(
+) -> HTTPException:
+    return HTTPException(
+        status_code=(
+            status.HTTP_401_UNAUTHORIZED
+        ),
+        detail=(
+            INVALID_SERVICE_CREDENTIALS_MESSAGE
+        ),
+        headers={
+            "WWW-Authenticate": "Bearer",
+        },
     )
 
-    if not token_is_valid:
-        raise HTTPException(
-            status_code=(
-                status
-                .HTTP_401_UNAUTHORIZED
-            ),
-            detail=(
-                "Invalid internal service credentials."
-            ),
+
+def authenticate_service(
+    credentials: ServiceBearerCredentials,
+    verifier: ServiceTokenVerifierDependency,
+) -> ServicePrincipal:
+    """
+    Authenticate one RS256 bearer service credential.
+
+    Missing, malformed, expired, and otherwise invalid
+    credentials deliberately share one public response.
+    """
+
+    if credentials is None:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason="missing_credential",
         )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
+        raise _service_authentication_error()
+
+    try:
+        principal = verifier.verify_token(
+            credentials.credentials
+        )
+
+    except ServiceAuthenticationError as exc:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        raise (
+            _service_authentication_error()
+        ) from None
+
+    operational_metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    service_security_event_logger.emit_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+
+    return principal
+
+
+AuthenticatedServicePrincipal = Annotated[
+    ServicePrincipal,
+    Depends(
+        authenticate_service
+    ),
+]
+
+
+ScopeDependency = Callable[
+    [ServicePrincipal],
+    ServicePrincipal,
+]
+
+
+def require_service_scope(
+    required_scope: ServiceScope,
+) -> ScopeDependency:
+    """
+    Create a dependency enforcing one registered scope.
+    """
+
+    def require_scope(
+        principal: AuthenticatedServicePrincipal,
+    ) -> ServicePrincipal:
+        if required_scope not in principal.scopes:
+            operational_metrics.record_service_authorization(
+                outcome="denied",
+                scope=required_scope.value,
+            )
+            service_security_event_logger.emit_authorization(
+                outcome="blocked",
+                scope=required_scope.value,
+            )
+            raise HTTPException(
+                status_code=(
+                    status.HTTP_403_FORBIDDEN
+                ),
+                detail=(
+                    "Insufficient service permissions."
+                ),
+            )
+
+        operational_metrics.record_service_authorization(
+            outcome="granted",
+            scope=required_scope.value,
+        )
+        service_security_event_logger.emit_authorization(
+            outcome="success",
+            scope=required_scope.value,
+        )
+
+        return principal
+
+    return require_scope
+
+
+require_incidents_read = require_service_scope(
+    ServiceScope.INCIDENTS_READ
+)
+
+require_incidents_write = require_service_scope(
+    ServiceScope.INCIDENTS_WRITE
+)
+
+IncidentReadPrincipal = Annotated[
+    ServicePrincipal,
+    Depends(
+        require_incidents_read
+    ),
+]
+
+IncidentWritePrincipal = Annotated[
+    ServicePrincipal,
+    Depends(
+        require_incidents_write
+    ),
+]
 
 
 # =========================================================
@@ -166,10 +323,12 @@ def get_service_catalog_gateway(
                     app_settings
                     .core_backend_url
                 ),
-                internal_token=(
+                service_token_provider=(
+                    get_service_token_provider()
+                ),
+                core_backend_audience=(
                     app_settings
-                    .incident_service_token
-                    .get_secret_value()
+                    .core_backend_audience
                 ),
             )
         )

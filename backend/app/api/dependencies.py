@@ -7,9 +7,6 @@ from collections.abc import (
 from functools import (
     lru_cache,
 )
-from secrets import (
-    compare_digest,
-)
 from typing import (
     Annotated,
     cast,
@@ -23,8 +20,10 @@ from botocore.config import (
 from botocore.exceptions import (
     BotoCoreError,
 )
-from fastapi import Depends, Header, HTTPException, Request, status
+from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import (
+    HTTPAuthorizationCredentials,
+    HTTPBearer,
     OAuth2PasswordBearer,
 )
 from sqlalchemy.orm import (
@@ -60,6 +59,24 @@ from app.core.password_reset_throttle import (
 )
 from app.core.security_events import (
     security_event_logger,
+)
+from app.core.service_identity import (
+    ServiceScope,
+)
+from app.core.service_identity_provider import (
+    get_service_token_provider,
+)
+from app.core.service_security_events import (
+    service_security_event_logger,
+)
+from app.core.service_token_verifier import (
+    INVALID_SERVICE_CREDENTIALS_MESSAGE,
+    ServiceAuthenticationError,
+    ServicePrincipal,
+    ServiceTokenVerifier,
+)
+from app.core.service_token_verifier_loader import (
+    build_service_token_verifier,
 )
 from app.db.session import (
     get_db_session,
@@ -162,21 +179,54 @@ DbSession = Annotated[
 # INTERNAL SERVICE AUTHENTICATION
 # =========================================================
 
-InternalServiceTokenHeader = Annotated[
-    str | None,
-    Header(
-        alias=(
-            "X-OpsFlow-Internal-Token"
-        ),
+incident_service_bearer_scheme = HTTPBearer(
+    scheme_name="IncidentServiceBearer",
+    description=(
+        "Short-lived Incident Service RS256 credential."
+    ),
+    bearerFormat="JWT",
+    auto_error=False,
+)
+
+IncidentServiceBearerCredentials = Annotated[
+    HTTPAuthorizationCredentials | None,
+    Depends(
+        incident_service_bearer_scheme
     ),
 ]
 
 
-def require_incident_service_token(
-    supplied_token: (
-        InternalServiceTokenHeader
-    ) = None,
-) -> None:
+@lru_cache(maxsize=1)
+def get_incident_service_token_verifier(
+) -> ServiceTokenVerifier:
+    return build_service_token_verifier(
+        settings
+    )
+
+
+IncidentServiceTokenVerifierDependency = Annotated[
+    ServiceTokenVerifier,
+    Depends(
+        get_incident_service_token_verifier
+    ),
+]
+
+
+def _incident_service_authentication_error(
+) -> HTTPException:
+    return HTTPException(
+        status_code=status.HTTP_401_UNAUTHORIZED,
+        detail=INVALID_SERVICE_CREDENTIALS_MESSAGE,
+        headers={
+            "WWW-Authenticate": "Bearer"
+        },
+    )
+
+
+def authenticate_incident_service(
+    credentials: IncidentServiceBearerCredentials,
+    verifier: IncidentServiceTokenVerifierDependency,
+) -> ServicePrincipal:
     """
     Authenticate requests originating from the Incident Service.
 
@@ -184,34 +234,82 @@ def require_incident_service_token(
     same response.
     """
 
-    expected_token = (
-        settings
-        .incident_service_token
-        .get_secret_value()
-    )
-
-    token_is_valid = (
-        supplied_token is not None
-        and compare_digest(
-            supplied_token.encode(
-                "utf-8"
-            ),
-            expected_token.encode(
-                "utf-8"
-            ),
+    if credentials is None:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason="missing_credential",
         )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
+        raise _incident_service_authentication_error()
+
+    try:
+        principal = verifier.verify_token(
+            credentials.credentials
+        )
+
+    except ServiceAuthenticationError as exc:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        raise (
+            _incident_service_authentication_error()
+        ) from None
+
+    operational_metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    service_security_event_logger.emit_authentication(
+        outcome="success",
+        reason="authenticated",
     )
 
-    if not token_is_valid:
+    return principal
+
+
+AuthenticatedIncidentServicePrincipal = Annotated[
+    ServicePrincipal,
+    Depends(
+        authenticate_incident_service
+    ),
+]
+
+
+def require_services_read(
+    principal: AuthenticatedIncidentServicePrincipal,
+) -> ServicePrincipal:
+    if ServiceScope.SERVICES_READ not in principal.scopes:
+        operational_metrics.record_service_authorization(
+            outcome="denied",
+            scope=ServiceScope.SERVICES_READ.value,
+        )
+        service_security_event_logger.emit_authorization(
+            outcome="blocked",
+            scope=ServiceScope.SERVICES_READ.value,
+        )
         raise HTTPException(
-            status_code=(
-                status
-                .HTTP_401_UNAUTHORIZED
-            ),
-            detail=(
-                "Invalid internal service credentials."
-            ),
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient service permissions.",
         )
+
+    operational_metrics.record_service_authorization(
+        outcome="granted",
+        scope=ServiceScope.SERVICES_READ.value,
+    )
+    service_security_event_logger.emit_authorization(
+        outcome="success",
+        scope=ServiceScope.SERVICES_READ.value,
+    )
+
+    return principal
 
 
 # =========================================================
@@ -460,10 +558,12 @@ def get_incident_gateway(
                     settings
                     .incident_service_url
                 ),
-                internal_token=(
+                service_token_provider=(
+                    get_service_token_provider()
+                ),
+                incident_service_audience=(
                     settings
-                    .incident_service_token
-                    .get_secret_value()
+                    .incident_service_audience
                 ),
                 read_max_attempts=(
                     settings

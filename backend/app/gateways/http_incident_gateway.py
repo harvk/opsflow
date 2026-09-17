@@ -32,6 +32,12 @@ from app.core.request_context import (
     REQUEST_ID_HEADER,
     get_request_id,
 )
+from app.core.service_identity import (
+    ServiceIdentityError,
+    ServiceScope,
+    ServiceTokenCreationError,
+    ServiceTokenProvider,
+)
 from app.domain.incident import (
     Incident,
     IncidentSeverity,
@@ -90,6 +96,11 @@ class HttpIncidentGateway:
     Mutating operations are attempted exactly once because
     the Incident Service does not currently expose idempotency
     keys for mutation deduplication.
+
+    Every outbound request carries a short-lived, scoped
+    service bearer credential. Read operations receive only
+    incidents:read; mutations receive only incidents:write.
+    The removed shared-secret header is never transmitted.
     """
 
     def __init__(
@@ -97,7 +108,8 @@ class HttpIncidentGateway:
         *,
         client: httpx.Client,
         incident_service_url: str,
-        internal_token: str,
+        service_token_provider: ServiceTokenProvider,
+        incident_service_audience: str,
         read_max_attempts: int = 1,
         read_backoff_seconds: float = 0.0,
         sleeper: Callable[
@@ -124,9 +136,18 @@ class HttpIncidentGateway:
                 "incident_service_url must not be empty."
             )
 
-        if not internal_token:
+        if service_token_provider is None:
             raise ValueError(
-                "internal_token must not be empty."
+                "service_token_provider is required."
+            )
+
+        normalized_audience = (
+            incident_service_audience.strip()
+        )
+
+        if not normalized_audience:
+            raise ValueError(
+                "incident_service_audience must not be empty."
             )
 
         if read_max_attempts < 1:
@@ -147,8 +168,15 @@ class HttpIncidentGateway:
 
         self._headers = {
             "Accept": "application/json",
-            "X-OpsFlow-Internal-Token": internal_token,
         }
+
+        self._service_token_provider = (
+            service_token_provider
+        )
+
+        self._incident_service_audience = (
+            normalized_audience
+        )
 
         self._read_max_attempts = (
             read_max_attempts
@@ -427,6 +455,11 @@ class HttpIncidentGateway:
             "unexpected_error"
         )
 
+        circuit_permit: (
+            CircuitPermit
+            | None
+        ) = None
+
         try:
             circuit_permit = (
                 self._acquire_circuit_permission()
@@ -464,11 +497,26 @@ class HttpIncidentGateway:
                 maximum_attempts + 1,
             ):
                 try:
+                    attempt_headers = dict(
+                        request_headers
+                    )
+
+                    service_authorization = (
+                        self
+                        ._create_service_authorization(
+                            normalized_method
+                        )
+                    )
+
+                    attempt_headers[
+                        "Authorization"
+                    ] = service_authorization
+
                     response = (
                         self._client.request(
                             normalized_method,
                             url,
-                            headers=request_headers,
+                            headers=attempt_headers,
                             params=params,
                             json=json,
                         )
@@ -597,6 +645,20 @@ class HttpIncidentGateway:
                 "Incident Service retry loop exited unexpectedly."
             )
 
+        except ServiceIdentityError:
+            self._record_circuit_failure(
+                circuit_permit
+            )
+
+            operation_outcome = (
+                "authentication_error"
+            )
+
+            raise IncidentGatewayUnavailableError(
+                "Incident Service authentication "
+                "is unavailable."
+            ) from None
+
         except IncidentGatewayCircuitOpenError:
             operation_outcome = (
                 "circuit_open"
@@ -615,6 +677,45 @@ class HttpIncidentGateway:
             )
 
             self._observe_circuit_state()
+
+    def _create_service_authorization(
+        self,
+        method: str,
+    ) -> str:
+        scope = (
+            ServiceScope.INCIDENTS_READ
+            if method
+            in _RETRYABLE_READ_METHODS
+            else ServiceScope.INCIDENTS_WRITE
+        )
+
+        token = (
+            self
+            ._service_token_provider
+            .create_token(
+                audience=(
+                    self
+                    ._incident_service_audience
+                ),
+                scopes={
+                    scope
+                },
+            )
+        )
+
+        if (
+            not isinstance(
+                token,
+                str,
+            )
+            or not token
+        ):
+            raise ServiceTokenCreationError(
+                "The service-token provider returned "
+                "an invalid credential."
+            )
+
+        return f"Bearer {token}"
 
     def _acquire_circuit_permission(
         self,

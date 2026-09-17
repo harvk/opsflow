@@ -1,8 +1,15 @@
+from functools import (
+    lru_cache,
+)
+
 from fastapi import (
     FastAPI,
     Response,
 )
 
+from app.api.dependencies import (
+    get_service_token_verifier,
+)
 from app.api.router import (
     api_router,
 )
@@ -17,6 +24,12 @@ from app.core.logging_config import (
 from app.core.metrics import (
     PROMETHEUS_CONTENT_TYPE,
     operational_metrics,
+)
+from app.core.service_identity import (
+    ServiceTokenVerifier,
+)
+from app.core.service_identity_loader import (
+    build_service_token_verifier,
 )
 from app.middleware.metrics import (
     MetricsMiddleware,
@@ -95,6 +108,21 @@ def create_app(
         application.dependency_overrides[
             get_settings
         ] = lambda: configured_settings
+
+        @lru_cache(
+            maxsize=1,
+        )
+        def get_application_service_token_verifier(
+        ) -> ServiceTokenVerifier:
+            return build_service_token_verifier(
+                configured_settings
+            )
+
+        application.dependency_overrides[
+            get_service_token_verifier
+        ] = (
+            get_application_service_token_verifier
+        )
 
     # Logging is added first and correlation is added last.
     # Because Starlette reverses registration order, the

@@ -9,7 +9,9 @@ from fastapi import (
 )
 
 from app.api.dependencies import (
+    IncidentReadPrincipal,
     IncidentServiceDependency,
+    IncidentWritePrincipal,
 )
 from app.domain.incident import (
     IncidentSeverity,
@@ -34,6 +36,7 @@ router = APIRouter()
     response_model=list[IncidentResponse],
 )
 def list_incidents(
+    _service_principal: IncidentReadPrincipal,
     incident_service: IncidentServiceDependency,
     search: Annotated[
         str | None,
@@ -105,6 +108,7 @@ def list_incidents(
 )
 def get_incident(
     incident_id: UUID,
+    _service_principal: IncidentReadPrincipal,
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
@@ -130,6 +134,7 @@ def get_incident(
 )
 def create_incident(
     payload: IncidentCreate,
+    _service_principal: IncidentWritePrincipal,
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
@@ -161,6 +166,7 @@ def create_incident(
 def update_incident(
     incident_id: UUID,
     payload: IncidentUpdate,
+    _service_principal: IncidentWritePrincipal,
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
@@ -198,6 +204,7 @@ def update_incident(
 )
 def delete_incident(
     incident_id: UUID,
+    _service_principal: IncidentWritePrincipal,
     incident_service: IncidentServiceDependency,
 ) -> None:
     try:

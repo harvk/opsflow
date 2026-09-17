@@ -1,21 +1,30 @@
 from __future__ import annotations
 
 from collections.abc import Generator
+from datetime import (
+    UTC,
+    datetime,
+    timedelta,
+)
 from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import (
-    SecretStr,
-)
 from sqlalchemy.orm import Session
 
 from app.api.dependencies import (
     get_service_catalog_gateway,
+    get_service_token_verifier,
 )
 from app.core.config import Settings
 from app.core.request_context import (
     REQUEST_ID_HEADER,
+)
+from app.core.service_identity import (
+    INVALID_SERVICE_CREDENTIALS_MESSAGE,
+    ServiceAuthenticationError,
+    ServicePrincipal,
+    ServiceScope,
 )
 from app.db.session import get_db_session
 from app.gateways.unavailable_service_catalog_gateway import (
@@ -23,14 +32,91 @@ from app.gateways.unavailable_service_catalog_gateway import (
 )
 from app.main import create_app
 
-TEST_INTERNAL_TOKEN = (
-    "test-internal-token-that-is-"
-    "at-least-32-characters"
+AUTHORIZATION_HEADER = (
+    "Authorization"
 )
 
-INTERNAL_TOKEN_HEADER = (
-    "X-OpsFlow-Internal-Token"
+READ_TOKEN = "test-service-token-read"
+WRITE_TOKEN = "test-service-token-write"
+READ_WRITE_TOKEN = (
+    "test-service-token-read-write"
 )
+
+
+def build_service_principal(
+    scopes: frozenset[
+        ServiceScope
+    ],
+) -> ServicePrincipal:
+    issued_at = datetime(
+        2026,
+        9,
+        16,
+        12,
+        0,
+        tzinfo=UTC,
+    )
+
+    return ServicePrincipal(
+        issuer="opsflow-core-backend",
+        subject="opsflow-core-backend",
+        audience="opsflow-incident-service",
+        token_id=uuid4(),
+        issued_at=issued_at,
+        not_before=issued_at,
+        expires_at=(
+            issued_at
+            + timedelta(
+                seconds=60
+            )
+        ),
+        scopes=scopes,
+    )
+
+
+class StubServiceTokenVerifier:
+    def __init__(
+        self,
+    ) -> None:
+        self._principals = {
+            READ_TOKEN: build_service_principal(
+                frozenset(
+                    {
+                        ServiceScope.INCIDENTS_READ,
+                    }
+                )
+            ),
+            WRITE_TOKEN: build_service_principal(
+                frozenset(
+                    {
+                        ServiceScope.INCIDENTS_WRITE,
+                    }
+                )
+            ),
+            READ_WRITE_TOKEN: build_service_principal(
+                frozenset(
+                    {
+                        ServiceScope.INCIDENTS_READ,
+                        ServiceScope.INCIDENTS_WRITE,
+                    }
+                )
+            ),
+        }
+
+    def verify_token(
+        self,
+        token: str,
+    ) -> ServicePrincipal:
+        principal = self._principals.get(
+            token
+        )
+
+        if principal is None:
+            raise ServiceAuthenticationError(
+                INVALID_SERVICE_CREDENTIALS_MESSAGE
+            )
+
+        return principal
 
 
 class StubServiceCatalogGateway:
@@ -52,6 +138,52 @@ class StubServiceCatalogGateway:
         )
 
 
+def build_test_settings(
+) -> Settings:
+    return Settings(
+        app_name=(
+            "OpsFlow Incident Service"
+        ),
+        app_env="test",
+        api_v1_prefix="/api/v1",
+        database_url=(
+            "postgresql+psycopg://"
+            "test:test@localhost/test"
+        ),
+        core_backend_url=(
+            "http://core-backend.test"
+            "/api/v1"
+        ),
+    )
+
+
+@pytest.fixture
+def security_client(
+) -> Generator[
+    TestClient,
+    None,
+    None,
+]:
+    application = create_app(
+        build_test_settings()
+    )
+
+    token_verifier = (
+        StubServiceTokenVerifier()
+    )
+
+    application.dependency_overrides[
+        get_service_token_verifier
+    ] = lambda: token_verifier
+
+    with TestClient(
+        application
+    ) as client:
+        yield client
+
+    application.dependency_overrides.clear()
+
+
 @pytest.fixture
 def api_client(
     db_session: Session,
@@ -63,26 +195,7 @@ def api_client(
     service_id = uuid4()
 
     application = create_app(
-        Settings(
-            app_name=(
-                "OpsFlow Incident Service"
-            ),
-            app_env="test",
-            api_v1_prefix="/api/v1",
-            database_url=(
-                "postgresql+psycopg://"
-                "test:test@localhost/test"
-            ),
-            core_backend_url=(
-                "http://core-backend.test"
-                "/api/v1"
-            ),
-            incident_service_token=(
-                SecretStr(
-                    TEST_INTERNAL_TOKEN
-                )
-            ),
-        )
+        build_test_settings()
     )
 
     def override_db_session(
@@ -107,13 +220,22 @@ def api_client(
         )
     )
 
+    token_verifier = (
+        StubServiceTokenVerifier()
+    )
+
+    application.dependency_overrides[
+        get_service_token_verifier
+    ] = lambda: token_verifier
+
     with TestClient(
         application
     ) as client:
         client.headers.update(
             {
-                INTERNAL_TOKEN_HEADER: (
-                    TEST_INTERNAL_TOKEN
+                AUTHORIZATION_HEADER: (
+                    "Bearer "
+                    f"{READ_WRITE_TOKEN}"
                 )
             }
         )
@@ -127,19 +249,10 @@ def api_client(
 # AUTHENTICATION CONTRACT
 # =========================================================
 
-def test_health_does_not_require_internal_token(
-    api_client: tuple[
-        TestClient,
-        UUID,
-    ],
+def test_health_does_not_require_service_token(
+    security_client: TestClient,
 ) -> None:
-    client, _service_id = api_client
-
-    client.headers.pop(
-        INTERNAL_TOKEN_HEADER
-    )
-
-    response = client.get(
+    response = security_client.get(
         "/api/v1/health"
     )
 
@@ -147,36 +260,30 @@ def test_health_does_not_require_internal_token(
 
 
 @pytest.mark.parametrize(
-    "supplied_token",
+    "authorization_header",
     [
         None,
-        "incorrect-internal-token",
+        "",
+        "Basic not-a-service-token",
+        "Bearer",
+        "Bearer invalid-service-token",
     ],
 )
-def test_incident_api_rejects_invalid_internal_credentials(
-    api_client: tuple[
-        TestClient,
-        UUID,
-    ],
-    supplied_token: str | None,
+def test_incident_api_rejects_invalid_service_credentials(
+    security_client: TestClient,
+    authorization_header: str | None,
 ) -> None:
-    client, _service_id = api_client
-
-    client.headers.pop(
-        INTERNAL_TOKEN_HEADER
-    )
-
     request_headers: dict[
         str,
         str,
     ] = {}
 
-    if supplied_token is not None:
+    if authorization_header is not None:
         request_headers[
-            INTERNAL_TOKEN_HEADER
-        ] = supplied_token
+            AUTHORIZATION_HEADER
+        ] = authorization_header
 
-    response = client.get(
+    response = security_client.get(
         "/api/v1/incidents",
         headers=request_headers,
     )
@@ -185,7 +292,66 @@ def test_incident_api_rejects_invalid_internal_credentials(
 
     assert response.json() == {
         "detail": (
-            "Invalid internal service credentials."
+            INVALID_SERVICE_CREDENTIALS_MESSAGE
+        )
+    }
+
+    assert response.headers[
+        "WWW-Authenticate"
+    ] == "Bearer"
+
+
+def test_read_scope_cannot_create_incident(
+    security_client: TestClient,
+) -> None:
+    service_id = uuid4()
+
+    response = security_client.post(
+        "/api/v1/incidents",
+        headers={
+            AUTHORIZATION_HEADER: (
+                f"Bearer {READ_TOKEN}"
+            )
+        },
+        json={
+            "title": "Scope enforcement",
+            "serviceId": str(
+                service_id
+            ),
+            "severity": "SEV-3",
+            "summary": (
+                "A read identity cannot write."
+            ),
+            "assignee": (
+                "Platform Operations"
+            ),
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": (
+            "Insufficient service permissions."
+        )
+    }
+
+
+def test_write_scope_cannot_list_incidents(
+    security_client: TestClient,
+) -> None:
+    response = security_client.get(
+        "/api/v1/incidents",
+        headers={
+            AUTHORIZATION_HEADER: (
+                f"Bearer {WRITE_TOKEN}"
+            )
+        },
+    )
+
+    assert response.status_code == 403
+    assert response.json() == {
+        "detail": (
+            "Insufficient service permissions."
         )
     }
 
@@ -447,26 +613,7 @@ def test_create_fails_closed_when_catalog_is_unavailable(
     db_session: Session,
 ) -> None:
     application = create_app(
-        Settings(
-            app_name=(
-                "OpsFlow Incident Service"
-            ),
-            app_env="test",
-            api_v1_prefix="/api/v1",
-            database_url=(
-                "postgresql+psycopg://"
-                "test:test@localhost/test"
-            ),
-            core_backend_url=(
-                "http://core-backend.test"
-                "/api/v1"
-            ),
-            incident_service_token=(
-                SecretStr(
-                    TEST_INTERNAL_TOKEN
-                )
-            ),
-        )
+        build_test_settings()
     )
 
     def override_db_session(
@@ -487,13 +634,22 @@ def test_create_fails_closed_when_catalog_is_unavailable(
         UnavailableServiceCatalogGateway()
     )
 
+    token_verifier = (
+        StubServiceTokenVerifier()
+    )
+
+    application.dependency_overrides[
+        get_service_token_verifier
+    ] = lambda: token_verifier
+
     with TestClient(
         application
     ) as client:
         client.headers.update(
             {
-                INTERNAL_TOKEN_HEADER: (
-                    TEST_INTERNAL_TOKEN
+                AUTHORIZATION_HEADER: (
+                    "Bearer "
+                    f"{READ_WRITE_TOKEN}"
                 )
             }
         )
@@ -530,27 +686,19 @@ def test_create_fails_closed_when_catalog_is_unavailable(
         )
     )
 
+
 def test_authentication_failure_preserves_request_id(
-    api_client: tuple[
-        TestClient,
-        UUID,
-    ],
+    security_client: TestClient,
 ) -> None:
-    client, _service_id = api_client
-
-    client.headers.pop(
-        INTERNAL_TOKEN_HEADER
-    )
-
     supplied_request_id = (
         "private-api-auth-failure:9.6.4"
     )
 
-    response = client.get(
+    response = security_client.get(
         "/api/v1/incidents",
         headers={
-            INTERNAL_TOKEN_HEADER: (
-                "incorrect-internal-token"
+            AUTHORIZATION_HEADER: (
+                "Bearer invalid-service-token"
             ),
             REQUEST_ID_HEADER: (
                 supplied_request_id

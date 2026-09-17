@@ -58,6 +58,7 @@ Thumbs.db
 crash.log
 
 # Secrets
+.opsflow-secrets/
 *.pem
 *.key
 
