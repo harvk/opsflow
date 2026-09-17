@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from pathlib import Path
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
@@ -13,10 +14,27 @@ PRODUCTION_PATHS = (
     Path("incident-service/app"),
 )
 
-RETIRED_IDENTIFIERS = (
-    "INCIDENT_SERVICE_TOKEN",
-    "X-OpsFlow-Internal-Token",
-    "incident_service_token",
+RETIRED_PATTERNS = (
+    (
+        "INCIDENT_SERVICE_TOKEN",
+        re.compile(
+            r"INCIDENT_SERVICE_TOKEN"
+        ),
+    ),
+    (
+        "X-OpsFlow-Internal-Token",
+        re.compile(
+            r"X-OpsFlow-Internal-Token"
+        ),
+    ),
+    (
+        "incident_service_token",
+        re.compile(
+            r"(?<![A-Za-z0-9_])"
+            r"incident_service_token"
+            r"(?![A-Za-z0-9_])"
+        ),
+    ),
 )
 
 
@@ -53,8 +71,10 @@ def main() -> None:
                 content.splitlines(),
                 start=1,
             ):
-                for identifier in RETIRED_IDENTIFIERS:
-                    if identifier in line:
+                for identifier, pattern in RETIRED_PATTERNS:
+                    if pattern.search(
+                        line
+                    ):
                         relative_path = source_path.relative_to(
                             REPOSITORY_ROOT
                         )

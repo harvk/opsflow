@@ -644,3 +644,9 @@ Graceful Overview degradation
 Prometheus operational metrics
 Automated cross-service verification
 Controlled outage and recovery validation
+
+Portfolio architecture case study:
+
+```text
+docs/portfolio/distributed-authentication.md
+```

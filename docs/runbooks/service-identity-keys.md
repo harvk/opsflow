@@ -310,7 +310,11 @@ core-backend-key-1
 incident-service-key-1
 ```
 
-Rotation requires:
+### Core signing-key rotation
+
+Incident Service supports a bounded overlap between the
+current and previous Core public keys. Core signing-key
+rotation uses this sequence:
 
 1. Generate a new RSA key pair.
 2. Assign a new key ID.
@@ -321,3 +325,21 @@ Rotation requires:
 7. Remove the previous public key.
 
 Never replace a private key under an existing key ID.
+
+### Incident signing-key rotation
+
+Core Backend currently loads one Incident Service public key.
+Incident signing-key rotation therefore requires a coordinated
+deployment:
+
+1. Generate a replacement Incident RSA key pair.
+2. Assign a new Incident key ID.
+3. Update Core's Incident verification key and key ID.
+4. Update Incident Service's signing key and key ID within the
+   coordinated deployment window.
+5. Verify Incident-to-Core authentication immediately after
+   deployment.
+
+The current Incident-to-Core path must not be described as
+supporting current/previous-key overlap or zero-downtime key
+rotation.

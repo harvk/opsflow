@@ -487,19 +487,24 @@ Application configuration may contain:
 - Active signing-key identifier
 - Current verification public-key path
 - Current verification key identifier
-- Previous verification public-key path
-- Previous verification key identifier
+- Previous verification public-key path, when the receiving
+  service supports overlap rotation
+- Previous verification key identifier, when the receiving
+  service supports overlap rotation
 
 The final runtime image must not contain development keys.
 
 ## Key Rotation
 
-A receiving service may temporarily trust:
+Rotation behavior is direction-specific in the current
+implementation:
 
-- The caller's current public key
-- The caller's previous public key
+| Caller | Receiver | Current behavior |
+|---|---|---|
+| Core Backend | Incident Service | Current and previous Core public keys may overlap |
+| Incident Service | Core Backend | Core trusts one configured Incident public key; rotation requires coordinated deployment |
 
-Rotation follows this sequence:
+Core-to-Incident overlap rotation follows this sequence:
 
 ```text
 1. Generate the caller's replacement key pair.
@@ -511,10 +516,15 @@ Rotation follows this sequence:
 7. Remove the previous public key from the receiver.
 ```
 
-The receiver selects verification keys only through the
-configured `kid` mapping.
+Incident Service selects Core verification keys only through
+the configured `kid` mapping.
 
 An unknown `kid` is rejected.
+
+Incident-to-Core rotation currently requires coordinated
+replacement of the Incident signing configuration and Core's
+Incident verification configuration. The deployment must not
+claim zero-downtime overlap for that direction.
 
 ## Authentication Failure Contract
 
@@ -718,7 +728,7 @@ Compose tests must prove:
 - Missing Incident-to-Core credential rejection
 - Invalid Incident-to-Core credential rejection
 - Wrong-audience rejection
-- Recovery after a controlled key rotation
+- Recovery after a controlled Core signing-key rotation
 
 ## Security Observability
 
@@ -832,7 +842,8 @@ Replay exposure is bounded through:
 - Operation-specific scopes
 - Protected private keys
 - Bounded clock skew
-- Key rotation support
+- Bounded Core signing-key overlap and coordinated Incident
+  signing-key rotation
 
 Phase 10 does not implement a distributed `jti` replay cache.
 Adding one would require shared state, atomic consumption, and
