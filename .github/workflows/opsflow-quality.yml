@@ -300,6 +300,20 @@ jobs:
             -pubout \
             -out .opsflow-secrets/incident-service-identity-public.pem
 
+          sudo chown 10001:10001 \
+            .opsflow-secrets/core-service-identity-private.pem \
+            .opsflow-secrets/core-service-identity-public.pem \
+            .opsflow-secrets/incident-service-identity-private.pem \
+            .opsflow-secrets/incident-service-identity-public.pem
+
+          chmod 0400 \
+            .opsflow-secrets/core-service-identity-private.pem \
+            .opsflow-secrets/incident-service-identity-private.pem
+
+          chmod 0444 \
+            .opsflow-secrets/core-service-identity-public.pem \
+            .opsflow-secrets/incident-service-identity-public.pem
+
       - name: Validate Compose configuration
         run: docker compose --env-file .env.docker config --quiet
 
