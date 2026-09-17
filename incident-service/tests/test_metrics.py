@@ -1,3 +1,4 @@
+import pytest
 from fastapi import (
     FastAPI,
 )
@@ -104,6 +105,62 @@ def test_incident_metrics_use_normalized_route(
         )
     )
 
+
+def test_service_security_metrics_use_bounded_labels(
+) -> None:
+    metrics = OperationalMetrics()
+
+    metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    metrics.record_service_authentication(
+        outcome="failure",
+        reason="unknown_key",
+    )
+    metrics.record_service_authorization(
+        outcome="granted",
+        scope="incidents:read",
+    )
+
+    assert metrics.registry.get_sample_value(
+        "opsflow_service_authentication_attempts_total",
+        {
+            "outcome": "failure",
+            "reason": "unknown_key",
+        },
+    ) == 1.0
+
+    assert metrics.registry.get_sample_value(
+        "opsflow_service_authorization_decisions_total",
+        {
+            "outcome": "granted",
+            "scope": "incidents:read",
+        },
+    ) == 1.0
+
+
+def test_service_security_metrics_reject_unbounded_labels(
+) -> None:
+    metrics = OperationalMetrics()
+
+    with pytest.raises(
+        ValueError,
+        match="authentication reason",
+    ):
+        metrics.record_service_authentication(
+            outcome="failure",
+            reason="raw-jwt-or-exception-text",
+        )
+
+    with pytest.raises(
+        ValueError,
+        match="authorization scope",
+    ):
+        metrics.record_service_authorization(
+            outcome="denied",
+            scope="incidents:delete",
+        )
 
 def test_incident_service_exposes_private_metrics_endpoint(
 ) -> None:

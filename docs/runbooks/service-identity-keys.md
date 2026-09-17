@@ -228,12 +228,78 @@ docker compose --env-file .env.docker exec -T backend \
   python -c "import httpx; from app.core.config import settings; from app.core.service_identity import ServiceScope; from app.core.service_identity_provider import get_service_token_provider; token = get_service_token_provider().create_token(audience=settings.incident_service_audience, scopes={ServiceScope.INCIDENTS_WRITE}); response = httpx.get('http://incident-service:8000/api/v1/incidents', headers={'Authorization': f'Bearer {token}'}, timeout=5.0); assert response.status_code == 403, (response.status_code, response.text); print('PASS: insufficient scope rejected')"
 ```
 
+## Verify Incident-to-Core authentication
+
+The reverse path uses an independently signed Incident
+Service credential. The command below uses a nonexistent
+service ID so verification does not modify application data.
+
+```bash
+docker compose --env-file .env.docker exec -T incident-service \
+  python -c "import httpx; from app.core.config import get_settings; from app.core.service_identity import ServiceScope; from app.core.service_token_provider import get_service_token_provider; settings = get_settings(); token = get_service_token_provider().create_token(audience=settings.core_backend_audience, scopes={ServiceScope.SERVICES_READ}); response = httpx.get(f'{settings.core_backend_url}/internal/services/00000000-0000-4000-8000-000000000001/exists', headers={'Authorization': f'Bearer {token}'}, timeout=5.0); assert response.status_code == 200, (response.status_code, response.text); assert response.json() == {'exists': False}; print('PASS: Incident-signed services:read token accepted')"
+```
+
+Verify that the retired shared header is rejected:
+
+```bash
+docker compose --env-file .env.docker exec -T incident-service \
+  python -c "import httpx; from app.core.config import get_settings; settings = get_settings(); response = httpx.get(f'{settings.core_backend_url}/internal/services/00000000-0000-4000-8000-000000000001/exists', headers={'X-OpsFlow-Internal-Token': 'retired-shared-secret'}, timeout=5.0); assert response.status_code == 401; assert response.json() == {'detail': 'Invalid service credentials.'}; assert 'retired-shared-secret' not in response.text; print('PASS: retired shared header rejected')"
+```
+
+## Verify security observability
+
+Both services expose bounded authentication and authorization
+counters:
+
+```text
+opsflow_service_authentication_attempts_total
+opsflow_service_authorization_decisions_total
+```
+
+Inspect only those metrics in the Backend:
+
+```bash
+docker compose --env-file .env.docker exec -T backend \
+  python -c "import urllib.request; text = urllib.request.urlopen('http://127.0.0.1:8000/metrics', timeout=5).read().decode(); print('\\n'.join(line for line in text.splitlines() if line.startswith('opsflow_service_authentication_attempts_total') or line.startswith('opsflow_service_authorization_decisions_total')))"
+```
+
+Use the same command with `incident-service` in place of
+`backend` to inspect the receiving Incident Service process.
+
+Inspect structured service-security events:
+
+```bash
+docker compose --env-file .env.docker logs \
+  --no-color \
+  --since 15m \
+  backend \
+  incident-service \
+  | grep -E \
+    '"event":"service_(authentication|authorization)"'
+```
+
+Events may contain only generated event metadata, a validated
+request ID, a bounded outcome, a bounded reason, and a
+registered scope. They must not contain credentials, JWT
+claims, keys, raw headers, or exception messages.
+
 ## Current migration boundary
 
-Core-to-Incident bearer authentication is active. The reverse
-Incident-to-Core path retains the shared header until the
-Phase 10.6 route cutover. Phase 10.6D distributes the reverse
-keypair but does not change live authentication by itself.
+Bidirectional RS256 service authentication is active:
+
+```text
+Core Backend     -> Incident Service
+Incident Service -> Core Backend
+```
+
+Each service owns a distinct private key and receives only the
+other service's public key. The static shared token and
+`X-OpsFlow-Internal-Token` authentication path are retired and
+must remain rejected.
+
+Service JWTs are stateless and may be reused during their
+short lifetime. OpsFlow does not currently maintain a
+distributed `jti` replay cache.
 
 ## Rotation preparation
 

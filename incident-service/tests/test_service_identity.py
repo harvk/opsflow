@@ -31,6 +31,7 @@ from app.core.service_identity import (
     INVALID_SERVICE_CREDENTIALS_MESSAGE,
     JwtServiceTokenVerifier,
     ServiceAuthenticationError,
+    ServiceAuthenticationFailureReason,
     ServiceIdentityConfigurationError,
     ServiceScope,
 )
@@ -256,6 +257,51 @@ def assert_invalid_token(
         verifier.verify_token(
             token
         )
+
+
+def assert_invalid_token_reason(
+    verifier: JwtServiceTokenVerifier,
+    token: str,
+    expected_reason: ServiceAuthenticationFailureReason,
+) -> None:
+    with pytest.raises(
+        ServiceAuthenticationError,
+        match=(
+            INVALID_SERVICE_CREDENTIALS_MESSAGE
+        ),
+    ) as exc_info:
+        verifier.verify_token(
+            token
+        )
+
+    assert exc_info.value.reason is expected_reason
+
+
+def test_verifier_exposes_only_bounded_failure_reasons(
+    current_key_pair: RsaKeyPair,
+) -> None:
+    verifier = build_verifier(
+        current_key_pair
+    )
+
+    assert_invalid_token_reason(
+        verifier,
+        "not-a-jwt",
+        ServiceAuthenticationFailureReason
+        .MALFORMED_CREDENTIAL,
+    )
+
+    unknown_key_token = create_token(
+        current_key_pair,
+        key_id="unregistered-key",
+    )
+
+    assert_invalid_token_reason(
+        verifier,
+        unknown_key_token,
+        ServiceAuthenticationFailureReason
+        .UNKNOWN_KEY,
+    )
 
 
 def test_verifier_returns_expected_service_principal(

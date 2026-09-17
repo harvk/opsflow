@@ -34,6 +34,9 @@ from cryptography.hazmat.primitives.serialization import (
     load_pem_public_key,
 )
 from jwt.exceptions import (
+    InvalidAudienceError,
+    InvalidIssuerError,
+    InvalidSignatureError,
     PyJWTError,
 )
 
@@ -79,12 +82,46 @@ class ServiceIdentityConfigurationError(
     """
 
 
+class ServiceAuthenticationFailureReason(
+    StrEnum
+):
+    MALFORMED_CREDENTIAL = "malformed_credential"
+    INVALID_ALGORITHM = "invalid_algorithm"
+    INVALID_TOKEN_TYPE = "invalid_token_type"
+    MISSING_KEY_ID = "missing_key_id"
+    UNKNOWN_KEY = "unknown_key"
+    INVALID_SIGNATURE = "invalid_signature"
+    INVALID_ISSUER = "invalid_issuer"
+    INVALID_AUDIENCE = "invalid_audience"
+    INVALID_CLAIM_CONTRACT = "invalid_claim_contract"
+    INVALID_TOKEN_USE = "invalid_token_use"
+    INVALID_LIFETIME = "invalid_lifetime"
+    INVALID_SCOPE_CONTRACT = "invalid_scope_contract"
+
+
 class ServiceAuthenticationError(
     ServiceIdentityError
 ):
     """
     Raised when a service credential cannot be trusted.
+
+    The public message is deliberately generic. The bounded
+    reason is safe for internal metrics and security events.
     """
+
+    def __init__(
+        self,
+        message: str = INVALID_SERVICE_CREDENTIALS_MESSAGE,
+        *,
+        reason: ServiceAuthenticationFailureReason = (
+            ServiceAuthenticationFailureReason
+            .INVALID_CLAIM_CONTRACT
+        ),
+    ) -> None:
+        super().__init__(
+            message
+        )
+        self.reason = reason
 
 
 @dataclass(
@@ -151,9 +188,13 @@ def _configuration_text(
 
 
 def _authentication_error(
+    reason: ServiceAuthenticationFailureReason = (
+        ServiceAuthenticationFailureReason
+        .INVALID_CLAIM_CONTRACT
+    ),
 ) -> ServiceAuthenticationError:
     return ServiceAuthenticationError(
-        INVALID_SERVICE_CREDENTIALS_MESSAGE
+        reason=reason
     )
 
 
@@ -366,7 +407,10 @@ class JwtServiceTokenVerifier:
             or not token.strip()
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .MALFORMED_CREDENTIAL
+                )
             )
 
         try:
@@ -378,21 +422,26 @@ class JwtServiceTokenVerifier:
 
         except PyJWTError:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .MALFORMED_CREDENTIAL
+                )
             ) from None
 
-        if (
-            header.get(
-                "alg"
-            )
-            != SERVICE_TOKEN_ALGORITHM
-            or header.get(
-                "typ"
-            )
-            != SERVICE_TOKEN_TYPE
-        ):
+        if header.get("alg") != SERVICE_TOKEN_ALGORITHM:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_ALGORITHM
+                )
+            )
+
+        if header.get("typ") != SERVICE_TOKEN_TYPE:
+            raise (
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_TOKEN_TYPE
+                )
             )
 
         key_id = header.get(
@@ -407,7 +456,10 @@ class JwtServiceTokenVerifier:
             or not key_id
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .MISSING_KEY_ID
+                )
             )
 
         public_key = (
@@ -420,7 +472,10 @@ class JwtServiceTokenVerifier:
 
         if public_key is None:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .UNKNOWN_KEY
+                )
             )
 
         try:
@@ -455,6 +510,30 @@ class JwtServiceTokenVerifier:
                     "verify_nbf": False,
                 },
             )
+
+        except InvalidSignatureError:
+            raise (
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_SIGNATURE
+                )
+            ) from None
+
+        except InvalidIssuerError:
+            raise (
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_ISSUER
+                )
+            ) from None
+
+        except InvalidAudienceError:
+            raise (
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_AUDIENCE
+                )
+            ) from None
 
         except PyJWTError:
             raise (
@@ -518,7 +597,10 @@ class JwtServiceTokenVerifier:
             "token_use"
         ) != SERVICE_TOKEN_USE:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_TOKEN_USE
+                )
             )
 
         token_id_value = payload.get(
@@ -560,7 +642,10 @@ class JwtServiceTokenVerifier:
 
         if not_before != issued_at:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_LIFETIME
+                )
             )
 
         token_lifetime = (
@@ -582,7 +667,10 @@ class JwtServiceTokenVerifier:
             )
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_LIFETIME
+                )
             )
 
         now = self._clock()
@@ -621,7 +709,10 @@ class JwtServiceTokenVerifier:
             + self._clock_skew
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_LIFETIME
+                )
             )
 
         scopes = self._scopes(
@@ -698,7 +789,10 @@ class JwtServiceTokenVerifier:
             str,
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_SCOPE_CONTRACT
+                )
             )
 
         scope_names = (
@@ -717,7 +811,10 @@ class JwtServiceTokenVerifier:
             )
         ):
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_SCOPE_CONTRACT
+                )
             )
 
         try:
@@ -731,5 +828,8 @@ class JwtServiceTokenVerifier:
 
         except ValueError:
             raise (
-                _authentication_error()
+                _authentication_error(
+                    ServiceAuthenticationFailureReason
+                    .INVALID_SCOPE_CONTRACT
+                )
             ) from None

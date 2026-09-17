@@ -27,6 +27,9 @@ from app.core.config import (
     Settings,
     get_settings,
 )
+from app.core.metrics import (
+    operational_metrics,
+)
 from app.core.service_identity import (
     INVALID_SERVICE_CREDENTIALS_MESSAGE,
     ServiceAuthenticationError,
@@ -36,6 +39,9 @@ from app.core.service_identity import (
 )
 from app.core.service_identity_loader import (
     build_service_token_verifier,
+)
+from app.core.service_security_events import (
+    service_security_event_logger,
 )
 from app.core.service_token_provider import (
     get_service_token_provider,
@@ -140,17 +146,44 @@ def authenticate_service(
     """
 
     if credentials is None:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
         raise _service_authentication_error()
 
     try:
-        return verifier.verify_token(
+        principal = verifier.verify_token(
             credentials.credentials
         )
 
-    except ServiceAuthenticationError:
+    except ServiceAuthenticationError as exc:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
         raise (
             _service_authentication_error()
         ) from None
+
+    operational_metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    service_security_event_logger.emit_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+
+    return principal
 
 
 AuthenticatedServicePrincipal = Annotated[
@@ -178,6 +211,14 @@ def require_service_scope(
         principal: AuthenticatedServicePrincipal,
     ) -> ServicePrincipal:
         if required_scope not in principal.scopes:
+            operational_metrics.record_service_authorization(
+                outcome="denied",
+                scope=required_scope.value,
+            )
+            service_security_event_logger.emit_authorization(
+                outcome="blocked",
+                scope=required_scope.value,
+            )
             raise HTTPException(
                 status_code=(
                     status.HTTP_403_FORBIDDEN
@@ -186,6 +227,15 @@ def require_service_scope(
                     "Insufficient service permissions."
                 ),
             )
+
+        operational_metrics.record_service_authorization(
+            outcome="granted",
+            scope=required_scope.value,
+        )
+        service_security_event_logger.emit_authorization(
+            outcome="success",
+            scope=required_scope.value,
+        )
 
         return principal
 

@@ -22,6 +22,7 @@ from app.core.service_token_verifier import (
     INVALID_SERVICE_CREDENTIALS_MESSAGE,
     JwtServiceTokenVerifier,
     ServiceAuthenticationError,
+    ServiceAuthenticationFailureReason,
 )
 from app.core.service_token_verifier_loader import (
     _read_public_key,
@@ -124,22 +125,30 @@ def test_verifier_accepts_services_read_token(
 
 
 @pytest.mark.parametrize(
-    ("audience", "key_id", "scope"),
+    (
+        "audience",
+        "key_id",
+        "scope",
+        "expected_reason",
+    ),
     [
         (
             "wrong-audience",
             KEY_ID,
             ServiceScope.SERVICES_READ.value,
+            ServiceAuthenticationFailureReason.INVALID_AUDIENCE,
         ),
         (
             CORE_AUDIENCE,
             "unknown-key",
             ServiceScope.SERVICES_READ.value,
+            ServiceAuthenticationFailureReason.UNKNOWN_KEY,
         ),
         (
             CORE_AUDIENCE,
             KEY_ID,
             "services:delete",
+            ServiceAuthenticationFailureReason.INVALID_SCOPE_CONTRACT,
         ),
     ],
 )
@@ -148,6 +157,7 @@ def test_verifier_rejects_untrusted_token_contracts(
     audience: str,
     key_id: str,
     scope: str,
+    expected_reason: ServiceAuthenticationFailureReason,
 ) -> None:
     private_key_pem, public_key_pem = rsa_key_pair
     token = create_token(
@@ -160,10 +170,31 @@ def test_verifier_rejects_untrusted_token_contracts(
     with pytest.raises(
         ServiceAuthenticationError,
         match=INVALID_SERVICE_CREDENTIALS_MESSAGE,
-    ):
+    ) as exc_info:
         build_verifier(
             public_key_pem
         ).verify_token(token)
+
+    assert exc_info.value.reason is expected_reason
+
+
+def test_verifier_classifies_malformed_credential(
+    rsa_key_pair: tuple[str, str],
+) -> None:
+    _, public_key_pem = rsa_key_pair
+
+    with pytest.raises(
+        ServiceAuthenticationError,
+        match=INVALID_SERVICE_CREDENTIALS_MESSAGE,
+    ) as exc_info:
+        build_verifier(
+            public_key_pem
+        ).verify_token("not-a-jwt")
+
+    assert exc_info.value.reason is (
+        ServiceAuthenticationFailureReason
+        .MALFORMED_CREDENTIAL
+    )
 
 
 def test_public_key_loader_rejects_missing_file(

@@ -720,6 +720,126 @@ Compose tests must prove:
 - Wrong-audience rejection
 - Recovery after a controlled key rotation
 
+## Security Observability
+
+Both receiving services record authentication and
+authorization outcomes without recording credentials or
+unbounded identity data.
+
+### Authentication failure classification
+
+The public response remains deliberately generic:
+
+```text
+Invalid service credentials.
+```
+
+Internally, a rejected service credential is assigned one of
+the following bounded reasons:
+
+```text
+malformed_credential
+invalid_algorithm
+invalid_token_type
+missing_key_id
+unknown_key
+invalid_signature
+invalid_issuer
+invalid_audience
+invalid_claim_contract
+invalid_token_use
+invalid_lifetime
+invalid_scope_contract
+```
+
+The receiving dependency separately classifies an absent
+Bearer credential as:
+
+```text
+missing_credential
+```
+
+These classifications must never contain a JWT, claim value,
+key ID, exception message, header value, or request body.
+
+### Prometheus metrics
+
+Both services expose these bounded counters:
+
+```text
+opsflow_service_authentication_attempts_total
+opsflow_service_authorization_decisions_total
+```
+
+Authentication labels are restricted to:
+
+```text
+outcome = success | failure
+reason  = authenticated | <bounded failure reason>
+```
+
+Authorization labels are restricted to:
+
+```text
+outcome = granted | denied
+scope   = incidents:read | incidents:write | services:read
+```
+
+Runtime allowlists reject arbitrary label values. Tokens,
+request IDs, resource IDs, issuer values, subjects, key IDs,
+and exception messages must not become metric labels.
+
+### Structured service-security events
+
+Both services emit JSON events using these fixed event names:
+
+```text
+service_authentication
+service_authorization
+```
+
+Events may include:
+
+- A generated event ID
+- A UTC occurrence timestamp
+- A validated request ID
+- A bounded outcome
+- A bounded authentication reason
+- A registered service scope
+
+Events must not include:
+
+- Authorization headers
+- Bearer credentials
+- JWT claims or payloads
+- Key IDs or key material
+- Cookie or CSRF material
+- Request bodies
+- Arbitrary exception text
+
+Failure of the logging sink must not change the request
+result or create an authentication availability dependency.
+
+## Replay Boundary
+
+Service JWT verification is stateless. A valid credential may
+be presented more than once before it expires.
+
+Replay exposure is bounded through:
+
+- A short token lifetime
+- Exact issuer and audience validation
+- Operation-specific scopes
+- Protected private keys
+- Bounded clock skew
+- Key rotation support
+
+Phase 10 does not implement a distributed `jti` replay cache.
+Adding one would require shared state, atomic consumption, and
+an explicit availability policy. Documentation and portfolio
+claims must not describe the current implementation as
+providing one-time-token or replay-prevention guarantees.
+
 ## Migration Rules
 
 The final architecture must not support an indefinite
@@ -750,6 +870,11 @@ removed from:
 - Dependencies
 - Tests
 - Documentation
+
+The bidirectional cutover is complete. Core-to-Incident and
+Incident-to-Core calls both use independently signed RS256
+Bearer credentials. The retired custom shared-secret header
+is rejected in both directions.
 
 ## Operational Boundary
 

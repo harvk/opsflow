@@ -66,6 +66,9 @@ from app.core.service_identity import (
 from app.core.service_identity_provider import (
     get_service_token_provider,
 )
+from app.core.service_security_events import (
+    service_security_event_logger,
+)
 from app.core.service_token_verifier import (
     INVALID_SERVICE_CREDENTIALS_MESSAGE,
     ServiceAuthenticationError,
@@ -232,17 +235,44 @@ def authenticate_incident_service(
     """
 
     if credentials is None:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason="missing_credential",
+        )
         raise _incident_service_authentication_error()
 
     try:
-        return verifier.verify_token(
+        principal = verifier.verify_token(
             credentials.credentials
         )
 
-    except ServiceAuthenticationError:
+    except ServiceAuthenticationError as exc:
+        operational_metrics.record_service_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
+        service_security_event_logger.emit_authentication(
+            outcome="failure",
+            reason=exc.reason.value,
+        )
         raise (
             _incident_service_authentication_error()
         ) from None
+
+    operational_metrics.record_service_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+    service_security_event_logger.emit_authentication(
+        outcome="success",
+        reason="authenticated",
+    )
+
+    return principal
 
 
 AuthenticatedIncidentServicePrincipal = Annotated[
@@ -257,10 +287,27 @@ def require_services_read(
     principal: AuthenticatedIncidentServicePrincipal,
 ) -> ServicePrincipal:
     if ServiceScope.SERVICES_READ not in principal.scopes:
+        operational_metrics.record_service_authorization(
+            outcome="denied",
+            scope=ServiceScope.SERVICES_READ.value,
+        )
+        service_security_event_logger.emit_authorization(
+            outcome="blocked",
+            scope=ServiceScope.SERVICES_READ.value,
+        )
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Insufficient service permissions.",
         )
+
+    operational_metrics.record_service_authorization(
+        outcome="granted",
+        scope=ServiceScope.SERVICES_READ.value,
+    )
+    service_security_event_logger.emit_authorization(
+        outcome="success",
+        scope=ServiceScope.SERVICES_READ.value,
+    )
 
     return principal
 

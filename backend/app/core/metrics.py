@@ -75,6 +75,45 @@ DEPENDENCY_DURATION_BUCKETS: Final[
     10.0,
 )
 
+SERVICE_AUTHENTICATION_OUTCOMES: Final[frozenset[str]] = (
+    frozenset({"success", "failure"})
+)
+
+SERVICE_AUTHENTICATION_REASONS: Final[frozenset[str]] = (
+    frozenset(
+        {
+            "authenticated",
+            "missing_credential",
+            "malformed_credential",
+            "invalid_algorithm",
+            "invalid_token_type",
+            "missing_key_id",
+            "unknown_key",
+            "invalid_signature",
+            "invalid_issuer",
+            "invalid_audience",
+            "invalid_claim_contract",
+            "invalid_token_use",
+            "invalid_lifetime",
+            "invalid_scope_contract",
+        }
+    )
+)
+
+SERVICE_AUTHORIZATION_OUTCOMES: Final[frozenset[str]] = (
+    frozenset({"granted", "denied"})
+)
+
+SERVICE_AUTHORIZATION_SCOPES: Final[frozenset[str]] = (
+    frozenset(
+        {
+            "incidents:read",
+            "incidents:write",
+            "services:read",
+        }
+    )
+)
+
 
 class OperationalMetrics:
     """
@@ -205,6 +244,26 @@ class OperationalMetrics:
             registry=self.registry,
         )
 
+        self._service_authentication_attempts = Counter(
+            "opsflow_service_authentication_attempts_total",
+            (
+                "Completed inbound service-authentication "
+                "attempts."
+            ),
+            ("outcome", "reason"),
+            registry=self.registry,
+        )
+
+        self._service_authorization_decisions = Counter(
+            "opsflow_service_authorization_decisions_total",
+            (
+                "Completed service-scope authorization "
+                "decisions."
+            ),
+            ("outcome", "scope"),
+            registry=self.registry,
+        )
+
     def observe_http_request(
         self,
         *,
@@ -310,6 +369,48 @@ class OperationalMetrics:
                 == state
                 else 0.0
             )
+
+    def record_service_authentication(
+        self,
+        *,
+        outcome: str,
+        reason: str,
+    ) -> None:
+        if outcome not in SERVICE_AUTHENTICATION_OUTCOMES:
+            raise ValueError(
+                "Unsupported service-authentication outcome."
+            )
+
+        if reason not in SERVICE_AUTHENTICATION_REASONS:
+            raise ValueError(
+                "Unsupported service-authentication reason."
+            )
+
+        self._service_authentication_attempts.labels(
+            outcome=outcome,
+            reason=reason,
+        ).inc()
+
+    def record_service_authorization(
+        self,
+        *,
+        outcome: str,
+        scope: str,
+    ) -> None:
+        if outcome not in SERVICE_AUTHORIZATION_OUTCOMES:
+            raise ValueError(
+                "Unsupported service-authorization outcome."
+            )
+
+        if scope not in SERVICE_AUTHORIZATION_SCOPES:
+            raise ValueError(
+                "Unsupported service-authorization scope."
+            )
+
+        self._service_authorization_decisions.labels(
+            outcome=outcome,
+            scope=scope,
+        ).inc()
 
     def render(
         self,
