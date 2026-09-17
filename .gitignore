@@ -64,3 +64,6 @@ crash.log
 
 # Logs
 *.log
+
+# Local interview preparation documents
+docs/portfolio/*interview-guide*.md
