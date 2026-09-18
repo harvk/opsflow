@@ -99,3 +99,19 @@ variable "task_queue_max_receive_count" {
     error_message = "task_queue_max_receive_count must be between 1 and 1000."
   }
 }
+
+variable "task_worker_idempotency_expiration_seconds" {
+  description = "Logical idempotency retention period for successfully processed task-worker operations."
+  type        = number
+  default     = 2592000
+
+  validation {
+    condition = (
+      var.task_worker_idempotency_expiration_seconds >= 60
+      && var.task_worker_idempotency_expiration_seconds
+      == floor(var.task_worker_idempotency_expiration_seconds)
+    )
+
+    error_message = "task_worker_idempotency_expiration_seconds must be a whole number greater than or equal to 60."
+  }
+}

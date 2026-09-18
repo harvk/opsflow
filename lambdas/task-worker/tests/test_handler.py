@@ -2,9 +2,13 @@ from __future__ import annotations
 
 import copy
 import json
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
+import pytest
+
+import task_worker.handler as handler_module
 from task_worker.handler import (
     lambda_handler,
 )
@@ -19,6 +23,39 @@ VALID_FIXTURE_PATH = (
     / "fixtures"
     / "valid-task-v1.json"
 )
+
+TaskProcessor = Callable[[dict[str, Any]], None]
+
+
+@pytest.fixture(autouse=True)
+def bypass_idempotency(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Keep handler unit tests independent from DynamoDB."""
+
+    def register_context_directly(
+        _context: Any,
+    ) -> None:
+        return None
+
+    def process_directly(
+        *,
+        task: dict[str, Any],
+        processor: TaskProcessor,
+    ) -> None:
+        processor(task)
+
+    monkeypatch.setattr(
+        handler_module,
+        "register_lambda_context",
+        register_context_directly,
+    )
+
+    monkeypatch.setattr(
+        handler_module,
+        "process_task_idempotently",
+        process_directly,
+    )
 
 
 def load_valid_task() -> dict[str, Any]:

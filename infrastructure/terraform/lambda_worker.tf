@@ -70,6 +70,48 @@ resource "aws_iam_role_policy_attachment" "task_worker_sqs" {
   policy_arn = aws_iam_policy.task_worker_sqs.arn
 }
 
+data "aws_iam_policy_document" "task_worker_idempotency" {
+  statement {
+    sid    = "UseTaskWorkerIdempotencyTable"
+    effect = "Allow"
+
+    actions = [
+      "dynamodb:GetItem",
+      "dynamodb:PutItem",
+      "dynamodb:UpdateItem",
+      "dynamodb:DeleteItem",
+    ]
+
+    resources = [
+      aws_dynamodb_table.task_worker_idempotency.arn,
+    ]
+  }
+}
+
+resource "aws_iam_policy" "task_worker_idempotency" {
+  name = "${local.name_prefix}-task-worker-idempotency"
+
+  description = (
+    "Allows the OpsFlow task worker to manage idempotency records in its DynamoDB table."
+  )
+
+  policy = data.aws_iam_policy_document.task_worker_idempotency.json
+
+  tags = merge(
+    local.messaging_tags,
+    {
+      Phase      = "11.5"
+      PolicyRole = "task-worker-idempotency"
+    },
+  )
+}
+
+resource "aws_iam_role_policy_attachment" "task_worker_idempotency" {
+  role = aws_iam_role.task_worker.name
+
+  policy_arn = aws_iam_policy.task_worker_idempotency.arn
+}
+
 data "aws_iam_policy_document" "task_worker_logging" {
   statement {
     sid    = "WriteTaskWorkerLogs"
@@ -137,6 +179,14 @@ resource "aws_lambda_function" "task_worker" {
 
   environment {
     variables = {
+      IDEMPOTENCY_EXPIRATION_SECONDS = tostring(
+        var.task_worker_idempotency_expiration_seconds
+      )
+
+      IDEMPOTENCY_TABLE_NAME = (
+        aws_dynamodb_table.task_worker_idempotency.name
+      )
+
       TASK_CONTRACT_SCHEMA_PATH = (
         "/var/task/contracts/tasks/task-envelope-v1.schema.json"
       )
@@ -144,6 +194,7 @@ resource "aws_lambda_function" "task_worker" {
   }
 
   depends_on = [
+    aws_iam_role_policy_attachment.task_worker_idempotency,
     aws_iam_role_policy_attachment.task_worker_logging,
     aws_iam_role_policy_attachment.task_worker_sqs,
     aws_cloudwatch_log_group.task_worker,

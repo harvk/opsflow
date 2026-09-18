@@ -7,6 +7,10 @@ from typing import Any
 
 from task_worker.contracts import validate_task_envelope
 from task_worker.dispatcher import dispatch_task
+from task_worker.idempotency import (
+    process_task_idempotently,
+    register_lambda_context,
+)
 
 
 class InvalidSqsRecordError(ValueError):
@@ -70,7 +74,10 @@ def process_record(
         idempotency_key=task["idempotency_key"],
     )
 
-    dispatch_task(task)
+    process_task_idempotently(
+        task=task,
+        processor=dispatch_task,
+    )
 
     _structured_log(
         "info",
@@ -85,7 +92,7 @@ def process_record(
 
 def lambda_handler(
     event: dict[str, Any],
-    _context: Any,
+    context: Any,
 ) -> dict[str, list[dict[str, str]]]:
     """Process an SQS batch and report individual failures."""
 
@@ -95,6 +102,10 @@ def lambda_handler(
         raise InvalidSqsRecordError(
             "Lambda event must contain a Records list"
         )
+
+    register_lambda_context(
+        context,
+    )
 
     batch_item_failures: list[dict[str, str]] = []
 
