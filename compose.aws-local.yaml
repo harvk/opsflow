@@ -1,0 +1,91 @@
+# ==========================================================
+# OPSFLOW LOCAL AWS CREDENTIAL BRIDGE
+# ==========================================================
+#
+# LOCAL DEVELOPMENT ONLY.
+#
+# This Compose override allows the hardened Core Backend
+# container to use the developer's existing host AWS
+# configuration through boto3's standard credential
+# provider chain.
+#
+# Security model:
+#
+#   - the host .aws directory is never copied into the image
+#   - AWS configuration remains outside application source
+#   - the parent .aws mount is read-only
+#   - only the AWS login token cache is writable
+#   - no AWS access keys are committed to the repository
+#
+# The writable login/cache exception is necessary because
+# the AWS login credential provider refreshes and persists
+# its cached authentication token.
+#
+# Usage:
+#
+#   docker compose \
+#     --env-file .env.docker \
+#     -f compose.yaml \
+#     -f compose.aws-local.yaml \
+#     up -d
+#
+# Production deployments must use workload identity
+# appropriate to the target platform rather than this
+# host-filesystem bridge.
+#
+# ==========================================================
+
+services:
+  backend:
+    # ------------------------------------------------------
+    # LOCAL AWS SDK CONFIGURATION
+    # ------------------------------------------------------
+
+    environment:
+      HOME: /home/opsflow
+
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      AWS_SDK_LOAD_CONFIG: "1"
+
+      # Local containers are not EC2 instances.
+      #
+      # If host credentials cannot be resolved, fail
+      # explicitly rather than attempting the EC2 Instance
+      # Metadata Service.
+
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    # ------------------------------------------------------
+    # HOST AWS CONFIGURATION
+    # ------------------------------------------------------
+    #
+    # Mount 1:
+    #
+    #   The complete host .aws directory remains read-only.
+    #
+    # Mount 2:
+    #
+    #   The AWS login provider requires write access only to
+    #   login/cache so it can refresh and persist login
+    #   tokens. A nested read-write mount overrides that
+    #   single directory while the rest of .aws remains
+    #   read-only.
+    #
+    # Long volume syntax is intentional because Windows
+    # drive-letter paths contain a colon.
+    #
+    # ------------------------------------------------------
+
+    volumes:
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}
+        target: /home/opsflow/.aws
+        read_only: true
+
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}/login/cache
+        target: /home/opsflow/.aws/login/cache
+        read_only: false
