@@ -6,7 +6,6 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-
 from aws_lambda_powertools.utilities.idempotency import (
     BasePersistenceLayer,
     IdempotencyConfig,
@@ -26,7 +25,6 @@ from task_worker.idempotency import (
     IdempotencyRuntime,
     build_idempotent_task_processor,
 )
-
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[3]
 

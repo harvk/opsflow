@@ -14,7 +14,6 @@ from aws_lambda_powertools.utilities.idempotency import (
     idempotent_function,
 )
 
-
 IDEMPOTENCY_TABLE_NAME_ENV = "IDEMPOTENCY_TABLE_NAME"
 
 IDEMPOTENCY_EXPIRATION_SECONDS_ENV = (

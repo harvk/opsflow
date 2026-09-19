@@ -4,7 +4,6 @@ from collections.abc import Callable
 from typing import Any
 
 import pytest
-
 from aws_lambda_powertools.utilities.idempotency import (
     BasePersistenceLayer,
     IdempotencyConfig,
