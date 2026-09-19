@@ -1,0 +1,31 @@
+{
+  "folders": [
+    {
+      "name": "Backend",
+      "path": "./backend",
+    },
+    {
+      "name": "Incident Service",
+      "path": "./incident-service",
+    },
+    {
+      "name": "Task Worker",
+      "path": "./lambdas/task-worker",
+    },
+    {
+      "name": "Frontend",
+      "path": "./frontend",
+    },
+    {
+      "name": "Infrastructure",
+      "path": "./infra",
+    },
+    {
+      "name": "Scripts",
+      "path": "./scripts",
+    },
+  ],
+  "settings": {
+    "python.analysis.diagnosticMode": "workspace",
+  },
+}
