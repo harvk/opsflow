@@ -126,7 +126,14 @@ def lambda_handler(
 
         try:
             process_record(record_candidate)
-        except Exception as exc:
+
+        # This is the SQS per-record isolation boundary.
+        #
+        # Any unexpected record-processing exception must be
+        # converted into a partial-batch failure so one bad
+        # record does not fail unrelated records in the same
+        # Lambda invocation.
+        except Exception as exc:  # noqa: BLE001
             _structured_log(
                 "error",
                 "task_processing_failed",
