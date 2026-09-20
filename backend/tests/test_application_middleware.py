@@ -6,7 +6,7 @@ from fastapi.middleware.cors import (
 from app.main import (
     create_app,
 )
-from app.middleware.broswer_trust import (
+from app.middleware.browser_trust import (
     BrowserTrustBoundaryMiddleware,
 )
 from app.middleware.metrics import (
@@ -94,6 +94,7 @@ def test_application_middleware_is_registered_once(
         == 1
     )
 
+
 """
 application.user_middleware is stored in runtime order.
 
@@ -101,6 +102,7 @@ Correlation must execute first. Metrics then measures the
 full logged application request without interfering with
 request-ID context.
 """
+
 
 def test_request_correlation_wraps_request_logging(
 ) -> None:

@@ -8,7 +8,7 @@ from fastapi.testclient import (
 from app.core.config import (
     settings,
 )
-from app.middleware.broswer_trust import (
+from app.middleware.browser_trust import (
     BrowserTrustBoundaryMiddleware,
 )
 
