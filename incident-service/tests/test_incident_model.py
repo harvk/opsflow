@@ -8,9 +8,13 @@ INCIDENT_TABLE: Table = Base.metadata.tables[
 ]
 
 
-def test_metadata_contains_only_incident_table() -> None:
-    assert set(Base.metadata.tables) == {
-        "incidents"
+def test_metadata_contains_only_incident_service_tables(
+) -> None:
+    assert set(
+        Base.metadata.tables
+    ) == {
+        "incidents",
+        "incident_task_outbox",
     }
 
 
