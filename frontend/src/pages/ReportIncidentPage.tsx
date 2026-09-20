@@ -18,12 +18,18 @@ import type {
   Incident,
   IncidentDraft,
   IncidentFormErrors,
-  IncidentSeverity,
+  IncidentFormSeverity,
 } from "../types/incidents";
 
 import { validateIncident } from "../validation/incidentValidation";
 
 type SubmissionState = "idle" | "submitting" | "success" | "error";
+
+const INCIDENT_SEVERITY_VALUES = new Set<string>(INCIDENT_SEVERITIES);
+
+function isIncidentFormSeverity(value: string): value is IncidentFormSeverity {
+  return INCIDENT_SEVERITY_VALUES.has(value);
+}
 
 export default function ReportIncidentPage() {
   const [searchParams] = useSearchParams();
@@ -37,6 +43,7 @@ export default function ReportIncidentPage() {
     title: "",
     severity: "Medium",
     summary: "",
+    assignee: "",
     runbookUrl: "",
   });
 
@@ -55,11 +62,13 @@ export default function ReportIncidentPage() {
   ) {
     setFormValues((currentValues) => ({
       ...currentValues,
+
       [field]: value,
     }));
 
     setErrors((currentErrors) => ({
       ...currentErrors,
+
       [field]: undefined,
     }));
   }
@@ -76,7 +85,9 @@ export default function ReportIncidentPage() {
     }
 
     setErrors({});
+
     setSubmissionError(null);
+
     setSubmissionState("submitting");
 
     try {
@@ -191,12 +202,13 @@ export default function ReportIncidentPage() {
                   id="incident-severity"
                   className="form-select"
                   value={formValues.severity}
-                  onChange={(event) =>
-                    updateField(
-                      "severity",
-                      event.target.value as IncidentSeverity,
-                    )
-                  }
+                  onChange={(event) => {
+                    const severity = event.currentTarget.value;
+
+                    if (isIncidentFormSeverity(severity)) {
+                      updateField("severity", severity);
+                    }
+                  }}
                 >
                   {INCIDENT_SEVERITIES.map((severity) => (
                     <option key={severity} value={severity}>
@@ -255,6 +267,35 @@ export default function ReportIncidentPage() {
                   }
                   onChange={(event) =>
                     updateField("summary", event.target.value)
+                  }
+                />
+              </FormField>
+            </div>
+
+            <div className="col-12">
+              <FormField
+                id="incident-assignee"
+                label="Assignee"
+                required
+                error={errors.assignee}
+                helpText="Enter the team or operator responsible for the incident."
+              >
+                <input
+                  id="incident-assignee"
+                  type="text"
+                  className={`form-control ${
+                    errors.assignee ? "is-invalid" : ""
+                  }`}
+                  value={formValues.assignee}
+                  maxLength={120}
+                  aria-invalid={Boolean(errors.assignee)}
+                  aria-describedby={
+                    errors.assignee
+                      ? "incident-assignee-error"
+                      : "incident-assignee-help"
+                  }
+                  onChange={(event) =>
+                    updateField("assignee", event.target.value)
                   }
                 />
               </FormField>

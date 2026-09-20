@@ -1,93 +1,106 @@
-import { env } from "../config/env";
-import { services } from "../data/dashboardData";
+import { apiFetch } from "../api/apiClient";
 
 import type { Service, ServiceDetails } from "../types/dashboard";
 
-import type { Incident, IncidentDraft } from "../types/incidents";
+import type {
+  Incident,
+  IncidentApiSeverity,
+  IncidentCreateRequest,
+  IncidentDraft,
+  IncidentFormSeverity,
+} from "../types/incidents";
 
-const MOCK_NETWORK_DELAY_MS = 500;
+const INCIDENT_SEVERITY_MAP: Record<IncidentFormSeverity, IncidentApiSeverity> =
+  {
+    Low: "SEV-4",
+    Medium: "SEV-3",
+    High: "SEV-2",
+    Critical: "SEV-1",
+  };
 
-const SHOULD_SIMULATE_ERROR = false;
+async function requestJson<T>(
+  path: string,
+  init: RequestInit = {},
+): Promise<T> {
+  const headers = new Headers(init.headers);
 
-function wait(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => {
-    window.setTimeout(resolve, milliseconds);
-  });
-}
+  headers.set("Accept", "application/json");
 
-async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${env.apiBaseUrl}${path}`, {
+  if (
+    init.body !== undefined &&
+    init.body !== null &&
+    !headers.has("Content-Type")
+  ) {
+    headers.set("Content-Type", "application/json");
+  }
+
+  const response = await apiFetch(path, {
     ...init,
-
-    headers: {
-      "Content-Type": "application/json",
-
-      ...init?.headers,
-    },
+    headers,
   });
 
   if (!response.ok) {
     throw new Error(`Request failed with status ${response.status}.`);
   }
 
-  return response.json() as Promise<T>;
+  const data = (await response.json()) as T;
+
+  return data;
 }
 
 export async function getServices(): Promise<Service[]> {
-  if (!env.useMockApi) {
-    return requestJson<Service[]>("/services");
-  }
-
-  await wait(MOCK_NETWORK_DELAY_MS);
-
-  if (SHOULD_SIMULATE_ERROR) {
-    throw new Error("Unable to load services.");
-  }
-
-  return services.map((service) => ({
-    ...service,
-  }));
+  return requestJson<Service[]>("/services", {
+    method: "GET",
+  });
 }
 
 export async function getServiceById(
   serviceId: string,
 ): Promise<ServiceDetails | null> {
-  if (!env.useMockApi) {
-    try {
-      return await requestJson<ServiceDetails>(`/services/${serviceId}`);
-    } catch (error) {
-      throw error;
-    }
-  }
+  const response = await apiFetch(
+    `/services/${encodeURIComponent(serviceId)}`,
+    {
+      method: "GET",
 
-  await wait(MOCK_NETWORK_DELAY_MS);
+      headers: {
+        Accept: "application/json",
+      },
+    },
+  );
 
-  const service = services.find((candidate) => candidate.id === serviceId);
-
-  if (!service) {
+  if (response.status === 404) {
     return null;
   }
 
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}.`);
+  }
+
+  const data = (await response.json()) as ServiceDetails;
+
+  return data;
+}
+
+function toIncidentCreateRequest(draft: IncidentDraft): IncidentCreateRequest {
   return {
-    ...service,
-    dependencies: [...service.dependencies],
+    serviceId: draft.serviceId,
+
+    title: draft.title,
+
+    severity: INCIDENT_SEVERITY_MAP[draft.severity],
+
+    summary: draft.summary,
+
+    assignee: draft.assignee,
   };
 }
 
 export async function createIncident(draft: IncidentDraft): Promise<Incident> {
-  if (!env.useMockApi) {
-    return requestJson<Incident>("/incidents", {
-      method: "POST",
-      body: JSON.stringify(draft),
-    });
-  }
+  const request = toIncidentCreateRequest(draft);
 
-  await wait(MOCK_NETWORK_DELAY_MS);
+  return requestJson<Incident>("/incidents", {
+    method: "POST",
 
-  return {
-    ...draft,
-    id: `inc-${Date.now()}`,
-    status: "Open",
-    createdAt: new Date().toISOString(),
-  };
+    body: JSON.stringify(request),
+  });
 }
