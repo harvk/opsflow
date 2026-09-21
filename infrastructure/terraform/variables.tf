@@ -13,7 +13,12 @@ variable "project_name" {
     condition = (
       length(var.project_name) >= 2
       && length(var.project_name) <= 30
-      && can(regex("^[a-z][a-z0-9-]*$", var.project_name))
+      && can(
+        regex(
+          "^[a-z][a-z0-9-]*$",
+          var.project_name,
+        )
+      )
     )
 
     error_message = "project_name must start with a lowercase letter and contain only lowercase letters, digits, and hyphens."
@@ -109,9 +114,29 @@ variable "task_worker_idempotency_expiration_seconds" {
     condition = (
       var.task_worker_idempotency_expiration_seconds >= 60
       && var.task_worker_idempotency_expiration_seconds
-      == floor(var.task_worker_idempotency_expiration_seconds)
+      == floor(
+        var.task_worker_idempotency_expiration_seconds
+      )
     )
 
     error_message = "task_worker_idempotency_expiration_seconds must be a whole number greater than or equal to 60."
+  }
+}
+
+variable "task_execution_expiration_seconds" {
+  description = "Retention period for asynchronous Incident task execution-state records."
+  type        = number
+  default     = 2592000
+
+  validation {
+    condition = (
+      var.task_execution_expiration_seconds >= 60
+      && var.task_execution_expiration_seconds
+      == floor(
+        var.task_execution_expiration_seconds
+      )
+    )
+
+    error_message = "task_execution_expiration_seconds must be a whole number greater than or equal to 60."
   }
 }
