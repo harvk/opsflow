@@ -1,9 +1,43 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
-  "python.analysis.extraPaths": ["./src"],
-  "python.analysis.exclude": ["./build/**", "./.venv/**", "./.pytest_cache/**"],
+
+  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
+
+  "python.analysis.include": [
+    "${workspaceFolder}/src",
+    "${workspaceFolder}/tests"
+  ],
+
+  "python.analysis.exclude": [
+    "${workspaceFolder}/build/**",
+    "${workspaceFolder}/dist/**",
+    "${workspaceFolder}/.venv/**",
+    "${workspaceFolder}/.pytest_cache/**",
+    "${workspaceFolder}/.ruff_cache/**"
+  ],
+
+  "python.analysis.ignore": [
+    "${workspaceFolder}/build/**",
+    "${workspaceFolder}/dist/**"
+  ],
+
+  "python.analysis.excludeLibraryDiagnostics": true,
+
+  "python.analysis.diagnosticMode": "openFilesOnly",
+
   "files.watcherExclude": {
     "**/build/**": true,
-    "**/.venv/**": true
+    "**/dist/**": true,
+    "**/.venv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true
+  },
+
+  "search.exclude": {
+    "**/build/**": true,
+    "**/dist/**": true,
+    "**/.venv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true
   }
 }
