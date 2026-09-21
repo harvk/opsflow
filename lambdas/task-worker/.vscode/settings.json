@@ -1,29 +1,24 @@
 {
   "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
 
-  "python.analysis.extraPaths": ["${workspaceFolder}/src"],
-
-  "python.analysis.include": [
-    "${workspaceFolder}/src",
-    "${workspaceFolder}/tests"
-  ],
+  "python.analysis.extraPaths": ["./src"],
 
   "python.analysis.exclude": [
-    "${workspaceFolder}/build/**",
-    "${workspaceFolder}/dist/**",
-    "${workspaceFolder}/.venv/**",
-    "${workspaceFolder}/.pytest_cache/**",
-    "${workspaceFolder}/.ruff_cache/**"
+    "**/build/**",
+    "**/dist/**",
+    "**/.venv/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**"
   ],
 
-  "python.analysis.ignore": [
-    "${workspaceFolder}/build/**",
-    "${workspaceFolder}/dist/**"
-  ],
+  "python.analysis.ignore": ["**/build/**", "**/dist/**"],
 
   "python.analysis.excludeLibraryDiagnostics": true,
 
-  "python.analysis.diagnosticMode": "openFilesOnly",
+  "files.exclude": {
+    "**/build/**": true,
+    "**/dist/**": true
+  },
 
   "files.watcherExclude": {
     "**/build/**": true,
