@@ -13,6 +13,14 @@
       "path": "incident-service",
     },
     {
+      "name": "Contracts",
+      "path": "contracts",
+    },
+    {
+      "name": "Notifier",
+      "path": "lambdas/realtime-notifier",
+    },
+    {
       "name": "Task Worker",
       "path": "lambdas/task-worker",
     },

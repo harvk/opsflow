@@ -1,0 +1,5 @@
+{
+  "include": ["src", "tests"],
+  "exclude": [".venv", ".pytest_cache", ".ruff_cache", "build", "dist"],
+  "typeCheckingMode": "basic"
+}
