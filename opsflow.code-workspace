@@ -1,28 +1,32 @@
 {
   "folders": [
     {
+      "name": "Root",
+      "path": "./",
+    },
+    {
       "name": "Backend",
-      "path": "./backend",
+      "path": "backend",
     },
     {
       "name": "Incident Service",
-      "path": "./incident-service",
+      "path": "incident-service",
     },
     {
       "name": "Task Worker",
-      "path": "./lambdas/task-worker",
-    },
-    {
-      "name": "Frontend",
-      "path": "./frontend",
+      "path": "lambdas/task-worker",
     },
     {
       "name": "Infrastructure",
-      "path": "./infra",
+      "path": "infrastructure",
+    },
+    {
+      "name": "Frontend",
+      "path": "frontend",
     },
     {
       "name": "Scripts",
-      "path": "./scripts",
+      "path": "scripts",
     },
   ],
   "settings": {
