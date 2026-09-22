@@ -13,7 +13,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "build": "npm run clean && esbuild src/handler.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --sourcemap",
-    "verify": "npm run typecheck && npm test && npm run build"
+    "verify": "npm run typecheck && npm test && npm run package:lambda && npm run package:lambda:check",
+    "package:lambda": "npm run build && python ../../scripts/package_realtime_notifier.py",
+    "package:lambda:check": "python ../../scripts/package_realtime_notifier.py --check"
   },
   "dependencies": {
     "@aws-sdk/client-apigatewaymanagementapi": "3.1134.0",
