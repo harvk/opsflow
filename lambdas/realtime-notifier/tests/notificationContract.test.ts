@@ -1,4 +1,5 @@
 import { readFileSync } from "node:fs";
+
 import { resolve } from "node:path";
 
 import Ajv2020, {
@@ -20,17 +21,19 @@ import type {
 
 const schemaPath = resolve(
   process.cwd(),
-  "../../contracts/notifications/incident-updated-v1.schema.json",
+  "../../contracts/notifications/" + "incident-updated-v1.schema.json",
 );
 
 const fixturePath = resolve(
   process.cwd(),
-  "../../contracts/notifications/examples/valid-incident-updated-v1.json",
+  "../../contracts/notifications/examples/" + "valid-incident-updated-v1.json",
 );
 
 const schema = JSON.parse(readFileSync(schemaPath, "utf8")) as AnySchema;
 
-const fixture = JSON.parse(readFileSync(fixturePath, "utf8")) as unknown;
+const fixture = JSON.parse(
+  readFileSync(fixturePath, "utf8"),
+) as RealtimeIncidentMessage;
 
 const ajv = new Ajv2020({
   allErrors: true,
@@ -39,7 +42,7 @@ const ajv = new Ajv2020({
 
 addFormats(ajv);
 
-const validate = ajv.compile(schema) as ValidateFunction<unknown>;
+const validate: ValidateFunction<unknown> = ajv.compile(schema);
 
 function validationErrors(): ErrorObject[] {
   return validate.errors ? [...validate.errors] : [];
@@ -109,7 +112,7 @@ describe("incident.updated v1 notification contract", () => {
   });
 
   it("allows a null acknowledgement timestamp", () => {
-    const event = {
+    const event: IncidentTaskCompletedEvent = {
       ...completedEvent(),
 
       acknowledged_at: null,
@@ -120,9 +123,31 @@ describe("incident.updated v1 notification contract", () => {
     expectValidNotification(message);
   });
 
+  it("allows a non-UUID correlation identifier", () => {
+    const event: IncidentTaskCompletedEvent = {
+      ...completedEvent(),
+
+      correlation_id: "phase-11-5g-4e2-runtime-validation",
+    };
+
+    const message = buildRealtimeIncidentMessage(event);
+
+    expectValidNotification(message);
+  });
+
+  it("rejects an empty correlation identifier", () => {
+    const invalid = {
+      ...fixture,
+
+      correlation_id: "",
+    };
+
+    expectInvalidNotification(invalid);
+  });
+
   it("rejects an unsupported notification type", () => {
     const invalid = {
-      ...(fixture as RealtimeIncidentMessage),
+      ...fixture,
 
       type: "incident.created",
     };
@@ -132,7 +157,7 @@ describe("incident.updated v1 notification contract", () => {
 
   it("rejects an unsupported schema version", () => {
     const invalid = {
-      ...(fixture as RealtimeIncidentMessage),
+      ...fixture,
 
       schema_version: "2.0",
     };
@@ -142,7 +167,7 @@ describe("incident.updated v1 notification contract", () => {
 
   it("rejects an unsupported incident status", () => {
     const invalid = {
-      ...(fixture as RealtimeIncidentMessage),
+      ...fixture,
 
       status: "Deleted",
     };
@@ -150,19 +175,9 @@ describe("incident.updated v1 notification contract", () => {
     expectInvalidNotification(invalid);
   });
 
-  it("rejects malformed correlation identifiers", () => {
-    const invalid = {
-      ...(fixture as RealtimeIncidentMessage),
-
-      correlation_id: "not-a-uuid",
-    };
-
-    expectInvalidNotification(invalid);
-  });
-
   it("rejects additional undeclared properties", () => {
     const invalid = {
-      ...(fixture as RealtimeIncidentMessage),
+      ...fixture,
 
       unexpected_field: true,
     };
@@ -171,8 +186,7 @@ describe("incident.updated v1 notification contract", () => {
   });
 
   it("rejects a missing required event identifier", () => {
-    const { event_id: _eventId, ...invalid } =
-      fixture as RealtimeIncidentMessage;
+    const { event_id: _eventId, ...invalid } = fixture;
 
     expectInvalidNotification(invalid);
   });

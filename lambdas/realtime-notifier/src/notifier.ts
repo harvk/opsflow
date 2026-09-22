@@ -5,6 +5,8 @@ import {
 
 import { deleteConnection, listConnections } from "./connectionStore";
 
+import { validateRealtimeIncidentMessage } from "./notificationContract";
+
 import type {
   ConnectionRecord,
   IncidentTaskCompletedEvent,
@@ -107,11 +109,28 @@ export async function broadcastIncidentTaskCompletedEvent(
   event: IncidentTaskCompletedEvent,
   dependencies: BroadcastDependencies = defaultDependencies,
 ): Promise<void> {
-  const connections = await dependencies.listConnections();
-
-  const message = buildRealtimeIncidentMessage(event);
+  const message = validateRealtimeIncidentMessage(
+    buildRealtimeIncidentMessage(event),
+  );
 
   const payload = JSON.stringify(message);
+
+  /*
+   * Contract validation intentionally occurs BEFORE
+   * connection discovery.
+   *
+   * An invalid outbound notification therefore produces:
+   *
+   *   zero DynamoDB connection-list reads
+   *   zero WebSocket delivery attempts
+   *   zero stale-connection deletions
+   *
+   * The SQS handler can then return the source record as a
+   * batch-item failure and allow the existing retry/DLQ
+   * policy to handle the failed notification.
+   */
+
+  const connections = await dependencies.listConnections();
 
   for (const connection of connections) {
     try {

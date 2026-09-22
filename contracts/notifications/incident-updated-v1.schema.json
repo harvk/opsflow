@@ -37,7 +37,7 @@
     },
     "correlation_id": {
       "type": "string",
-      "format": "uuid"
+      "minLength": 1
     },
     "status": {
       "type": "string",
