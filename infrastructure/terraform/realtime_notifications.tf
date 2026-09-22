@@ -225,6 +225,55 @@ resource "aws_iam_role_policy_attachment" "realtime_notifier_sqs" {
   )
 }
 
+
+data "aws_iam_policy_document" "realtime_notifier_webhook_handoff" {
+  statement {
+    sid    = "PublishWebhookNotifications"
+    effect = "Allow"
+
+    actions = [
+      "sqs:SendMessage",
+    ]
+
+    resources = [
+      aws_sqs_queue
+      .webhook_notification
+      .arn,
+    ]
+  }
+}
+
+resource "aws_iam_policy" "realtime_notifier_webhook_handoff" {
+  name = "${local.name_prefix}-realtime-notifier-webhook-handoff"
+
+  description = (
+    "Allows the OpsFlow realtime notifier to publish versioned notifications to the dedicated webhook queue."
+  )
+
+  policy = (
+    data
+    .aws_iam_policy_document
+    .realtime_notifier_webhook_handoff
+    .json
+  )
+
+  tags = local.realtime_tags
+}
+
+resource "aws_iam_role_policy_attachment" "realtime_notifier_webhook_handoff" {
+  role = (
+    aws_iam_role
+    .realtime_notifier
+    .name
+  )
+
+  policy_arn = (
+    aws_iam_policy
+    .realtime_notifier_webhook_handoff
+    .arn
+  )
+}
+
 data "aws_iam_policy_document" "realtime_notifier_connections" {
   statement {
     sid    = "ManageWebSocketConnectionRegistry"
@@ -426,6 +475,12 @@ resource "aws_lambda_function" "realtime_notifier" {
       WEBSOCKET_CHANNEL = (
         local.realtime_websocket_channel
       )
+
+      WEBHOOK_NOTIFICATION_QUEUE_URL = (
+        aws_sqs_queue
+        .webhook_notification
+        .url
+      )
     }
   }
 
@@ -434,6 +489,7 @@ resource "aws_lambda_function" "realtime_notifier" {
     aws_iam_role_policy_attachment.realtime_notifier_logging,
     aws_iam_role_policy_attachment.realtime_notifier_manage_connections,
     aws_iam_role_policy_attachment.realtime_notifier_sqs,
+    aws_iam_role_policy_attachment.realtime_notifier_webhook_handoff,
     aws_cloudwatch_log_group.realtime_notifier,
   ]
 
