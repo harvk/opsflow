@@ -1,7 +1,8 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import {
   broadcastIncidentTaskCompletedEvent,
+  RealtimeFanoutDeliveryError,
   type BroadcastDependencies,
 } from "../src/notifier";
 
@@ -52,6 +53,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
   it("delivers the incident update to every active connection", async () => {
     const sent: {
       connectionId: string;
+
       payload: string;
     }[] = [];
 
@@ -89,8 +91,10 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
     expect(payload.status).toBe("Investigating");
   });
 
-  it("removes stale connections after GoneException", async () => {
+  it("removes stale connections after GoneException and continues delivery", async () => {
     const removed: string[] = [];
+
+    const attempted: string[] = [];
 
     const delivered: string[] = [];
 
@@ -106,6 +110,8 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
       },
 
       postToConnection: async (target) => {
+        attempted.push(target.connection_id);
+
         if (target.connection_id === "connection-stale") {
           const error = new Error("connection is gone");
 
@@ -120,24 +126,220 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
     await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
 
+    expect(attempted).toEqual(["connection-stale", "connection-live"]);
+
     expect(removed).toEqual(["connection-stale"]);
 
     expect(delivered).toEqual(["connection-live"]);
   });
 
-  it("propagates transient delivery failures for SQS retry", async () => {
+  it("continues fan-out after a transient connection failure", async () => {
+    const attempted: string[] = [];
+
+    const delivered: string[] = [];
+
     const dependencies: BroadcastDependencies = {
-      listConnections: async () => [connection("connection-a")],
+      listConnections: async () => [
+        connection("connection-a"),
+
+        connection("connection-b"),
+
+        connection("connection-c"),
+      ],
 
       deleteConnection: async () => {},
 
-      postToConnection: async () => {
-        throw new Error("temporary API Gateway failure");
+      postToConnection: async (target) => {
+        attempted.push(target.connection_id);
+
+        if (target.connection_id === "connection-a") {
+          throw new Error("temporary API Gateway failure");
+        }
+
+        delivered.push(target.connection_id);
       },
     };
 
     await expect(
       broadcastIncidentTaskCompletedEvent(notification(), dependencies),
-    ).rejects.toThrow("temporary API Gateway failure");
+    ).rejects.toMatchObject({
+      name: "RealtimeFanoutDeliveryError",
+
+      eventId: "7c1f9d0a-f544-47b3-b1df-642875a8fa49",
+
+      failures: [
+        {
+          connectionId: "connection-a",
+
+          errorType: "Error",
+
+          message: "temporary API Gateway failure",
+        },
+      ],
+    });
+
+    expect(attempted).toEqual(["connection-a", "connection-b", "connection-c"]);
+
+    expect(delivered).toEqual(["connection-b", "connection-c"]);
+  });
+
+  it("collects multiple transient delivery failures before rejecting", async () => {
+    const attempted: string[] = [];
+
+    const dependencies: BroadcastDependencies = {
+      listConnections: async () => [
+        connection("connection-a"),
+
+        connection("connection-b"),
+
+        connection("connection-c"),
+      ],
+
+      deleteConnection: async () => {},
+
+      postToConnection: async (target) => {
+        attempted.push(target.connection_id);
+
+        if (target.connection_id === "connection-a") {
+          throw new Error("failure-a");
+        }
+
+        if (target.connection_id === "connection-c") {
+          const error = new Error("failure-c");
+
+          error.name = "ServiceUnavailableException";
+
+          throw error;
+        }
+      },
+    };
+
+    try {
+      await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
+
+      throw new Error("Expected fan-out to fail.");
+    } catch (error) {
+      expect(error).toBeInstanceOf(RealtimeFanoutDeliveryError);
+
+      if (!(error instanceof RealtimeFanoutDeliveryError)) {
+        throw error;
+      }
+
+      expect(error.eventId).toBe("7c1f9d0a-f544-47b3-b1df-642875a8fa49");
+
+      expect(error.failures).toEqual([
+        {
+          connectionId: "connection-a",
+
+          errorType: "Error",
+
+          message: "failure-a",
+        },
+
+        {
+          connectionId: "connection-c",
+
+          errorType: "ServiceUnavailableException",
+
+          message: "failure-c",
+        },
+      ]);
+    }
+
+    expect(attempted).toEqual(["connection-a", "connection-b", "connection-c"]);
+  });
+
+  it("does not fail the notification when stale-connection cleanup fails", async () => {
+    const delivered: string[] = [];
+
+    const consoleError = vi
+      .spyOn(console, "error")
+      .mockImplementation(() => {});
+
+    const dependencies: BroadcastDependencies = {
+      listConnections: async () => [
+        connection("connection-stale"),
+
+        connection("connection-live"),
+      ],
+
+      deleteConnection: async () => {
+        throw new Error("DynamoDB cleanup failure");
+      },
+
+      postToConnection: async (target) => {
+        if (target.connection_id === "connection-stale") {
+          const error = new Error("connection is gone");
+
+          error.name = "GoneException";
+
+          throw error;
+        }
+
+        delivered.push(target.connection_id);
+      },
+    };
+
+    try {
+      await expect(
+        broadcastIncidentTaskCompletedEvent(notification(), dependencies),
+      ).resolves.toBeUndefined();
+
+      expect(delivered).toEqual(["connection-live"]);
+
+      expect(consoleError).toHaveBeenCalledTimes(1);
+
+      const rawLog = consoleError.mock.calls[0]?.[0];
+
+      expect(typeof rawLog).toBe("string");
+
+      const log = JSON.parse(String(rawLog));
+
+      expect(log).toMatchObject({
+        level: "error",
+
+        event: "websocket_stale_connection_cleanup_failed",
+
+        connection_id: "connection-stale",
+
+        error_type: "Error",
+
+        error: "DynamoDB cleanup failure",
+      });
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it("preserves the same event identity across duplicate source deliveries", async () => {
+    const payloads: string[] = [];
+
+    const dependencies: BroadcastDependencies = {
+      listConnections: async () => [connection("connection-a")],
+
+      deleteConnection: async () => {},
+
+      postToConnection: async (_target, payload) => {
+        payloads.push(payload);
+      },
+    };
+
+    const event = notification();
+
+    await broadcastIncidentTaskCompletedEvent(event, dependencies);
+
+    await broadcastIncidentTaskCompletedEvent(event, dependencies);
+
+    expect(payloads).toHaveLength(2);
+
+    const first = JSON.parse(payloads[0] ?? "{}");
+
+    const second = JSON.parse(payloads[1] ?? "{}");
+
+    expect(first.event_id).toBe(event.event_id);
+
+    expect(second.event_id).toBe(event.event_id);
+
+    expect(second).toEqual(first);
   });
 });
