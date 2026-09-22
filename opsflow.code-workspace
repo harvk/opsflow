@@ -1,0 +1,43 @@
+{
+  "folders": [
+    {
+      "name": "Root",
+      "path": "./",
+    },
+    {
+      "name": "Backend",
+      "path": "backend",
+    },
+    {
+      "name": "Incident Service",
+      "path": "incident-service",
+    },
+    {
+      "name": "Contracts",
+      "path": "contracts",
+    },
+    {
+      "name": "Notifier",
+      "path": "lambdas/realtime-notifier",
+    },
+    {
+      "name": "Task Worker",
+      "path": "lambdas/task-worker",
+    },
+    {
+      "name": "Infrastructure",
+      "path": "infrastructure",
+    },
+    {
+      "name": "Frontend",
+      "path": "frontend",
+    },
+    {
+      "name": "Scripts",
+      "path": "scripts",
+    },
+  ],
+  "settings": {
+    "python.analysis.diagnosticMode": "workspace",
+  },
+}

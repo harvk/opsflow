@@ -1,0 +1,363 @@
+# ==========================================================
+# OPSFLOW LOCAL AWS CREDENTIAL BRIDGE
+# ==========================================================
+#
+# LOCAL DEVELOPMENT ONLY.
+#
+# Selected background/application processes receive the
+# developer's existing host AWS configuration through the
+# AWS SDK credential provider chain.
+#
+# Credentials are never copied into application images.
+#
+# Production deployments must use workload identity.
+#
+# Usage:
+#
+#   docker compose \
+#     --env-file .env.docker \
+#     -f compose.yaml \
+#     -f compose.aws-local.yaml \
+#     up -d
+#
+# ==========================================================
+
+services:
+  # ========================================================
+  # CORE BACKEND AWS ACCESS
+  # ========================================================
+
+  backend:
+    environment:
+      HOME: /home/opsflow
+
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      AWS_SDK_LOAD_CONFIG: "1"
+
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    volumes:
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}
+        target: /home/opsflow/.aws
+        read_only: true
+
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}/login/cache
+        target: /home/opsflow/.aws/login/cache
+        read_only: false
+
+  # ========================================================
+  # INCIDENT TASK RECONCILER
+  # ========================================================
+  #
+  # Reads durable asynchronous Incident task execution state
+  # from DynamoDB and reconciles it into Incident Service
+  # PostgreSQL business state.
+  #
+  # Successful reconciliation also persists the durable
+  # incident.task.completed outbox obligation in the same
+  # PostgreSQL transaction.
+  #
+  # ========================================================
+
+  incident-reconciler:
+    build:
+      context: ./incident-service
+
+      dockerfile: Dockerfile
+
+      provenance: mode=max
+
+      sbom: true
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-incident-service:dev
+
+    user: "10001:10001"
+
+    environment:
+      APP_ENV: development
+
+      PYTHONUNBUFFERED: "1"
+
+      PYTHONDONTWRITEBYTECODE: "1"
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents
+
+      CORE_BACKEND_URL: >-
+        http://backend:8000/api/v1
+
+
+      TASK_EXECUTION_TABLE_NAME: >-
+        ${TASK_EXECUTION_TABLE_NAME:-opsflow-dev-incident-task-executions}
+
+      TASK_EXECUTION_STATUS_INDEX_NAME: >-
+        ${TASK_EXECUTION_STATUS_INDEX_NAME:-status-created-at-index}
+
+      INCIDENT_TASK_RECONCILER_POLL_SECONDS: >-
+        ${INCIDENT_TASK_RECONCILER_POLL_SECONDS:-5}
+
+      INCIDENT_TASK_RECONCILER_BATCH_SIZE: >-
+        ${INCIDENT_TASK_RECONCILER_BATCH_SIZE:-10}
+
+      INCIDENT_TASK_RECONCILER_LEASE_SECONDS: >-
+        ${INCIDENT_TASK_RECONCILER_LEASE_SECONDS:-60}
+
+      HOME: /home/opsflow
+
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      AWS_SDK_LOAD_CONFIG: "1"
+
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    depends_on:
+      incident-migrate:
+        condition: service_completed_successfully
+
+    command:
+      - python
+      - -m
+      - app.workers.incident_task_reconciler
+
+    restart: unless-stopped
+
+    pids_limit: 64
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    volumes:
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}
+        target: /home/opsflow/.aws
+        read_only: true
+
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}/login/cache
+        target: /home/opsflow/.aws/login/cache
+        read_only: false
+
+    networks:
+      - opsflow_backend_network
+
+  # ========================================================
+  # INCIDENT TASK TRANSACTIONAL OUTBOX RELAY
+  # ========================================================
+  #
+  # Publishes incident.processing.requested task envelopes
+  # from PostgreSQL to the task SQS queue.
+  #
+  # ========================================================
+
+  incident-outbox-relay:
+    build:
+      context: ./incident-service
+
+      dockerfile: Dockerfile
+
+      provenance: mode=max
+
+      sbom: true
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-incident-service:dev
+
+    user: "10001:10001"
+
+    environment:
+      APP_ENV: development
+
+      PYTHONUNBUFFERED: "1"
+
+      PYTHONDONTWRITEBYTECODE: "1"
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents
+
+      CORE_BACKEND_URL: >-
+        http://backend:8000/api/v1
+
+
+      TASK_QUEUE_URL: >-
+        ${TASK_QUEUE_URL:?TASK_QUEUE_URL is required}
+
+      INCIDENT_OUTBOX_RELAY_POLL_SECONDS: >-
+        ${INCIDENT_OUTBOX_RELAY_POLL_SECONDS:-2}
+
+      INCIDENT_OUTBOX_RELAY_RETRY_SECONDS: >-
+        ${INCIDENT_OUTBOX_RELAY_RETRY_SECONDS:-15}
+
+      HOME: /home/opsflow
+
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      AWS_SDK_LOAD_CONFIG: "1"
+
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    depends_on:
+      incident-migrate:
+        condition: service_completed_successfully
+
+    command:
+      - python
+      - -m
+      - app.workers.incident_outbox_relay
+
+    restart: unless-stopped
+
+    pids_limit: 64
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    volumes:
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}
+        target: /home/opsflow/.aws
+        read_only: true
+
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}/login/cache
+        target: /home/opsflow/.aws/login/cache
+        read_only: false
+
+    networks:
+      - opsflow_backend_network
+
+  # ========================================================
+  # INCIDENT COMPLETION TRANSACTIONAL OUTBOX RELAY
+  # ========================================================
+  #
+  # Publishes durable incident.task.completed events from
+  # PostgreSQL to the realtime notification SQS queue.
+  #
+  # This is deliberately separate from incident-outbox-relay:
+  #
+  #   incident-outbox-relay
+  #       -> incident.processing.requested
+  #       -> task queue
+  #
+  #   incident-completion-outbox-relay
+  #       -> incident.task.completed
+  #       -> realtime notification queue
+  #
+  # ========================================================
+
+  incident-completion-outbox-relay:
+    build:
+      context: ./incident-service
+
+      dockerfile: Dockerfile
+
+      provenance: mode=max
+
+      sbom: true
+
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+
+    image: opsflow-incident-service:dev
+
+    user: "10001:10001"
+
+    environment:
+      APP_ENV: development
+
+      PYTHONUNBUFFERED: "1"
+
+      PYTHONDONTWRITEBYTECODE: "1"
+
+      DATABASE_URL: >-
+        postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_incidents
+
+      CORE_BACKEND_URL: >-
+        http://backend:8000/api/v1
+
+
+      REALTIME_NOTIFICATION_QUEUE_URL: >-
+        ${REALTIME_NOTIFICATION_QUEUE_URL:?REALTIME_NOTIFICATION_QUEUE_URL is required}
+
+      INCIDENT_TASK_COMPLETION_OUTBOX_RELAY_POLL_SECONDS: >-
+        ${INCIDENT_TASK_COMPLETION_OUTBOX_RELAY_POLL_SECONDS:-2}
+
+      INCIDENT_TASK_COMPLETION_OUTBOX_RELAY_RETRY_SECONDS: >-
+        ${INCIDENT_TASK_COMPLETION_OUTBOX_RELAY_RETRY_SECONDS:-15}
+
+      HOME: /home/opsflow
+
+      AWS_PROFILE: ${AWS_PROFILE:-default}
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      AWS_SDK_LOAD_CONFIG: "1"
+
+      AWS_EC2_METADATA_DISABLED: "true"
+
+    depends_on:
+      incident-migrate:
+        condition: service_completed_successfully
+
+    command:
+      - python
+      - -m
+      - app.workers.incident_task_completion_outbox_relay
+
+    restart: unless-stopped
+
+    pids_limit: 64
+
+    security_opt:
+      - no-new-privileges:true
+
+    cap_drop:
+      - ALL
+
+    read_only: true
+
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,nodev,size=64m
+
+    volumes:
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}
+        target: /home/opsflow/.aws
+        read_only: true
+
+      - type: bind
+        source: ${AWS_HOST_CONFIG_DIR:?AWS_HOST_CONFIG_DIR is required}/login/cache
+        target: /home/opsflow/.aws/login/cache
+        read_only: false
+
+    networks:
+      - opsflow_backend_network

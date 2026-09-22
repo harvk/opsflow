@@ -1,0 +1,38 @@
+{
+  "python.defaultInterpreterPath": "${workspaceFolder}/.venv/Scripts/python.exe",
+
+  "python.analysis.extraPaths": ["./src"],
+
+  "python.analysis.exclude": [
+    "**/build/**",
+    "**/dist/**",
+    "**/.venv/**",
+    "**/.pytest_cache/**",
+    "**/.ruff_cache/**"
+  ],
+
+  "python.analysis.ignore": ["**/build/**", "**/dist/**"],
+
+  "python.analysis.excludeLibraryDiagnostics": true,
+
+  "files.exclude": {
+    "**/build/**": true,
+    "**/dist/**": true
+  },
+
+  "files.watcherExclude": {
+    "**/build/**": true,
+    "**/dist/**": true,
+    "**/.venv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true
+  },
+
+  "search.exclude": {
+    "**/build/**": true,
+    "**/dist/**": true,
+    "**/.venv/**": true,
+    "**/.pytest_cache/**": true,
+    "**/.ruff_cache/**": true
+  }
+}

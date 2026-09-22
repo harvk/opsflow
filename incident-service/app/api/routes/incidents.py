@@ -13,6 +13,9 @@ from app.api.dependencies import (
     IncidentServiceDependency,
     IncidentWritePrincipal,
 )
+from app.core.request_context import (
+    get_request_id,
+)
 from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
@@ -85,13 +88,15 @@ def list_incidents(
         ),
     ] = 50,
 ) -> list[IncidentResponse]:
-    incidents = incident_service.list(
-        search=search,
-        service_id=service_id,
-        severity=severity,
-        status=incident_status,
-        offset=offset,
-        limit=limit,
+    incidents = (
+        incident_service.list(
+            search=search,
+            service_id=service_id,
+            severity=severity,
+            status=incident_status,
+            offset=offset,
+            limit=limit,
+        )
     )
 
     return [
@@ -112,8 +117,10 @@ def get_incident(
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.get_by_id(
-            incident_id
+        incident = (
+            incident_service.get_by_id(
+                incident_id
+            )
         )
 
     except IncidentNotFoundError as exc:
@@ -122,8 +129,10 @@ def get_incident(
             detail=str(exc),
         ) from exc
 
-    return IncidentResponse.model_validate(
-        incident
+    return (
+        IncidentResponse.model_validate(
+            incident
+        )
     )
 
 
@@ -138,8 +147,13 @@ def create_incident(
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.create(
-            payload
+        incident = (
+            incident_service.create(
+                payload,
+                correlation_id=(
+                    get_request_id()
+                ),
+            )
         )
 
     except IncidentServiceReferenceError as exc:
@@ -154,8 +168,10 @@ def create_incident(
             detail=str(exc),
         ) from exc
 
-    return IncidentResponse.model_validate(
-        incident
+    return (
+        IncidentResponse.model_validate(
+            incident
+        )
     )
 
 
@@ -170,9 +186,11 @@ def update_incident(
     incident_service: IncidentServiceDependency,
 ) -> IncidentResponse:
     try:
-        incident = incident_service.update(
-            incident_id,
-            payload,
+        incident = (
+            incident_service.update(
+                incident_id,
+                payload,
+            )
         )
 
     except IncidentNotFoundError as exc:
@@ -193,8 +211,10 @@ def update_incident(
             detail=str(exc),
         ) from exc
 
-    return IncidentResponse.model_validate(
-        incident
+    return (
+        IncidentResponse.model_validate(
+            incident
+        )
     )
 
 

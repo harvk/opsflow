@@ -344,6 +344,14 @@ services:
       TEST_DATABASE_URL: >-
         postgresql+psycopg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/opsflow_test
 
+      # ----------------------------------------------------
+      # AWS TASK PUBLICATION
+      # ----------------------------------------------------
+
+      AWS_REGION: ${AWS_REGION:-us-east-1}
+
+      TASK_QUEUE_URL: ${TASK_QUEUE_URL:?TASK_QUEUE_URL is required}
+
       SERVICE_IDENTITY_PRIVATE_KEY_PATH: /run/secrets/core_service_identity_private_key
 
       SERVICE_IDENTITY_KEY_ID: ${SERVICE_IDENTITY_KEY_ID:-core-backend-key-1}

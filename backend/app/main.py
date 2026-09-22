@@ -27,7 +27,7 @@ from app.core.metrics import (
 from app.core.password_reset_messages import (
     PASSWORD_RESET_REQUEST_ACCEPTED_MESSAGE,
 )
-from app.middleware.broswer_trust import (
+from app.middleware.browser_trust import (
     BrowserTrustBoundaryMiddleware,
 )
 from app.middleware.metrics import (

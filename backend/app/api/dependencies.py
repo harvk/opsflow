@@ -106,6 +106,13 @@ from app.infrastructure.aws.ses_password_reset_delivery import (
     SesClient,
     SesPasswordResetDelivery,
 )
+from app.infrastructure.aws.sqs_task_publisher import (
+    SqsClient,
+    SqsTaskPublisher,
+)
+from app.messaging import (
+    TaskPublisher,
+)
 from app.repositories.auth_session_repository import (
     AuthSessionRepository,
 )
@@ -513,6 +520,7 @@ def get_incident_http_client(
             ),
         )
     )
+
 
 @lru_cache(
     maxsize=1
@@ -1046,6 +1054,129 @@ SesClientDependency = (
         SesClient,
         Depends(
             get_ses_client
+        ),
+    ]
+)
+
+
+# =========================================================
+# AWS SQS CLIENT
+# =========================================================
+
+@lru_cache(
+    maxsize=1
+)
+def get_sqs_client(
+) -> SqsClient:
+    """
+    Construct the process-wide AWS SQS client.
+
+    boto3 resolves credentials through its normal AWS
+    credential provider chain.
+
+    AWS credentials must never be embedded in application
+    source code or committed environment files.
+
+    The network timeout and retry policy intentionally
+    mirrors the existing SES client configuration.
+    """
+
+    try:
+        client = (
+            boto3.client(
+                "sqs",
+                region_name=(
+                    settings
+                    .aws_region
+                ),
+                config=(
+                    Config(
+                        connect_timeout=3,
+                        read_timeout=5,
+                        retries={
+                            "mode": (
+                                "standard"
+                            ),
+                            "total_max_attempts": (
+                                3
+                            ),
+                        },
+                    )
+                ),
+            )
+        )
+
+    except BotoCoreError as exc:
+        raise RuntimeError(
+            "Task publisher is unavailable."
+        ) from exc
+
+    return (
+        cast(
+            SqsClient,
+            client,
+        )
+    )
+
+
+SqsClientDependency = (
+    Annotated[
+        SqsClient,
+        Depends(
+            get_sqs_client
+        ),
+    ]
+)
+
+
+# =========================================================
+# TASK PUBLISHER
+# =========================================================
+
+def get_task_publisher(
+    sqs_client: SqsClientDependency,
+) -> TaskPublisher:
+    """
+    Construct the production asynchronous task publisher.
+
+    Application code receives the transport-independent
+    TaskPublisher port.
+
+    This composition boundary is the only place that binds
+    that port to the AWS SQS implementation.
+    """
+
+    queue_url = (
+        settings
+        .task_queue_url
+    )
+
+    if (
+        queue_url is None
+        or not queue_url.strip()
+    ):
+        raise RuntimeError(
+            "TASK_QUEUE_URL must be configured "
+            "before task publication can be used."
+        )
+
+    return (
+        SqsTaskPublisher(
+            client=(
+                sqs_client
+            ),
+            queue_url=(
+                queue_url
+            ),
+        )
+    )
+
+
+TaskPublisherDependency = (
+    Annotated[
+        TaskPublisher,
+        Depends(
+            get_task_publisher
         ),
     ]
 )

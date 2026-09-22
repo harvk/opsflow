@@ -1,0 +1,90 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:opsflow:contracts:tasks:task-envelope:v1",
+  "title": "OpsFlow Task Envelope v1",
+  "description": "Canonical envelope for asynchronous OpsFlow tasks transported through the event-driven messaging system.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "task_id",
+    "kind",
+    "task_type",
+    "schema_version",
+    "created_at",
+    "producer",
+    "correlation_id",
+    "idempotency_key",
+    "payload"
+  ],
+  "properties": {
+    "task_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier for this task message instance."
+    },
+    "kind": {
+      "const": "task",
+      "description": "Identifies this envelope as a command/task rather than a domain event."
+    },
+    "task_type": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 120,
+      "pattern": "^[a-z][a-z0-9]*(?:\\.[a-z][a-z0-9_-]*)+$",
+      "description": "Stable dot-delimited task name such as incident.notification.requested."
+    },
+    "schema_version": {
+      "const": "1.0",
+      "description": "Version of the OpsFlow task-envelope contract."
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "UTC timestamp representing when the producer created the task."
+    },
+    "producer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 100,
+      "pattern": "^[a-z0-9][a-z0-9._-]*$",
+      "description": "Stable identifier for the component that created the task."
+    },
+    "correlation_id": {
+      "type": "string",
+      "description": "Identifier shared by tasks that belong to the same logical workflow.",
+      "minLength": 1
+    },
+    "causation_id": {
+      "description": "Identifier of the task or event that caused this task to exist. Null when the task begins a workflow.",
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "idempotency_key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 255,
+      "pattern": "^[A-Za-z0-9][A-Za-z0-9._:/-]*$",
+      "description": "Stable business-operation key used to suppress duplicate side effects."
+    },
+    "payload": {
+      "type": "object",
+      "description": "Task-specific business data."
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Optional non-business execution or tracing metadata.",
+      "maxProperties": 20,
+      "additionalProperties": {
+        "type": "string",
+        "maxLength": 1024
+      }
+    }
+  }
+}

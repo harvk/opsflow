@@ -1,0 +1,4 @@
+-r requirements.txt
+aws-lambda-powertools[aws-sdk]==3.34.0
+
+ruff==0.16.6

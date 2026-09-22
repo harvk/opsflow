@@ -1,0 +1,30 @@
+{
+  "name": "opsflow-realtime-notifier",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpsFlow AWS Lambda for WebSocket connection management and realtime incident notifications.",
+  "type": "commonjs",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "build": "npm run clean && esbuild src/handler.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --sourcemap",
+    "verify": "npm run typecheck && npm test && npm run build"
+  },
+  "dependencies": {
+    "@aws-sdk/client-apigatewaymanagementapi": "3.1134.0",
+    "@aws-sdk/client-dynamodb": "3.1134.0",
+    "@aws-sdk/lib-dynamodb": "3.1134.0"
+  },
+  "devDependencies": {
+    "@types/aws-lambda": "8.10.163",
+    "@types/node": "24.13.5",
+    "esbuild": "0.28.2",
+    "typescript": "7.0.2",
+    "vitest": "5.0.1"
+  }
+}

@@ -1,5 +1,7 @@
 import type { IncidentDraft, IncidentFormErrors } from "../types/incidents";
 
+const RUNBOOK_URL_PATTERN = /^https?:\/\/\S+$/;
+
 export function validateIncident(incident: IncidentDraft): IncidentFormErrors {
   const errors: IncidentFormErrors = {};
 
@@ -25,16 +27,23 @@ export function validateIncident(incident: IncidentDraft): IncidentFormErrors {
     errors.summary = "Provide at least 20 characters of incident detail.";
   }
 
-  const runbookUrl = incident.runbookUrl.trim();
+  const trimmedAssignee = incident.assignee.trim();
 
-  if (runbookUrl) {
-    try {
-      const url = new URL(runbookUrl);
+  if (!trimmedAssignee) {
+    errors.assignee = "Enter an assignee.";
+  } else if (trimmedAssignee.length > 120) {
+    errors.assignee = "The assignee must contain 120 characters or fewer.";
+  }
 
-      if (url.protocol !== "http:" && url.protocol !== "https:") {
-        errors.runbookUrl = "Use an HTTP or HTTPS URL.";
-      }
-    } catch {
+  const runbookUrl = incident.runbookUrl;
+
+  if (runbookUrl && !RUNBOOK_URL_PATTERN.test(runbookUrl)) {
+    if (
+      !runbookUrl.startsWith("http://") &&
+      !runbookUrl.startsWith("https://")
+    ) {
+      errors.runbookUrl = "Use an HTTP or HTTPS URL.";
+    } else {
       errors.runbookUrl = "Enter a valid URL.";
     }
   }

@@ -58,8 +58,14 @@ from app.gateways.service_catalog_gateway import (
 from app.repositories.incident_repository import (
     IncidentRepository,
 )
+from app.repositories.incident_task_outbox_repository import (
+    IncidentTaskOutboxRepository,
+)
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
+)
+from app.repositories.sqlalchemy_incident_task_outbox_repository import (
+    SqlAlchemyIncidentTaskOutboxRepository,
 )
 from app.services.incident_service import (
     IncidentService,
@@ -300,6 +306,28 @@ IncidentRepositoryDependency = Annotated[
 
 
 # =========================================================
+# INCIDENT TASK OUTBOX REPOSITORY
+# =========================================================
+
+def get_incident_task_outbox_repository(
+    session: DbSession,
+) -> IncidentTaskOutboxRepository:
+    return (
+        SqlAlchemyIncidentTaskOutboxRepository(
+            session
+        )
+    )
+
+
+IncidentTaskOutboxRepositoryDependency = Annotated[
+    IncidentTaskOutboxRepository,
+    Depends(
+        get_incident_task_outbox_repository
+    ),
+]
+
+
+# =========================================================
 # SERVICE CATALOG GATEWAY
 # =========================================================
 
@@ -353,6 +381,9 @@ def get_incident_service(
     service_catalog_gateway: (
         ServiceCatalogGatewayDependency
     ),
+    incident_task_outbox_repository: (
+        IncidentTaskOutboxRepositoryDependency
+    ),
 ) -> IncidentService:
     return (
         IncidentService(
@@ -361,6 +392,9 @@ def get_incident_service(
             ),
             service_catalog_gateway=(
                 service_catalog_gateway
+            ),
+            incident_task_outbox_repository=(
+                incident_task_outbox_repository
             ),
         )
     )

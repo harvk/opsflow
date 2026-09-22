@@ -381,7 +381,7 @@ class Settings(
     )
 
     # =====================================================
-    # AWS / SES PASSWORD RESET DELIVERY
+    # AWS INTEGRATIONS
     # =====================================================
 
     aws_region: str = Field(
@@ -389,6 +389,36 @@ class Settings(
         min_length=1,
         max_length=64,
     )
+
+    # =====================================================
+    # AWS SQS TASK PUBLICATION
+    # =====================================================
+    #
+    # The queue URL is deployment-specific configuration.
+    #
+    # It remains optional at the global Settings level so
+    # tooling and application paths that do not use task
+    # publication can still construct Settings safely.
+    #
+    # get_task_publisher() enforces its presence when the
+    # asynchronous publication capability is requested.
+    #
+    # Docker Compose additionally requires TASK_QUEUE_URL
+    # for the backend runtime.
+    #
+    # =====================================================
+
+    task_queue_url: (
+        str | None
+    ) = Field(
+        default=None,
+        min_length=1,
+        max_length=2048,
+    )
+
+    # =====================================================
+    # AWS SES PASSWORD RESET DELIVERY
+    # =====================================================
 
     ses_from_email: str = Field(
         default=(

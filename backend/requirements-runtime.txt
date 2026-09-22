@@ -37,4 +37,4 @@ typing-inspection==0.4.4
 typing_extensions==4.16.0
 tzdata==2026.3
 uvicorn==0.52.4
-boto3>=1.40,<2
+boto3[crt]>=1.40,<2

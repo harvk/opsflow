@@ -10,6 +10,9 @@ from app.domain.incident import (
     IncidentSeverity,
     IncidentStatus,
 )
+from app.domain.incident_task import (
+    IncidentTaskOutboxMessage,
+)
 from app.schemas.incident import (
     IncidentCreate,
     IncidentUpdate,
@@ -18,7 +21,9 @@ from app.services.exceptions import (
     IncidentNotFoundError,
     IncidentServiceReferenceError,
 )
-from app.services.incident_service import IncidentService
+from app.services.incident_service import (
+    IncidentService,
+)
 
 
 class InMemoryIncidentRepository:
@@ -46,15 +51,22 @@ class InMemoryIncidentRepository:
         )
 
         if search:
-            normalized = search.strip().lower()
+            normalized = (
+                search
+                .strip()
+                .lower()
+            )
 
             incidents = [
                 incident
                 for incident in incidents
                 if (
-                    normalized in incident.title.lower()
-                    or normalized in incident.summary.lower()
-                    or normalized in incident.assignee.lower()
+                    normalized
+                    in incident.title.lower()
+                    or normalized
+                    in incident.summary.lower()
+                    or normalized
+                    in incident.assignee.lower()
                 )
             ]
 
@@ -62,29 +74,46 @@ class InMemoryIncidentRepository:
             incidents = [
                 incident
                 for incident in incidents
-                if incident.service_id == service_id
+                if (
+                    incident.service_id
+                    == service_id
+                )
             ]
 
         if severity is not None:
             incidents = [
                 incident
                 for incident in incidents
-                if incident.severity is severity
+                if (
+                    incident.severity
+                    is severity
+                )
             ]
 
         if status is not None:
             incidents = [
                 incident
                 for incident in incidents
-                if incident.status is status
+                if (
+                    incident.status
+                    is status
+                )
             ]
 
         incidents.sort(
-            key=lambda incident: incident.created_at,
+            key=(
+                lambda incident:
+                incident.created_at
+            ),
             reverse=True,
         )
 
-        return incidents[offset : offset + limit]
+        return (
+            incidents[
+                offset:
+                offset + limit
+            ]
+        )
 
     def get_by_id(
         self,
@@ -98,7 +127,9 @@ class InMemoryIncidentRepository:
         self,
         incident: Incident,
     ) -> Incident:
-        self.incidents[incident.id] = incident
+        self.incidents[
+            incident.id
+        ] = incident
 
         return incident
 
@@ -106,7 +137,9 @@ class InMemoryIncidentRepository:
         self,
         incident: Incident,
     ) -> Incident:
-        self.incidents[incident.id] = incident
+        self.incidents[
+            incident.id
+        ] = incident
 
         return incident
 
@@ -128,16 +161,55 @@ class InMemoryIncidentRepository:
     ) -> list[Incident]:
         incidents = [
             incident
-            for incident in self.incidents.values()
-            if incident.service_id == service_id
+            for incident
+            in self.incidents.values()
+            if (
+                incident.service_id
+                == service_id
+            )
         ]
 
         incidents.sort(
-            key=lambda incident: incident.created_at,
+            key=(
+                lambda incident:
+                incident.created_at
+            ),
             reverse=True,
         )
 
-        return incidents[offset : offset + limit]
+        return (
+            incidents[
+                offset:
+                offset + limit
+            ]
+        )
+
+
+class InMemoryIncidentTaskOutboxRepository:
+    """
+    Test double for the transactional Incident task outbox.
+
+    The production implementation writes through SQLAlchemy.
+    Unit tests only need to record which publication
+    obligations the application service created.
+    """
+
+    def __init__(
+        self,
+    ) -> None:
+        self.messages: list[
+            IncidentTaskOutboxMessage
+        ] = []
+
+    def create(
+        self,
+        message: IncidentTaskOutboxMessage,
+    ) -> IncidentTaskOutboxMessage:
+        self.messages.append(
+            message
+        )
+
+        return message
 
 
 class StubServiceCatalogGateway:
@@ -145,8 +217,13 @@ class StubServiceCatalogGateway:
         self,
         existing_service_ids: set[UUID],
     ) -> None:
-        self.existing_service_ids = existing_service_ids
-        self.checked_service_ids: list[UUID] = []
+        self.existing_service_ids = (
+            existing_service_ids
+        )
+
+        self.checked_service_ids: list[
+            UUID
+        ] = []
 
     def service_exists(
         self,
@@ -156,25 +233,38 @@ class StubServiceCatalogGateway:
             service_id
         )
 
-        return service_id in self.existing_service_ids
+        return (
+            service_id
+            in self.existing_service_ids
+        )
 
 
 def build_incident(
     *,
     service_id: UUID,
-    status: IncidentStatus = IncidentStatus.OPEN,
+    status: IncidentStatus = (
+        IncidentStatus.OPEN
+    ),
     resolved_at: datetime | None = None,
 ) -> Incident:
-    timestamp = datetime.now(UTC)
+    timestamp = datetime.now(
+        UTC
+    )
 
     return Incident(
         id=uuid4(),
         title="Elevated API latency",
         service_id=service_id,
-        severity=IncidentSeverity.SEV_2,
+        severity=(
+            IncidentSeverity.SEV_2
+        ),
         status=status,
-        summary="Requests exceed the latency target.",
-        assignee="Platform Operations",
+        summary=(
+            "Requests exceed the latency target."
+        ),
+        assignee=(
+            "Platform Operations"
+        ),
         source="monitoring",
         customer_impacting=False,
         acknowledged_at=None,
@@ -185,162 +275,389 @@ def build_incident(
     )
 
 
-def test_create_preserves_incident_lifecycle_fields() -> None:
+def test_create_preserves_incident_lifecycle_fields(
+) -> None:
     service_id = uuid4()
-    acknowledged_at = datetime.now(UTC)
-    repository = InMemoryIncidentRepository()
-    catalog = StubServiceCatalogGateway(
-        {service_id}
+
+    acknowledged_at = datetime.now(
+        UTC
     )
+
+    repository = (
+        InMemoryIncidentRepository()
+    )
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
+    catalog = (
+        StubServiceCatalogGateway(
+            {
+                service_id
+            }
+        )
+    )
+
     service = IncidentService(
         incident_repository=repository,
         service_catalog_gateway=catalog,
+        incident_task_outbox_repository=(
+            outbox_repository
+        ),
     )
 
     incident = service.create(
         IncidentCreate(
-            title="Elevated API latency",
+            title=(
+                "Elevated API latency"
+            ),
             service_id=service_id,
-            severity=IncidentSeverity.SEV_2,
-            status=IncidentStatus.INVESTIGATING,
-            summary="Requests exceed the latency target.",
-            assignee="Platform Operations",
+            severity=(
+                IncidentSeverity.SEV_2
+            ),
+            status=(
+                IncidentStatus.INVESTIGATING
+            ),
+            summary=(
+                "Requests exceed the latency target."
+            ),
+            assignee=(
+                "Platform Operations"
+            ),
             source="monitoring",
             customer_impacting=True,
-            acknowledged_at=acknowledged_at,
+            acknowledged_at=(
+                acknowledged_at
+            ),
         )
     )
 
-    assert incident.service_id == service_id
-    assert incident.source == "monitoring"
-    assert incident.customer_impacting is True
-    assert incident.acknowledged_at == acknowledged_at
-    assert incident.resolved_at is None
-    assert catalog.checked_service_ids == [
-        service_id
-    ]
-    assert repository.get_by_id(incident.id) == incident
+    assert (
+        incident.service_id
+        == service_id
+    )
+
+    assert (
+        incident.source
+        == "monitoring"
+    )
+
+    assert (
+        incident.customer_impacting
+        is True
+    )
+
+    assert (
+        incident.acknowledged_at
+        == acknowledged_at
+    )
+
+    assert (
+        incident.resolved_at
+        is None
+    )
+
+    assert (
+        catalog.checked_service_ids
+        == [
+            service_id
+        ]
+    )
+
+    assert (
+        repository.get_by_id(
+            incident.id
+        )
+        == incident
+    )
+
+    assert len(
+        outbox_repository.messages
+    ) == 1
+
+    outbox_message = (
+        outbox_repository.messages[0]
+    )
+
+    assert (
+        outbox_message.incident_id
+        == incident.id
+    )
+
+    assert (
+        outbox_message.task_type
+        == (
+            "incident.processing.requested"
+        )
+    )
+
+    assert (
+        outbox_message.payload
+        == {
+            "incident_id": str(
+                incident.id
+            ),
+        }
+    )
 
 
-def test_create_rejects_unknown_service_reference() -> None:
+def test_create_rejects_unknown_service_reference(
+) -> None:
     service_id = uuid4()
-    repository = InMemoryIncidentRepository()
-    catalog = StubServiceCatalogGateway(set())
+
+    repository = (
+        InMemoryIncidentRepository()
+    )
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
+    catalog = (
+        StubServiceCatalogGateway(
+            set()
+        )
+    )
+
     service = IncidentService(
         incident_repository=repository,
         service_catalog_gateway=catalog,
+        incident_task_outbox_repository=(
+            outbox_repository
+        ),
     )
 
     with pytest.raises(
         IncidentServiceReferenceError,
-        match=str(service_id),
+        match=str(
+            service_id
+        ),
     ):
         service.create(
             IncidentCreate(
-                title="Elevated API latency",
-                service_id=service_id,
-                severity=IncidentSeverity.SEV_2,
-                summary="Requests exceed the latency target.",
-                assignee="Platform Operations",
+                title=(
+                    "Elevated API latency"
+                ),
+                service_id=(
+                    service_id
+                ),
+                severity=(
+                    IncidentSeverity.SEV_2
+                ),
+                summary=(
+                    "Requests exceed the latency target."
+                ),
+                assignee=(
+                    "Platform Operations"
+                ),
             )
         )
 
-    assert repository.incidents == {}
+    assert (
+        repository.incidents
+        == {}
+    )
+
+    assert (
+        outbox_repository.messages
+        == []
+    )
 
 
-def test_get_by_id_rejects_unknown_incident() -> None:
-    repository = InMemoryIncidentRepository()
+def test_get_by_id_rejects_unknown_incident(
+) -> None:
+    repository = (
+        InMemoryIncidentRepository()
+    )
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
     service = IncidentService(
         incident_repository=repository,
         service_catalog_gateway=(
-            StubServiceCatalogGateway(set())
+            StubServiceCatalogGateway(
+                set()
+            )
+        ),
+        incident_task_outbox_repository=(
+            outbox_repository
         ),
     )
+
     incident_id = uuid4()
 
     with pytest.raises(
         IncidentNotFoundError,
-        match=str(incident_id),
+        match=str(
+            incident_id
+        ),
     ):
         service.get_by_id(
             incident_id
         )
 
 
-def test_update_sets_resolved_timestamp() -> None:
+def test_update_sets_resolved_timestamp(
+) -> None:
     service_id = uuid4()
+
     existing = build_incident(
         service_id=service_id
     )
-    repository = InMemoryIncidentRepository(
-        [existing]
+
+    repository = (
+        InMemoryIncidentRepository(
+            [
+                existing
+            ]
+        )
     )
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
     service = IncidentService(
         incident_repository=repository,
         service_catalog_gateway=(
             StubServiceCatalogGateway(
-                {service_id}
+                {
+                    service_id
+                }
             )
+        ),
+        incident_task_outbox_repository=(
+            outbox_repository
         ),
     )
 
     updated = service.update(
         existing.id,
         IncidentUpdate(
-            status=IncidentStatus.RESOLVED,
+            status=(
+                IncidentStatus.RESOLVED
+            ),
         ),
     )
 
-    assert updated.status is IncidentStatus.RESOLVED
-    assert updated.resolved_at is not None
-    assert updated.updated_at >= existing.updated_at
+    assert (
+        updated.status
+        is IncidentStatus.RESOLVED
+    )
+
+    assert (
+        updated.resolved_at
+        is not None
+    )
+
+    assert (
+        updated.updated_at
+        >= existing.updated_at
+    )
+
+    assert (
+        outbox_repository.messages
+        == []
+    )
 
 
-def test_update_clears_timestamp_when_incident_reopens() -> None:
+def test_update_clears_timestamp_when_incident_reopens(
+) -> None:
     service_id = uuid4()
-    resolved_at = datetime.now(UTC)
+
+    resolved_at = datetime.now(
+        UTC
+    )
+
     existing = build_incident(
         service_id=service_id,
-        status=IncidentStatus.RESOLVED,
+        status=(
+            IncidentStatus.RESOLVED
+        ),
         resolved_at=resolved_at,
     )
-    repository = InMemoryIncidentRepository(
-        [existing]
+
+    repository = (
+        InMemoryIncidentRepository(
+            [
+                existing
+            ]
+        )
     )
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
     service = IncidentService(
         incident_repository=repository,
         service_catalog_gateway=(
             StubServiceCatalogGateway(
-                {service_id}
+                {
+                    service_id
+                }
             )
+        ),
+        incident_task_outbox_repository=(
+            outbox_repository
         ),
     )
 
     updated = service.update(
         existing.id,
         IncidentUpdate(
-            status=IncidentStatus.MONITORING,
+            status=(
+                IncidentStatus.MONITORING
+            ),
         ),
     )
 
-    assert updated.status is IncidentStatus.MONITORING
-    assert updated.resolved_at is None
+    assert (
+        updated.status
+        is IncidentStatus.MONITORING
+    )
+
+    assert (
+        updated.resolved_at
+        is None
+    )
+
+    assert (
+        outbox_repository.messages
+        == []
+    )
 
 
-def test_list_for_service_rejects_unknown_reference() -> None:
+def test_list_for_service_rejects_unknown_reference(
+) -> None:
     service_id = uuid4()
+
+    outbox_repository = (
+        InMemoryIncidentTaskOutboxRepository()
+    )
+
     service = IncidentService(
         incident_repository=(
             InMemoryIncidentRepository()
         ),
         service_catalog_gateway=(
-            StubServiceCatalogGateway(set())
+            StubServiceCatalogGateway(
+                set()
+            )
+        ),
+        incident_task_outbox_repository=(
+            outbox_repository
         ),
     )
 
     with pytest.raises(
         IncidentServiceReferenceError,
-        match=str(service_id),
+        match=str(
+            service_id
+        ),
     ):
         service.list_for_service(
             service_id
