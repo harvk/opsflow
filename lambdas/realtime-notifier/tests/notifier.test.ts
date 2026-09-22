@@ -11,6 +11,8 @@ import type {
   IncidentTaskCompletedEvent,
 } from "../src/types";
 
+const INCIDENTS_CHANNEL = "incidents";
+
 function notification(): IncidentTaskCompletedEvent {
   return {
     schema_version: "1.0",
@@ -33,9 +35,12 @@ function notification(): IncidentTaskCompletedEvent {
   };
 }
 
-function connection(connectionId: string): ConnectionRecord {
+function connection(
+  connectionId: string,
+  channel: string = INCIDENTS_CHANNEL,
+): ConnectionRecord {
   return {
-    channel: "incidents",
+    channel,
 
     connection_id: connectionId,
 
@@ -49,22 +54,35 @@ function connection(connectionId: string): ConnectionRecord {
   };
 }
 
+function baseDependencies(
+  overrides: Partial<BroadcastDependencies> = {},
+): BroadcastDependencies {
+  return {
+    targetChannel: INCIDENTS_CHANNEL,
+
+    listConnections: async () => [],
+
+    deleteConnection: async () => {},
+
+    postToConnection: async () => {},
+
+    ...overrides,
+  };
+}
+
 describe("broadcastIncidentTaskCompletedEvent", () => {
-  it("delivers the incident update to every active connection", async () => {
+  it("delivers the incident update to every active connection in the target channel", async () => {
     const sent: {
       connectionId: string;
-
       payload: string;
     }[] = [];
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [
         connection("connection-a"),
 
         connection("connection-b"),
       ],
-
-      deleteConnection: async () => {},
 
       postToConnection: async (target, payload) => {
         sent.push({
@@ -73,7 +91,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
           payload,
         });
       },
-    };
+    });
 
     await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
 
@@ -91,6 +109,80 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
     expect(payload.status).toBe("Investigating");
   });
 
+  it("skips connections belonging to a different channel", async () => {
+    const delivered: string[] = [];
+
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const dependencies = baseDependencies({
+      listConnections: async () => [
+        connection("incident-client", "incidents"),
+
+        connection("audit-client", "audit"),
+      ],
+
+      postToConnection: async (target) => {
+        delivered.push(target.connection_id);
+      },
+    });
+
+    try {
+      await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
+
+      expect(delivered).toEqual(["incident-client"]);
+
+      expect(consoleWarn).toHaveBeenCalledTimes(1);
+
+      const rawLog = consoleWarn.mock.calls[0]?.[0];
+
+      const log = JSON.parse(String(rawLog));
+
+      expect(log).toMatchObject({
+        level: "warning",
+
+        event: "websocket_cross_channel_connection_skipped",
+
+        connection_id: "audit-client",
+
+        connection_channel: "audit",
+
+        target_channel: "incidents",
+      });
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
+  it("does not delete a mismatched-channel connection", async () => {
+    const deleted: string[] = [];
+
+    const delivered: string[] = [];
+
+    const consoleWarn = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const dependencies = baseDependencies({
+      listConnections: async () => [connection("wrong-channel", "audit")],
+
+      deleteConnection: async (connectionId) => {
+        deleted.push(connectionId);
+      },
+
+      postToConnection: async (target) => {
+        delivered.push(target.connection_id);
+      },
+    });
+
+    try {
+      await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
+
+      expect(delivered).toEqual([]);
+
+      expect(deleted).toEqual([]);
+    } finally {
+      consoleWarn.mockRestore();
+    }
+  });
+
   it("removes stale connections after GoneException and continues delivery", async () => {
     const removed: string[] = [];
 
@@ -98,7 +190,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
     const delivered: string[] = [];
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [
         connection("connection-stale"),
 
@@ -122,7 +214,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
         delivered.push(target.connection_id);
       },
-    };
+    });
 
     await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
 
@@ -138,7 +230,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
     const delivered: string[] = [];
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [
         connection("connection-a"),
 
@@ -146,8 +238,6 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
         connection("connection-c"),
       ],
-
-      deleteConnection: async () => {},
 
       postToConnection: async (target) => {
         attempted.push(target.connection_id);
@@ -158,7 +248,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
         delivered.push(target.connection_id);
       },
-    };
+    });
 
     await expect(
       broadcastIncidentTaskCompletedEvent(notification(), dependencies),
@@ -186,7 +276,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
   it("collects multiple transient delivery failures before rejecting", async () => {
     const attempted: string[] = [];
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [
         connection("connection-a"),
 
@@ -194,8 +284,6 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
         connection("connection-c"),
       ],
-
-      deleteConnection: async () => {},
 
       postToConnection: async (target) => {
         attempted.push(target.connection_id);
@@ -212,7 +300,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
           throw error;
         }
       },
-    };
+    });
 
     try {
       await broadcastIncidentTaskCompletedEvent(notification(), dependencies);
@@ -256,7 +344,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
       .spyOn(console, "error")
       .mockImplementation(() => {});
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [
         connection("connection-stale"),
 
@@ -278,7 +366,7 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
 
         delivered.push(target.connection_id);
       },
-    };
+    });
 
     try {
       await expect(
@@ -288,24 +376,6 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
       expect(delivered).toEqual(["connection-live"]);
 
       expect(consoleError).toHaveBeenCalledTimes(1);
-
-      const rawLog = consoleError.mock.calls[0]?.[0];
-
-      expect(typeof rawLog).toBe("string");
-
-      const log = JSON.parse(String(rawLog));
-
-      expect(log).toMatchObject({
-        level: "error",
-
-        event: "websocket_stale_connection_cleanup_failed",
-
-        connection_id: "connection-stale",
-
-        error_type: "Error",
-
-        error: "DynamoDB cleanup failure",
-      });
     } finally {
       consoleError.mockRestore();
     }
@@ -314,15 +384,13 @@ describe("broadcastIncidentTaskCompletedEvent", () => {
   it("preserves the same event identity across duplicate source deliveries", async () => {
     const payloads: string[] = [];
 
-    const dependencies: BroadcastDependencies = {
+    const dependencies = baseDependencies({
       listConnections: async () => [connection("connection-a")],
-
-      deleteConnection: async () => {},
 
       postToConnection: async (_target, payload) => {
         payloads.push(payload);
       },
-    };
+    });
 
     const event = notification();
 

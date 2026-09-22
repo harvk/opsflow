@@ -115,3 +115,26 @@ the versioned contract rather than recreating notification shapes
 independently.
 
 Consumers that need duplicate suppression should deduplicate by `event_id`.
+
+## Channel isolation
+
+Realtime notification delivery is scoped to the server-configured WebSocket
+channel.
+
+The WebSocket connection store persists every connection under a channel
+partition. The notifier queries only the configured channel partition rather
+than scanning all stored connections.
+
+The delivery layer also verifies the `channel` field of every returned
+connection before attempting delivery.
+
+A connection whose stored channel does not match the notifier target channel
+is skipped and produces a structured warning log.
+
+This second validation is intentional defense in depth. It prevents a
+malformed repository result, corrupted record, test double, or future storage
+regression from causing cross-channel notification delivery.
+
+Clients do not currently choose arbitrary notification channels during the
+WebSocket handshake. Channel assignment remains server controlled through
+the notifier's deployment configuration.

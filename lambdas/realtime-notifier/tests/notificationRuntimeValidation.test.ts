@@ -78,6 +78,8 @@ describe("realtime notification runtime validation", () => {
     let deleteConnectionCalls = 0;
 
     const dependencies: BroadcastDependencies = {
+      targetChannel: "incidents",
+
       listConnections: async () => {
         listConnectionsCalls += 1;
 

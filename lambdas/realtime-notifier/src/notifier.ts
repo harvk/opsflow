@@ -5,6 +5,8 @@ import {
 
 import { deleteConnection, listConnections } from "./connectionStore";
 
+import { loadRealtimeNotifierConfig } from "./config";
+
 import { validateRealtimeIncidentMessage } from "./notificationContract";
 
 import type {
@@ -22,6 +24,8 @@ export interface BroadcastDependencies {
     connection: ConnectionRecord,
     payload: string,
   ) => Promise<void>;
+
+  targetChannel: string;
 }
 
 export interface RealtimeConnectionDeliveryFailure {
@@ -99,13 +103,36 @@ async function postToConnection(
   );
 }
 
-const defaultDependencies: BroadcastDependencies = {
-  listConnections,
+/*
+ * Production configuration must be resolved lazily.
+ *
+ * Unit tests import this module while injecting their own
+ * BroadcastDependencies. Loading environment-backed config
+ * at module-import time would incorrectly require production
+ * Lambda variables before a test can even begin.
+ *
+ * Creating default dependencies only when they are actually
+ * needed preserves:
+ *
+ *   production config validation
+ *
+ * while allowing:
+ *
+ *   deterministic dependency-injected unit tests
+ */
+function createDefaultDependencies(): BroadcastDependencies {
+  const config = loadRealtimeNotifierConfig();
 
-  deleteConnection,
+  return {
+    listConnections,
 
-  postToConnection,
-};
+    deleteConnection,
+
+    postToConnection,
+
+    targetChannel: config.websocketChannel,
+  };
+}
 
 function isGoneException(error: unknown): boolean {
   if (typeof error !== "object" || error === null) {
@@ -157,6 +184,25 @@ function logStaleConnectionCleanupFailure(
   );
 }
 
+function logCrossChannelConnectionSkipped(
+  connection: ConnectionRecord,
+  targetChannel: string,
+): void {
+  console.warn(
+    JSON.stringify({
+      level: "warning",
+
+      event: "websocket_cross_channel_connection_skipped",
+
+      connection_id: connection.connection_id,
+
+      connection_channel: connection.channel,
+
+      target_channel: targetChannel,
+    }),
+  );
+}
+
 export function buildRealtimeIncidentMessage(
   event: IncidentTaskCompletedEvent,
 ): RealtimeIncidentMessage {
@@ -183,12 +229,17 @@ export function buildRealtimeIncidentMessage(
 
 export async function broadcastIncidentTaskCompletedEvent(
   event: IncidentTaskCompletedEvent,
-  dependencies: BroadcastDependencies = defaultDependencies,
+  dependencies?: BroadcastDependencies,
 ): Promise<void> {
   /*
-   * Validate the public notification contract before any
-   * external delivery-side effect occurs.
+   * Resolve environment-backed production dependencies only
+   * when the caller did not inject its own dependencies.
+   *
+   * This prevents module imports from requiring Lambda
+   * environment variables during isolated unit tests.
    */
+
+  const resolvedDependencies = dependencies ?? createDefaultDependencies();
 
   const message = validateRealtimeIncidentMessage(
     buildRealtimeIncidentMessage(event),
@@ -196,49 +247,33 @@ export async function broadcastIncidentTaskCompletedEvent(
 
   const payload = JSON.stringify(message);
 
-  const connections = await dependencies.listConnections();
+  const connections = await resolvedDependencies.listConnections();
 
   const failures: RealtimeConnectionDeliveryFailure[] = [];
 
-  /*
-   * Delivery semantics:
-   *
-   * 1. Every discovered connection gets an attempt.
-   *
-   * 2. GoneException means the WebSocket connection is
-   *    stale. It is not a transient notification failure.
-   *    We remove it and continue.
-   *
-   * 3. Stale-record cleanup is best effort. Failure to
-   *    delete an already-dead connection must not cause the
-   *    complete SQS notification to retry, because doing so
-   *    would unnecessarily duplicate delivery to healthy
-   *    clients.
-   *
-   * 4. Other delivery failures are transient candidates.
-   *    They are collected rather than immediately thrown so
-   *    later connections still receive an attempt.
-   *
-   * 5. After fan-out completes, one aggregate error is
-   *    thrown if transient failures occurred. The SQS
-   *    handler then reports the source message as a partial
-   *    batch failure.
-   *
-   * 6. SQS delivery is at-least-once. Connections that
-   *    succeeded before another connection failed can
-   *    receive the same event again on retry.
-   *
-   *    event_id remains stable across those retries and is
-   *    the consumer deduplication identity.
-   */
-
   for (const connection of connections) {
+    /*
+     * The persistence layer already queries DynamoDB using
+     * the configured channel partition.
+     *
+     * This second check is intentional defense in depth.
+     */
+
+    if (connection.channel !== resolvedDependencies.targetChannel) {
+      logCrossChannelConnectionSkipped(
+        connection,
+        resolvedDependencies.targetChannel,
+      );
+
+      continue;
+    }
+
     try {
-      await dependencies.postToConnection(connection, payload);
+      await resolvedDependencies.postToConnection(connection, payload);
     } catch (error) {
       if (isGoneException(error)) {
         try {
-          await dependencies.deleteConnection(connection.connection_id);
+          await resolvedDependencies.deleteConnection(connection.connection_id);
         } catch (cleanupError) {
           logStaleConnectionCleanupFailure(
             connection.connection_id,
