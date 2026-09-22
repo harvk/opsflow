@@ -8,13 +8,17 @@
     "node": ">=24 <25"
   },
   "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist', { recursive: true, force: true })\"",
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:watch": "vitest",
-    "verify": "npm run typecheck && npm test"
+    "build": "npm run clean && esbuild src/handler.ts --bundle --platform=node --target=node24 --format=cjs --outfile=dist/index.js --sourcemap",
+    "package:lambda": "npm run build && python ../../scripts/package_webhook_notifier.py",
+    "package:lambda:check": "python ../../scripts/package_webhook_notifier.py --check",
+    "verify": "npm run typecheck && npm test && npm run package:lambda && npm run package:lambda:check"
   },
   "dependencies": {
-    "@aws-sdk/client-sqs": "3.1137.0",
+    "@aws-sdk/client-secrets-manager": "3.1137.0",
     "ajv": "8.20.0",
     "ajv-formats": "3.0.1"
   },

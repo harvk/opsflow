@@ -1,10 +1,14 @@
 import type { SQSBatchResponse, SQSEvent, SQSRecord } from "aws-lambda";
 
+import { loadWebhookRuntimeConfig } from "./config";
+
 import { sendWebhookRequest } from "./httpClient";
 
 import { validateWebhookNotification } from "./notificationContract";
 
 import { buildWebhookRequest } from "./webhookRequest";
+
+import type { WebhookRuntimeConfig } from "./config";
 
 import type { WebhookDeliveryTarget } from "./types";
 
@@ -20,32 +24,28 @@ export interface WebhookBatchDependencies {
   fetchImpl?: typeof fetch;
 }
 
+export interface WebhookProductionDependencies {
+  loadConfig: () => Promise<WebhookRuntimeConfig>;
+
+  nowSeconds: () => number;
+
+  fetchImpl?: typeof fetch;
+}
+
+const defaultProductionDependencies: WebhookProductionDependencies = {
+  loadConfig: loadWebhookRuntimeConfig,
+
+  nowSeconds: () => Math.floor(Date.now() / 1000),
+};
+
 async function processRecord(
   record: SQSRecord,
 
   dependencies: WebhookBatchDependencies,
 ): Promise<void> {
-  /*
-   * The dedicated webhook queue carries the public
-   * incident.updated notification contract directly.
-   *
-   * Validation therefore occurs before signing and before
-   * any HTTP-side effect.
-   */
-
   const parsed = JSON.parse(record.body) as unknown;
 
   const notification = validateWebhookNotification(parsed);
-
-  /*
-   * A new signature timestamp is generated for each
-   * delivery attempt.
-   *
-   * SQS retries preserve event_id and body identity while
-   * receiving a fresh HMAC timestamp/signature, preventing
-   * normal retries from being rejected by a short receiver
-   * replay window.
-   */
 
   const timestampSeconds = dependencies.nowSeconds();
 
@@ -69,26 +69,36 @@ export async function handleWebhookBatch(
 ): Promise<SQSBatchResponse> {
   const batchItemFailures: SQSBatchResponse["batchItemFailures"] = [];
 
-  /*
-   * Process each SQS record independently.
-   *
-   * A malformed contract, HTTP error, timeout, or network
-   * failure must not prevent later records in the same batch
-   * from being attempted.
-   */
-
   for (const record of event.Records) {
     try {
       await processRecord(record, dependencies);
-    } catch {
-      /*
-       * Both retryable and non-retryable delivery failures
-       * remain failed records.
-       *
-       * The future dedicated queue redrive policy will move
-       * repeatedly failing records to the webhook DLQ rather
-       * than silently discarding them.
-       */
+
+      console.log(
+        JSON.stringify({
+          level: "info",
+
+          event: "webhook_notification_delivered",
+
+          sqs_message_id: record.messageId,
+        }),
+      );
+    } catch (error) {
+      console.error(
+        JSON.stringify({
+          level: "error",
+
+          event: "webhook_notification_delivery_failed",
+
+          sqs_message_id: record.messageId,
+
+          error_type: error instanceof Error ? error.name : "UnknownError",
+
+          error:
+            error instanceof Error
+              ? error.message
+              : "Unknown webhook delivery error",
+        }),
+      );
 
       batchItemFailures.push({
         itemIdentifier: record.messageId,
@@ -100,3 +110,48 @@ export async function handleWebhookBatch(
     batchItemFailures,
   };
 }
+
+export function createHandler(
+  dependencies: WebhookProductionDependencies = defaultProductionDependencies,
+) {
+  let cachedConfigPromise: Promise<WebhookRuntimeConfig> | undefined;
+
+  async function getConfig(): Promise<WebhookRuntimeConfig> {
+    if (cachedConfigPromise === undefined) {
+      cachedConfigPromise = dependencies.loadConfig();
+    }
+
+    try {
+      return await cachedConfigPromise;
+    } catch (error) {
+      /*
+       * Do not permanently poison a warm Lambda execution
+       * environment after a transient Secrets Manager or
+       * configuration retrieval failure.
+       */
+      cachedConfigPromise = undefined;
+
+      throw error;
+    }
+  }
+
+  return async function handler(event: SQSEvent): Promise<SQSBatchResponse> {
+    const config = await getConfig();
+
+    return handleWebhookBatch(event, {
+      target: {
+        url: config.targetUrl,
+      },
+
+      signingSecret: config.signingSecret,
+
+      timeoutMs: config.timeoutMs,
+
+      nowSeconds: dependencies.nowSeconds,
+
+      fetchImpl: dependencies.fetchImpl,
+    });
+  };
+}
+
+export const handler = createHandler();
