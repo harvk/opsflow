@@ -25,6 +25,8 @@ from sqlalchemy.orm import (
 )
 
 from app.api.dependencies import (
+    get_incident_circuit_breaker,
+    get_incident_http_client,
     get_login_throttle,
     get_password_reset_throttle,
     get_ses_client,
@@ -579,6 +581,57 @@ def seeded_incidents(
     db_session.flush()
 
     return incidents
+
+
+# =========================================================
+# INCIDENT GATEWAY TEST ISOLATION
+# =========================================================
+
+
+@pytest.fixture(
+    autouse=True
+)
+def isolate_incident_gateway_mode(
+    monkeypatch: pytest.MonkeyPatch,
+):
+    """
+    Keep ordinary Backend API tests deterministic and
+    process-local.
+
+    Production uses the distributed HTTP Incident Gateway.
+    That gateway intentionally requires Core Backend service
+    identity signing material and network access to the
+    Incident Service.
+
+    Ordinary backend endpoint tests instead seed Services and
+    Incidents directly into the current pytest transaction.
+    They therefore exercise the LocalIncidentGateway.
+
+    Dedicated gateway and distributed-authentication tests
+    can explicitly monkeypatch incident_gateway_mode back to
+    "http" for the duration of those tests.
+
+    Cached HTTP transport and circuit-breaker state are
+    cleared before and after each test so gateway-focused
+    tests cannot leak process-local state into unrelated
+    cases.
+    """
+
+    get_incident_http_client.cache_clear()
+    get_incident_circuit_breaker.cache_clear()
+
+    monkeypatch.setattr(
+        settings,
+        "incident_gateway_mode",
+        "local",
+    )
+
+    try:
+        yield
+
+    finally:
+        get_incident_http_client.cache_clear()
+        get_incident_circuit_breaker.cache_clear()
 
 
 # =========================================================
