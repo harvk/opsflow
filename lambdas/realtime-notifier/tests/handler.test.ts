@@ -36,20 +36,20 @@ function buildDependencies(): {
 
   deletedConnections: string[];
 
-  notifications: IncidentTaskCompletedEvent[];
+  dispatchedNotifications: IncidentTaskCompletedEvent[];
 } {
   const savedConnections: SaveConnectionInput[] = [];
 
   const deletedConnections: string[] = [];
 
-  const notifications: IncidentTaskCompletedEvent[] = [];
+  const dispatchedNotifications: IncidentTaskCompletedEvent[] = [];
 
   return {
     savedConnections,
 
     deletedConnections,
 
-    notifications,
+    dispatchedNotifications,
 
     dependencies: {
       saveConnection: async (input: SaveConnectionInput): Promise<void> => {
@@ -60,10 +60,10 @@ function buildDependencies(): {
         deletedConnections.push(connectionId);
       },
 
-      broadcastNotification: async (
+      dispatchNotification: async (
         notification: IncidentTaskCompletedEvent,
       ): Promise<void> => {
-        notifications.push(notification);
+        dispatchedNotifications.push(notification);
       },
     },
   };
@@ -126,8 +126,8 @@ describe("realtime notifier handler", () => {
     expect(deletedConnections).toEqual(["connection-456"]);
   });
 
-  it("delivers a valid completed incident event", async () => {
-    const { dependencies, notifications } = buildDependencies();
+  it("dispatches a valid completed incident event", async () => {
+    const { dependencies, dispatchedNotifications } = buildDependencies();
 
     const handler = createHandler(dependencies);
 
@@ -147,11 +147,11 @@ describe("realtime notifier handler", () => {
       batchItemFailures: [],
     });
 
-    expect(notifications).toEqual([notification]);
+    expect(dispatchedNotifications).toEqual([notification]);
   });
 
   it("reports malformed notification records as partial batch failures", async () => {
-    const { dependencies, notifications } = buildDependencies();
+    const { dependencies, dispatchedNotifications } = buildDependencies();
 
     const handler = createHandler(dependencies);
 
@@ -173,10 +173,10 @@ describe("realtime notifier handler", () => {
       ],
     });
 
-    expect(notifications).toEqual([]);
+    expect(dispatchedNotifications).toEqual([]);
   });
 
-  it("reports delivery failures without failing unrelated records", async () => {
+  it("reports dispatch failures without failing unrelated records", async () => {
     const delivered: string[] = [];
 
     let attempts = 0;
@@ -186,11 +186,11 @@ describe("realtime notifier handler", () => {
 
       deleteConnection: async () => {},
 
-      broadcastNotification: async (notification) => {
+      dispatchNotification: async (notification) => {
         attempts += 1;
 
         if (attempts === 1) {
-          throw new Error("simulated delivery failure");
+          throw new Error("simulated dispatch failure");
         }
 
         delivered.push(notification.event_id);
