@@ -167,16 +167,16 @@ def test_get_sqs_client_configures_boto3_client(
     )
 
     assert (
-        aws_config.connect_timeout
+        aws_config.connect_timeout  # type: ignore
         == 3
     )
 
     assert (
-        aws_config.read_timeout
+        aws_config.read_timeout  # type: ignore
         == 5
     )
 
-    retries = aws_config.retries
+    retries = aws_config.retries  # type: ignore
 
     assert (
         retries[
