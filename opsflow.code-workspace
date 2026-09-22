@@ -21,6 +21,10 @@
       "path": "lambdas/realtime-notifier",
     },
     {
+      "name": "Webhook Notifier",
+      "path": "lambdas/webhook-notifier",
+    },
+    {
       "name": "Task Worker",
       "path": "lambdas/task-worker",
     },
