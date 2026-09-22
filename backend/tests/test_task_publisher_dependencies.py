@@ -167,25 +167,16 @@ def test_get_sqs_client_configures_boto3_client(
     )
 
     assert (
-        getattr(
-            aws_config,
-            "connect_timeout",
-        )
+        aws_config.connect_timeout
         == 3
     )
 
     assert (
-        getattr(
-            aws_config,
-            "read_timeout",
-        )
+        aws_config.read_timeout
         == 5
     )
 
-    retries = getattr(
-        aws_config,
-        "retries",
-    )
+    retries = aws_config.retries
 
     assert (
         retries[
