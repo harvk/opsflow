@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://opsflow.local/contracts/notifications/incident-updated-v1.schema.json",
+  "title": "OpsFlow Incident Updated Notification v1",
+  "description": "Public realtime notification emitted when asynchronous Incident processing updates an Incident.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "type",
+    "schema_version",
+    "event_id",
+    "incident_id",
+    "task_id",
+    "correlation_id",
+    "status",
+    "acknowledged_at",
+    "occurred_at"
+  ],
+  "properties": {
+    "type": {
+      "const": "incident.updated"
+    },
+    "schema_version": {
+      "const": "1.0"
+    },
+    "event_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "incident_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "task_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "correlation_id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "status": {
+      "type": "string",
+      "enum": ["Open", "Investigating", "Monitoring", "Resolved"]
+    },
+    "acknowledged_at": {
+      "oneOf": [
+        {
+          "type": "string",
+          "format": "date-time"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "occurred_at": {
+      "type": "string",
+      "format": "date-time"
+    }
+  }
+}

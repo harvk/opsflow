@@ -1,0 +1,11 @@
+{
+  "type": "incident.updated",
+  "schema_version": "1.0",
+  "event_id": "7c1f9d0a-f544-47b3-b1df-642875a8fa49",
+  "incident_id": "aca0a505-b460-4d08-9035-3b92bac0fff1",
+  "task_id": "bb587a5f-3c94-4e03-8b13-159d8f58acfa",
+  "correlation_id": "7385b223-c727-4297-ade2-d8089fa2d9c2",
+  "status": "Investigating",
+  "acknowledged_at": "2026-09-21T16:00:00Z",
+  "occurred_at": "2026-09-21T16:00:01Z"
+}
