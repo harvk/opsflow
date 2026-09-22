@@ -7,6 +7,10 @@ INCIDENT_TABLE: Table = Base.metadata.tables[
     "incidents"
 ]
 
+COMPLETION_OUTBOX_TABLE: Table = Base.metadata.tables[
+    "incident_task_completion_outbox"
+]
+
 
 def test_metadata_contains_only_incident_service_tables(
 ) -> None:
@@ -15,6 +19,7 @@ def test_metadata_contains_only_incident_service_tables(
     ) == {
         "incidents",
         "incident_task_outbox",
+        "incident_task_completion_outbox",
     }
 
 
@@ -92,3 +97,46 @@ def test_incident_enum_storage_uses_public_values() -> None:
         "Monitoring",
         "Resolved",
     ]
+
+
+def test_completion_outbox_contains_expected_columns(
+) -> None:
+    assert set(
+        COMPLETION_OUTBOX_TABLE.columns.keys()
+    ) == {
+        "id",
+        "event_id",
+        "incident_id",
+        "task_id",
+        "correlation_id",
+        "schema_version",
+        "event_type",
+        "status",
+        "acknowledged_at",
+        "occurred_at",
+        "publication_status",
+        "publish_attempts",
+        "created_at",
+        "updated_at",
+        "published_at",
+        "last_error",
+    }
+
+
+def test_completion_outbox_task_and_event_ids_are_unique(
+) -> None:
+    assert (
+        COMPLETION_OUTBOX_TABLE
+        .c
+        .task_id
+        .unique
+        is True
+    )
+
+    assert (
+        COMPLETION_OUTBOX_TABLE
+        .c
+        .event_id
+        .unique
+        is True
+    )

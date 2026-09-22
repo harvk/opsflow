@@ -161,6 +161,28 @@ def test_engine(
                 "migration against the test database."
             )
 
+        incident_task_completion_outbox_table = (
+            connection.execute(
+                text(
+                    "SELECT to_regclass("
+                    "'public.incident_task_completion_outbox'"
+                    ")"
+                )
+            )
+            .scalar_one()
+        )
+
+        if (
+            incident_task_completion_outbox_table
+            is None
+        ):
+            raise RuntimeError(
+                "public.incident_task_completion_outbox is "
+                "missing from opsflow_incidents_test. Run "
+                "the latest Incident Service Alembic "
+                "migration against the test database."
+            )
+
         migration_version = (
             connection.execute(
                 text(

@@ -7,6 +7,9 @@ Incident Service is registered before schema comparison.
 
 from app.db.base import Base
 from app.models.incident import IncidentModel  # noqa: F401
+from app.models.incident_task_completion_outbox import (  # noqa: F401
+    IncidentTaskCompletionOutboxModel,
+)
 from app.models.incident_task_outbox import (  # noqa: F401
     IncidentTaskOutboxModel,
 )
