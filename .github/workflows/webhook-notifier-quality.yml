@@ -1,0 +1,141 @@
+name: Webhook Notifier Quality
+
+on:
+  push:
+    branches:
+      - main
+      - feature/webhook-notifications
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    webhook-notifier-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  webhook-notifier:
+    name: Webhook Notifier
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: >-
+            lambdas/webhook-notifier/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install notifier dependencies
+        working-directory: lambdas/webhook-notifier
+        run: npm ci
+
+      - name: Type-check notifier
+        working-directory: lambdas/webhook-notifier
+        run: npm run typecheck
+
+      - name: Run notifier tests
+        working-directory: lambdas/webhook-notifier
+        run: npm test
+
+      - name: Build and package notifier
+        working-directory: lambdas/webhook-notifier
+        run: npm run package:lambda
+
+      - name: Verify packaged artifact
+        working-directory: lambdas/webhook-notifier
+        run: npm run package:lambda:check
+
+      - name: Capture first package hash
+        working-directory: lambdas/webhook-notifier
+        run: |
+          sha256sum dist/webhook-notifier.zip \
+            | tee /tmp/webhook-notifier-first.sha256
+
+          cp \
+            dist/webhook-notifier.zip \
+            /tmp/webhook-notifier-first.zip
+
+      - name: Rebuild notifier package
+        working-directory: lambdas/webhook-notifier
+        run: npm run package:lambda
+
+      - name: Verify reproducible package bytes
+        working-directory: lambdas/webhook-notifier
+        run: |
+          sha256sum dist/webhook-notifier.zip \
+            | tee /tmp/webhook-notifier-second.sha256
+
+          cmp \
+            /tmp/webhook-notifier-first.zip \
+            dist/webhook-notifier.zip
+
+      - name: Verify Lambda archive layout
+        working-directory: lambdas/webhook-notifier
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archive_path = Path(
+              "dist/webhook-notifier.zip"
+          )
+
+          with ZipFile(
+              archive_path,
+              "r",
+          ) as archive:
+              names = archive.namelist()
+
+              assert names == [
+                  "index.js"
+              ], names
+
+              info = archive.getinfo(
+                  "index.js"
+              )
+
+              assert info.date_time == (
+                  1980,
+                  1,
+                  1,
+                  0,
+                  0,
+                  0,
+              ), info.date_time
+
+              assert (
+                  info.create_system
+                  == 3
+              ), info.create_system
+
+          print(
+              "PASS: Lambda package layout "
+              "and deterministic metadata verified."
+          )
+          PY
+
+      - name: Show package hashes
+        if: always()
+        run: |
+          echo "First package:"
+          cat \
+            /tmp/webhook-notifier-first.sha256 \
+            2>/dev/null || true
+
+          echo "Second package:"
+          cat \
+            /tmp/webhook-notifier-second.sha256 \
+            2>/dev/null || true
