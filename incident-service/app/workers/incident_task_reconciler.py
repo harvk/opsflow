@@ -7,6 +7,10 @@ from collections.abc import Callable
 from dataclasses import (
     dataclass,
 )
+from datetime import (
+    UTC,
+    datetime,
+)
 from time import (
     monotonic,
     sleep,
@@ -16,6 +20,7 @@ from typing import (
 )
 from uuid import (
     UUID,
+    uuid4,
 )
 
 from botocore.exceptions import (
@@ -29,6 +34,11 @@ from sqlalchemy.exc import (
 from app.db.session import (
     SessionLocal,
 )
+from app.domain.incident_task_completion import (
+    EVENT_SCHEMA_VERSION,
+    INCIDENT_TASK_COMPLETED_EVENT_TYPE,
+    IncidentTaskCompletionOutboxMessage,
+)
 from app.domain.incident_task_execution import (
     IncidentTaskExecution,
 )
@@ -41,6 +51,9 @@ from app.repositories.incident_task_execution_repository import (
 )
 from app.repositories.sqlalchemy_incident_repository import (
     SqlAlchemyIncidentRepository,
+)
+from app.repositories.sqlalchemy_incident_task_completion_outbox_repository import (
+    SqlAlchemyIncidentTaskCompletionOutboxRepository,
 )
 from app.services.exceptions import (
     IncidentNotFoundError,
@@ -118,7 +131,9 @@ ReconciliationOutcome = Literal[
 
 
 IncidentProcessor = Callable[
-    [UUID],
+    [
+        IncidentTaskExecution,
+    ],
     IncidentProcessingResult,
 ]
 
@@ -257,11 +272,21 @@ def load_reconciler_settings(
 
 
 def process_incident_with_postgres(
-    incident_id: UUID,
+    execution: IncidentTaskExecution,
 ) -> IncidentProcessingResult:
     """
-    Execute one Incident business operation inside one
-    PostgreSQL transaction.
+    Reconcile one claimed Incident task inside one PostgreSQL
+    transaction.
+
+    The transaction contains both:
+
+        1. the Incident business-state mutation; and
+        2. the durable incident.task.completed outbox
+           obligation.
+
+    The completion outbox is idempotent by task_id, so a
+    reconciler retry after PostgreSQL committed but DynamoDB
+    completion failed does not create a second event.
 
     Missing Incidents remain permanent domain failures.
 
@@ -270,26 +295,83 @@ def process_incident_with_postgres(
     blindly catch programming errors.
     """
 
+    task_id = UUID(
+        execution.task_id
+    )
+
     session = (
         SessionLocal()
     )
 
     try:
-        repository = (
+        incident_repository = (
             SqlAlchemyIncidentRepository(
                 session
             )
         )
 
-        service = (
+        completion_outbox_repository = (
+            SqlAlchemyIncidentTaskCompletionOutboxRepository(
+                session
+            )
+        )
+
+        processing_service = (
             IncidentTaskProcessingService(
-                repository
+                incident_repository
             )
         )
 
         result = (
-            service.process(
-                incident_id
+            processing_service
+            .process(
+                execution.incident_id
+            )
+        )
+
+        occurred_at = (
+            datetime.now(
+                UTC
+            )
+        )
+
+        completion_message = (
+            IncidentTaskCompletionOutboxMessage(
+                id=uuid4(),
+                event_id=uuid4(),
+                incident_id=(
+                    result.incident_id
+                ),
+                task_id=(
+                    task_id
+                ),
+                correlation_id=(
+                    execution
+                    .correlation_id
+                ),
+                schema_version=(
+                    EVENT_SCHEMA_VERSION
+                ),
+                event_type=(
+                    INCIDENT_TASK_COMPLETED_EVENT_TYPE
+                ),
+                status=(
+                    result.status
+                ),
+                acknowledged_at=(
+                    result
+                    .acknowledged_at
+                ),
+                occurred_at=(
+                    occurred_at
+                ),
+            )
+        )
+
+        (
+            completion_outbox_repository
+            .create(
+                completion_message
             )
         )
 
@@ -308,7 +390,7 @@ def process_incident_with_postgres(
         raise (
             RetryableIncidentTaskProcessingError(
                 "PostgreSQL Incident task processing "
-                "failed."
+                "and completion-event persistence failed."
             )
         ) from exc
 
@@ -435,7 +517,7 @@ class IncidentTaskReconciler:
         try:
             result = (
                 self._processor(
-                    execution.incident_id
+                    execution
                 )
             )
 

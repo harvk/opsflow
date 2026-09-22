@@ -50,6 +50,13 @@ class RecordingExecutionRepository:
             str
         ] = []
 
+        self.success_results: list[
+            dict[
+                str,
+                object,
+            ]
+        ] = []
+
     def list_reconcilable(
         self,
         *,
@@ -126,6 +133,10 @@ class RecordingExecutionRepository:
             execution.task_id
         )
 
+        self.success_results.append(
+            result
+        )
+
     def mark_retryable_failure(
         self,
         execution: IncidentTaskExecution,
@@ -178,7 +189,7 @@ def build_execution(
     )
 
 
-def test_successful_reconciliation_marks_succeeded(
+def test_successful_reconciliation_passes_claimed_execution_to_processor(
 ) -> None:
     execution = (
         build_execution()
@@ -192,13 +203,28 @@ def test_successful_reconciliation_marks_succeeded(
         )
     )
 
+    processed: list[
+        IncidentTaskExecution
+    ] = []
+
+    acknowledged_at = (
+        datetime.now(
+            UTC
+        )
+    )
+
     def processor(
-        incident_id,
+        claimed_execution: IncidentTaskExecution,
     ) -> IncidentProcessingResult:
+        processed.append(
+            claimed_execution
+        )
+
         return (
             IncidentProcessingResult(
                 incident_id=(
-                    incident_id
+                    claimed_execution
+                    .incident_id
                 ),
                 status=(
                     IncidentStatus
@@ -206,9 +232,7 @@ def test_successful_reconciliation_marks_succeeded(
                 ),
                 changed=True,
                 acknowledged_at=(
-                    datetime.now(
-                        UTC
-                    )
+                    acknowledged_at
                 ),
             )
         )
@@ -231,6 +255,42 @@ def test_successful_reconciliation_marks_succeeded(
 
     assert summary.succeeded == 1
 
+    assert len(
+        processed
+    ) == 1
+
+    claimed = (
+        processed[0]
+    )
+
+    assert (
+        claimed.task_id
+        == execution.task_id
+    )
+
+    assert (
+        claimed.incident_id
+        == execution.incident_id
+    )
+
+    assert (
+        claimed.correlation_id
+        == execution.correlation_id
+    )
+
+    assert (
+        claimed.status
+        is (
+            IncidentTaskExecutionStatus
+            .INCIDENT_SERVICE_PROCESSING
+        )
+    )
+
+    assert (
+        claimed.reconciliation_token
+        == "test-token"
+    )
+
     assert (
         repository.succeeded
         == [
@@ -238,8 +298,27 @@ def test_successful_reconciliation_marks_succeeded(
         ]
     )
 
+    assert (
+        repository.success_results
+        == [
+            {
+                "incident_id": str(
+                    execution.incident_id
+                ),
+                "incident_status": (
+                    "Investigating"
+                ),
+                "business_changed": True,
+                "acknowledged_at": (
+                    acknowledged_at
+                    .isoformat()
+                ),
+            }
+        ]
+    )
 
-def test_transient_failure_returns_task_to_ready(
+
+def test_transient_postgres_failure_returns_task_to_ready(
 ) -> None:
     execution = (
         build_execution()
@@ -254,7 +333,7 @@ def test_transient_failure_returns_task_to_ready(
     )
 
     def processor(
-        _incident_id,
+        _execution: IncidentTaskExecution,
     ) -> IncidentProcessingResult:
         raise (
             RetryableIncidentTaskProcessingError(
@@ -290,6 +369,11 @@ def test_transient_failure_returns_task_to_ready(
         ]
     )
 
+    assert (
+        repository.succeeded
+        == []
+    )
+
 
 def test_missing_incident_marks_execution_failed(
 ) -> None:
@@ -306,11 +390,12 @@ def test_missing_incident_marks_execution_failed(
     )
 
     def processor(
-        incident_id,
+        claimed_execution: IncidentTaskExecution,
     ) -> IncidentProcessingResult:
         raise (
             IncidentNotFoundError(
-                f"Incident {incident_id} "
+                "Incident "
+                f"{claimed_execution.incident_id} "
                 "was not found."
             )
         )
@@ -341,4 +426,9 @@ def test_missing_incident_marks_execution_failed(
         == [
             execution.task_id
         ]
+    )
+
+    assert (
+        repository.succeeded
+        == []
     )
