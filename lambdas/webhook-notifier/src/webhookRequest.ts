@@ -1,3 +1,5 @@
+import { createWebhookSignature } from "./webhookSignature";
+
 import type {
   IncidentUpdatedNotification,
   WebhookDeliveryTarget,
@@ -5,6 +7,12 @@ import type {
 } from "./types";
 
 const WEBHOOK_USER_AGENT = "OpsFlow-Webhook/1.0";
+
+export interface WebhookRequestSigningOptions {
+  secret: string;
+
+  timestampSeconds: number;
+}
 
 export class InvalidWebhookTargetError extends Error {
   constructor(message: string) {
@@ -39,7 +47,7 @@ function validateTargetUrl(value: string): string {
 
   if (parsed.username.length > 0 || parsed.password.length > 0) {
     throw new InvalidWebhookTargetError(
-      "Webhook target URL must not contain embedded credentials.",
+      "Webhook target URL must not contain " + "embedded credentials.",
     );
   }
 
@@ -50,10 +58,33 @@ export function buildWebhookRequest(
   notification: IncidentUpdatedNotification,
 
   target: WebhookDeliveryTarget,
+
+  signing: WebhookRequestSigningOptions,
 ): WebhookHttpRequest {
   const url = validateTargetUrl(target.url);
 
+  /*
+   * The body is created exactly once.
+   *
+   * This exact string is both:
+   *
+   *   1. signed; and
+   *   2. sent over HTTP.
+   *
+   * Receivers must verify the signature against the raw
+   * body bytes they received rather than parsing and
+   * reserializing the JSON first.
+   */
+
   const body = JSON.stringify(notification);
+
+  const signature = createWebhookSignature({
+    body,
+
+    timestampSeconds: signing.timestampSeconds,
+
+    secret: signing.secret,
+  });
 
   return {
     method: "POST",
@@ -70,6 +101,10 @@ export function buildWebhookRequest(
       "x-opsflow-event-type": notification.type,
 
       "x-opsflow-schema-version": notification.schema_version,
+
+      "x-opsflow-webhook-timestamp": String(signing.timestampSeconds),
+
+      "x-opsflow-webhook-signature": signature,
     },
 
     body,
