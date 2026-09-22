@@ -1,0 +1,145 @@
+name: Realtime Notifier Quality
+
+on:
+  push:
+    branches:
+      - main
+      - feature/notifications
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: >-
+    realtime-notifier-quality-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  realtime-notifier:
+    name: Realtime Notifier
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v7
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: >-
+            lambdas/realtime-notifier/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install notifier dependencies
+        working-directory: lambdas/realtime-notifier
+        run: npm ci
+
+      - name: Type-check notifier
+        working-directory: lambdas/realtime-notifier
+        run: npm run typecheck
+
+      - name: Run notifier tests
+        working-directory: lambdas/realtime-notifier
+        run: npm test
+
+      - name: Build and package notifier
+        working-directory: lambdas/realtime-notifier
+        run: npm run package:lambda
+
+      - name: Verify packaged artifact
+        working-directory: lambdas/realtime-notifier
+        run: npm run package:lambda:check
+
+      - name: Capture first package hash
+        working-directory: lambdas/realtime-notifier
+        run: |
+          sha256sum dist/realtime-notifier.zip \
+            | tee /tmp/realtime-notifier-first.sha256
+
+          cp \
+            dist/realtime-notifier.zip \
+            /tmp/realtime-notifier-first.zip
+
+      - name: Rebuild notifier package
+        working-directory: lambdas/realtime-notifier
+        run: npm run package:lambda
+
+      - name: Verify reproducible package bytes
+        working-directory: lambdas/realtime-notifier
+        run: |
+          sha256sum dist/realtime-notifier.zip \
+            | tee /tmp/realtime-notifier-second.sha256
+
+          cmp \
+            /tmp/realtime-notifier-first.zip \
+            dist/realtime-notifier.zip
+
+      - name: Verify Lambda archive layout
+        working-directory: lambdas/realtime-notifier
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          from zipfile import ZipFile
+
+          archive_path = Path(
+              "dist/realtime-notifier.zip"
+          )
+
+          with ZipFile(
+              archive_path,
+              "r",
+          ) as archive:
+              names = (
+                  archive.namelist()
+              )
+
+              assert names == [
+                  "index.js"
+              ], names
+
+              info = (
+                  archive.getinfo(
+                      "index.js"
+                  )
+              )
+
+              assert info.date_time == (
+                  1980,
+                  1,
+                  1,
+                  0,
+                  0,
+                  0,
+              ), info.date_time
+
+              assert (
+                  info.create_system
+                  == 3
+              ), info.create_system
+
+          print(
+              "PASS: Lambda package layout "
+              "and deterministic metadata verified."
+          )
+          PY
+
+      - name: Show package hashes
+        if: always()
+        run: |
+          echo "First package:"
+          cat \
+            /tmp/realtime-notifier-first.sha256 \
+            2>/dev/null || true
+
+          echo "Second package:"
+          cat \
+            /tmp/realtime-notifier-second.sha256 \
+            2>/dev/null || true

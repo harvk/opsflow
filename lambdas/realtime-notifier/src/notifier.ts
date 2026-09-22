@@ -5,6 +5,10 @@ import {
 
 import { deleteConnection, listConnections } from "./connectionStore";
 
+import { loadRealtimeNotifierConfig } from "./config";
+
+import { validateRealtimeIncidentMessage } from "./notificationContract";
+
 import type {
   ConnectionRecord,
   IncidentTaskCompletedEvent,
@@ -20,6 +24,44 @@ export interface BroadcastDependencies {
     connection: ConnectionRecord,
     payload: string,
   ) => Promise<void>;
+
+  targetChannel: string;
+}
+
+export interface RealtimeConnectionDeliveryFailure {
+  connectionId: string;
+
+  errorType: string;
+
+  message: string;
+}
+
+export class RealtimeFanoutDeliveryError extends Error {
+  readonly eventId: string;
+
+  readonly failures: readonly RealtimeConnectionDeliveryFailure[];
+
+  constructor(
+    eventId: string,
+    failures: readonly RealtimeConnectionDeliveryFailure[],
+  ) {
+    const failedConnectionIds = failures
+      .map((failure) => failure.connectionId)
+      .join(", ");
+
+    super(
+      "Realtime notification " +
+        `${eventId} failed for ` +
+        `${failures.length} connection(s): ` +
+        failedConnectionIds,
+    );
+
+    this.name = "RealtimeFanoutDeliveryError";
+
+    this.eventId = eventId;
+
+    this.failures = [...failures];
+  }
 }
 
 const managementClients = new Map<string, ApiGatewayManagementApiClient>();
@@ -61,13 +103,36 @@ async function postToConnection(
   );
 }
 
-const defaultDependencies: BroadcastDependencies = {
-  listConnections,
+/*
+ * Production configuration must be resolved lazily.
+ *
+ * Unit tests import this module while injecting their own
+ * BroadcastDependencies. Loading environment-backed config
+ * at module-import time would incorrectly require production
+ * Lambda variables before a test can even begin.
+ *
+ * Creating default dependencies only when they are actually
+ * needed preserves:
+ *
+ *   production config validation
+ *
+ * while allowing:
+ *
+ *   deterministic dependency-injected unit tests
+ */
+function createDefaultDependencies(): BroadcastDependencies {
+  const config = loadRealtimeNotifierConfig();
 
-  deleteConnection,
+  return {
+    listConnections,
 
-  postToConnection,
-};
+    deleteConnection,
+
+    postToConnection,
+
+    targetChannel: config.websocketChannel,
+  };
+}
 
 function isGoneException(error: unknown): boolean {
   if (typeof error !== "object" || error === null) {
@@ -77,6 +142,65 @@ function isGoneException(error: unknown): boolean {
   const name = "name" in error ? error.name : undefined;
 
   return name === "GoneException";
+}
+
+function describeError(error: unknown): {
+  errorType: string;
+  message: string;
+} {
+  if (error instanceof Error) {
+    return {
+      errorType: error.name,
+
+      message: error.message,
+    };
+  }
+
+  return {
+    errorType: "UnknownError",
+
+    message: "Unknown delivery error",
+  };
+}
+
+function logStaleConnectionCleanupFailure(
+  connectionId: string,
+  error: unknown,
+): void {
+  const details = describeError(error);
+
+  console.error(
+    JSON.stringify({
+      level: "error",
+
+      event: "websocket_stale_connection_cleanup_failed",
+
+      connection_id: connectionId,
+
+      error_type: details.errorType,
+
+      error: details.message,
+    }),
+  );
+}
+
+function logCrossChannelConnectionSkipped(
+  connection: ConnectionRecord,
+  targetChannel: string,
+): void {
+  console.warn(
+    JSON.stringify({
+      level: "warning",
+
+      event: "websocket_cross_channel_connection_skipped",
+
+      connection_id: connection.connection_id,
+
+      connection_channel: connection.channel,
+
+      target_channel: targetChannel,
+    }),
+  );
 }
 
 export function buildRealtimeIncidentMessage(
@@ -105,25 +229,74 @@ export function buildRealtimeIncidentMessage(
 
 export async function broadcastIncidentTaskCompletedEvent(
   event: IncidentTaskCompletedEvent,
-  dependencies: BroadcastDependencies = defaultDependencies,
+  dependencies?: BroadcastDependencies,
 ): Promise<void> {
-  const connections = await dependencies.listConnections();
+  /*
+   * Resolve environment-backed production dependencies only
+   * when the caller did not inject its own dependencies.
+   *
+   * This prevents module imports from requiring Lambda
+   * environment variables during isolated unit tests.
+   */
 
-  const message = buildRealtimeIncidentMessage(event);
+  const resolvedDependencies = dependencies ?? createDefaultDependencies();
+
+  const message = validateRealtimeIncidentMessage(
+    buildRealtimeIncidentMessage(event),
+  );
 
   const payload = JSON.stringify(message);
 
+  const connections = await resolvedDependencies.listConnections();
+
+  const failures: RealtimeConnectionDeliveryFailure[] = [];
+
   for (const connection of connections) {
+    /*
+     * The persistence layer already queries DynamoDB using
+     * the configured channel partition.
+     *
+     * This second check is intentional defense in depth.
+     */
+
+    if (connection.channel !== resolvedDependencies.targetChannel) {
+      logCrossChannelConnectionSkipped(
+        connection,
+        resolvedDependencies.targetChannel,
+      );
+
+      continue;
+    }
+
     try {
-      await dependencies.postToConnection(connection, payload);
+      await resolvedDependencies.postToConnection(connection, payload);
     } catch (error) {
       if (isGoneException(error)) {
-        await dependencies.deleteConnection(connection.connection_id);
+        try {
+          await resolvedDependencies.deleteConnection(connection.connection_id);
+        } catch (cleanupError) {
+          logStaleConnectionCleanupFailure(
+            connection.connection_id,
+            cleanupError,
+          );
+        }
 
         continue;
       }
 
-      throw error;
+      const details = describeError(error);
+
+      failures.push({
+        connectionId: connection.connection_id,
+
+        errorType: details.errorType,
+
+        message: details.message,
+      });
     }
+  }
+
+  if (failures.length > 0) {
+    throw new RealtimeFanoutDeliveryError(message.event_id, failures);
   }
 }
