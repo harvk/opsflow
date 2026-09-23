@@ -152,6 +152,9 @@ class IncidentService:
                 acknowledged_at=(
                     payload.acknowledged_at
                 ),
+                reported_by_email=(
+                    payload.reported_by_email
+                ),
                 started_at=(
                     payload.started_at
                     or now

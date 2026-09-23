@@ -123,6 +123,12 @@ class IncidentModel(Base):
         nullable=True,
     )
 
+    reported_by_email: Mapped[str | None] = mapped_column(
+        String(320),
+        nullable=True,
+        index=True,
+    )
+
     started_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

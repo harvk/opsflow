@@ -9,6 +9,7 @@ from app.domain.incident import (
     IncidentStatus,
 )
 from app.domain.service import Service
+from app.domain.user import User
 from tests.constants import (
     PAYMENTS_INCIDENT_ID,
     PAYMENTS_SERVICE_ID,
@@ -204,6 +205,7 @@ def test_create_incident_returns_201(
     client: TestClient,
     db_session: Session,
     auth_headers: dict[str, str],
+    authenticated_user: User,
     seeded_services: list[Service]
 ) -> None:
     payload = {
@@ -222,6 +224,7 @@ def test_create_incident_returns_201(
             "was detected."
         ),
         "assignee": "Payments Team",
+        "reportedByEmail": "spoofed@example.com",
     }
 
     response = client.post(
@@ -257,6 +260,10 @@ def test_create_incident_returns_201(
     assert body["id"] is not None
     assert body["createdAt"] is not None
     assert body["updatedAt"] is not None
+    assert (
+        body["reportedByEmail"]
+        == authenticated_user.email
+    )
 
 
 def test_create_incident_with_missing_service_returns_404(

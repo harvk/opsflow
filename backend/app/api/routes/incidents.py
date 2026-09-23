@@ -16,6 +16,7 @@ from fastapi import (
 )
 
 from app.api.dependencies import (
+    CurrentUser,
     IncidentGatewayDependency,
     require_permission,
 )
@@ -341,11 +342,20 @@ def request_incident_notification(
 def create_incident(
     payload: IncidentCreate,
     incident_gateway: IncidentGatewayDependency,
+    current_user: CurrentUser,
 ) -> IncidentResponse:
+    stamped_payload = payload.model_copy(
+        update={
+            "reported_by_email": (
+                current_user.email
+            )
+        }
+    )
+
     try:
         incident = (
             incident_gateway.create(
-                payload
+                stamped_payload
             )
         )
 

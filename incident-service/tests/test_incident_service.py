@@ -330,6 +330,9 @@ def test_create_preserves_incident_lifecycle_fields(
             acknowledged_at=(
                 acknowledged_at
             ),
+            reported_by_email=(
+                "operator@example.com"
+            ),
         )
     )
 
@@ -356,6 +359,11 @@ def test_create_preserves_incident_lifecycle_fields(
     assert (
         incident.resolved_at
         is None
+    )
+
+    assert (
+        incident.reported_by_email
+        == "operator@example.com"
     )
 
     assert (

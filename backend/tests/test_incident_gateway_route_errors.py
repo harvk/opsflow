@@ -1,4 +1,5 @@
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import cast
 from uuid import UUID, uuid4
 
@@ -13,6 +14,8 @@ from app.api.routes.incidents import (
     update_incident,
 )
 from app.api.routes.services import list_service_incidents
+from app.domain.incident import IncidentSeverity
+from app.domain.user import User, UserRole
 from app.gateways.incident_gateway import (
     IncidentGateway,
     IncidentGatewayError,
@@ -110,12 +113,29 @@ def call_get(
 def call_create(
     gateway: IncidentGateway,
 ) -> object:
+    payload = IncidentCreate(
+        title="Gateway failure test",
+        service_id=uuid4(),
+        severity=IncidentSeverity.SEV_2,
+        summary="Exercise route error translation.",
+        assignee="Platform Team",
+    )
+
+    now = datetime.now(UTC)
+    current_user = User(
+        id=uuid4(),
+        email="operator@example.com",
+        full_name="Gateway Route Test User",
+        role=UserRole.OPERATOR,
+        is_active=True,
+        created_at=now,
+        updated_at=now,
+    )
+
     return create_incident(
-        payload=cast(
-            IncidentCreate,
-            object(),
-        ),
+        payload=payload,
         incident_gateway=gateway,
+        current_user=current_user,
     )
 
 

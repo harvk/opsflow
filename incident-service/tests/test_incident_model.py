@@ -39,6 +39,7 @@ def test_incident_table_contains_expected_columns() -> None:
         "resolved_at",
         "created_at",
         "updated_at",
+        "reported_by_email",
     }
 
 
@@ -64,6 +65,7 @@ def test_incident_table_contains_expected_indexes() -> None:
         "ix_incidents_service_status",
         "ix_incidents_severity",
         "ix_incidents_status",
+        "ix_incidents_reported_by_email",
     }
 
 

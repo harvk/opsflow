@@ -154,6 +154,9 @@ class SqlAlchemyIncidentRepository:
         model.acknowledged_at = (
             incident.acknowledged_at
         )
+        model.reported_by_email = (
+            incident.reported_by_email
+        )
         model.started_at = incident.started_at
         model.resolved_at = incident.resolved_at
         model.created_at = incident.created_at
@@ -246,6 +249,9 @@ class SqlAlchemyIncidentRepository:
             acknowledged_at=(
                 incident.acknowledged_at
             ),
+            reported_by_email=(
+                incident.reported_by_email
+            ),
             started_at=incident.started_at,
             resolved_at=incident.resolved_at,
             created_at=incident.created_at,
@@ -270,6 +276,9 @@ class SqlAlchemyIncidentRepository:
             ),
             acknowledged_at=(
                 model.acknowledged_at
+            ),
+            reported_by_email=(
+                model.reported_by_email
             ),
             started_at=model.started_at,
             resolved_at=model.resolved_at,
