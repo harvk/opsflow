@@ -444,6 +444,10 @@ def test_get_overview_serializes_summary_as_camel_case(
         first_incident
     )
 
+    assert "reportedByEmail" in (
+        first_incident
+    )
+
 
 def test_get_overview_preserves_service_data_when_incidents_are_unavailable(
 ) -> None:
