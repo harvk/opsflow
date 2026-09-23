@@ -8,6 +8,12 @@ interface ServiceHealthSummaryProps {
 
 const STATUS_ORDER: ServiceStatus[] = ["Healthy", "Degraded", "Critical"];
 
+const STATUS_CLASS: Record<ServiceStatus, string> = {
+  Healthy: "healthy",
+  Degraded: "degraded",
+  Critical: "critical",
+};
+
 export default function ServiceHealthSummary({
   services,
 }: ServiceHealthSummaryProps) {
@@ -18,7 +24,7 @@ export default function ServiceHealthSummary({
 
   return (
     <section
-      className="card border-0 shadow-sm h-100"
+      className="card border-0 shadow-sm h-100 ops-panel ops-health-panel"
       aria-labelledby="health-summary-heading"
     >
       <div className="card-body p-4">
@@ -32,11 +38,13 @@ export default function ServiceHealthSummary({
           {counts.map(({ status, count }) => (
             <div
               key={status}
-              className="d-flex align-items-center justify-content-between"
+              className={`ops-health-status ops-health-status--${STATUS_CLASS[status]}`}
             >
-              <span>{status}</span>
+              <div className="ops-health-status__inner">
+                <span>{status}</span>
 
-              <span className="fw-bold">{count}</span>
+                <strong>{count}</strong>
+              </div>
             </div>
           ))}
         </div>

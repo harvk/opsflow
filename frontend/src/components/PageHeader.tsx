@@ -10,7 +10,7 @@ export default function PageHeader({
   description,
 }: PageHeaderProps) {
   return (
-    <header className="mb-4">
+    <header className="ops-page-heading">
       {eyebrow && (
         <p className="text-uppercase text-secondary fw-semibold small mb-2">
           {eyebrow}

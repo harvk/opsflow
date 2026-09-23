@@ -28,7 +28,7 @@ export default function ServiceFilters({
 
   return (
     <form
-      className="card border-0 shadow-sm mb-4"
+      className="card border-0 shadow-sm mb-4 ops-panel ops-filter-panel"
       role="search"
       aria-label="Filter services"
       onSubmit={handleSubmit}
