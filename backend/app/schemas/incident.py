@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from app.domain.incident import IncidentSeverity, IncidentStatus
 
@@ -65,6 +65,8 @@ class IncidentCreate(IncidentSchema):
 
     acknowledged_at: datetime | None = None
 
+    reported_by_email: EmailStr | None = None
+
 
 class IncidentUpdate(IncidentSchema):
     title: str | None = Field(
@@ -121,6 +123,7 @@ class IncidentResponse(IncidentSchema):
     resolved_at: datetime | None
     created_at: datetime
     updated_at: datetime
+    reported_by_email: EmailStr | None = None
 
     model_config = ConfigDict(
         alias_generator=to_camel,

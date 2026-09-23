@@ -1,10 +1,14 @@
 import { Link, useParams } from "react-router-dom";
 
+import type { ServiceStatus } from "../types/dashboard";
+
 import ErrorState from "../components/ui/ErrorState";
 import LoadingState from "../components/ui/LoadingState";
 import StatusBadge from "../components/StatusBadge";
+import ServiceIncidentHistory from "../components/ServiceIncidentHistory";
 
 import { useServiceDetails } from "../hooks/useServiceDetails";
+import { useServiceIncidents } from "../hooks/useServiceIncidents";
 
 function formatDateTime(value: string) {
   return new Intl.DateTimeFormat(undefined, {
@@ -13,12 +17,19 @@ function formatDateTime(value: string) {
   }).format(new Date(value));
 }
 
+const SERVICE_STATUS_TONE_CLASS: Record<ServiceStatus, string> = {
+  Healthy: "healthy",
+  Degraded: "degraded",
+  Critical: "critical",
+};
+
 export default function ServiceDetailsPage() {
   const { serviceId } = useParams<{
     serviceId: string;
   }>();
 
   const requestState = useServiceDetails(serviceId);
+  const incidentsState = useServiceIncidents(serviceId);
 
   if (requestState.status === "loading") {
     return <LoadingState message="Loading service details..." />;
@@ -43,6 +54,7 @@ export default function ServiceDetailsPage() {
   }
 
   const service = requestState.data;
+  const serviceStatusTone = SERVICE_STATUS_TONE_CLASS[service.status];
 
   return (
     <article>
@@ -76,7 +88,9 @@ export default function ServiceDetailsPage() {
 
       <div className="row g-4 mb-4">
         <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card border-0 shadow-sm h-100">
+          <div
+            className={`card border-0 shadow-sm h-100 ops-service-fact-card ops-service-fact-card--${serviceStatusTone}`}
+          >
             <div className="card-body">
               <p className="small text-secondary mb-1">Owner</p>
 
@@ -86,7 +100,9 @@ export default function ServiceDetailsPage() {
         </div>
 
         <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card border-0 shadow-sm h-100">
+          <div
+            className={`card border-0 shadow-sm h-100 ops-service-fact-card ops-service-fact-card--${serviceStatusTone}`}
+          >
             <div className="card-body">
               <p className="small text-secondary mb-1">Region</p>
 
@@ -96,7 +112,9 @@ export default function ServiceDetailsPage() {
         </div>
 
         <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card border-0 shadow-sm h-100">
+          <div
+            className={`card border-0 shadow-sm h-100 ops-service-fact-card ops-service-fact-card--${serviceStatusTone}`}
+          >
             <div className="card-body">
               <p className="small text-secondary mb-1">Version</p>
 
@@ -106,7 +124,9 @@ export default function ServiceDetailsPage() {
         </div>
 
         <div className="col-12 col-sm-6 col-xl-3">
-          <div className="card border-0 shadow-sm h-100">
+          <div
+            className={`card border-0 shadow-sm h-100 ops-service-fact-card ops-service-fact-card--${serviceStatusTone}`}
+          >
             <div className="card-body">
               <p className="small text-secondary mb-1">Latency</p>
 
@@ -148,6 +168,46 @@ export default function ServiceDetailsPage() {
           </dl>
         </div>
       </section>
+
+      <div className="mt-4">
+        {incidentsState.status === "loading" ? (
+          <section
+            className="card border-0 shadow-sm"
+            aria-live="polite"
+            aria-busy="true"
+          >
+            <div className="card-body p-4 p-lg-5">
+              <div className="d-flex align-items-center gap-3">
+                <div
+                  className="spinner-border spinner-border-sm text-primary"
+                  role="status"
+                >
+                  <span className="visually-hidden">
+                    Loading reported incidents
+                  </span>
+                </div>
+
+                <span className="text-secondary">
+                  Loading reported incidents…
+                </span>
+              </div>
+            </div>
+          </section>
+        ) : null}
+
+        {incidentsState.status === "error" ? (
+          <section className="card border-0 shadow-sm">
+            <div className="card-body p-4 p-lg-5">
+              <h2 className="h5">Reported incidents unavailable</h2>
+              <p className="text-secondary mb-0">{incidentsState.error}</p>
+            </div>
+          </section>
+        ) : null}
+
+        {incidentsState.status === "success" ? (
+          <ServiceIncidentHistory incidents={incidentsState.data} />
+        ) : null}
+      </div>
     </article>
   );
 }

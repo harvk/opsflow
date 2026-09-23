@@ -1,7 +1,6 @@
 from __future__ import annotations
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 from uuid import UUID
 
 from sqlalchemy import (
@@ -12,17 +11,13 @@ from sqlalchemy import (
     String,
     Text,
 )
-from sqlalchemy import (
-    Enum as SqlEnum,
-)
+from sqlalchemy import Enum as SqlEnum
 from sqlalchemy.dialects.postgresql import UUID as PGUUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 from app.domain.service import ServiceStatus
-
-if TYPE_CHECKING:
-    from app.models.incident import IncidentModel
+from app.models.incident import IncidentModel
 
 
 class ServiceModel(Base):
@@ -58,7 +53,8 @@ class ServiceModel(Base):
             ServiceStatus,
             name="service_status",
             values_callable=lambda enum: [
-                member.value for member in enum
+                member.value
+                for member in enum
             ],
         ),
         nullable=False,

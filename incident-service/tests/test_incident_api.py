@@ -388,6 +388,7 @@ def test_incident_crud_contract(
             ),
             "source": "monitoring",
             "customerImpacting": True,
+            "reportedByEmail": "operator@example.com",
         },
     )
 
@@ -427,6 +428,11 @@ def test_incident_crud_contract(
             "customerImpacting"
         ]
         is True
+    )
+
+    assert (
+        created["reportedByEmail"]
+        == "operator@example.com"
     )
 
     get_response = client.get(

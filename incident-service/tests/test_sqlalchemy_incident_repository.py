@@ -40,6 +40,7 @@ def build_incident(
         resolved_at=None,
         created_at=timestamp,
         updated_at=timestamp,
+        reported_by_email="operator@example.com",
     )
 
 

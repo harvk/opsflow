@@ -3,6 +3,8 @@ from datetime import datetime
 from enum import Enum
 from uuid import UUID
 
+from app.domain.incident import Incident
+
 
 class ServiceStatus(str, Enum):
     HEALTHY = "Healthy"
@@ -23,4 +25,4 @@ class Service:
     version: str
     last_deployed_at: datetime
     dependencies: list[str]
-    incidents: list[str]
+    incidents: list[Incident]

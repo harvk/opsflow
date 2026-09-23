@@ -34,3 +34,4 @@ class Incident:
     source: str = "manual"
     customer_impacting: bool = False
     acknowledged_at: datetime | None = None
+    reported_by_email: str | None = None

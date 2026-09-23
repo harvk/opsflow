@@ -164,6 +164,9 @@ from app.services.password_reset_service import (
 from app.services.service_service import (
     ServiceService,
 )
+from app.services.user_service import (
+    UserService,
+)
 
 authorization_service = (
     AuthorizationService()
@@ -809,6 +812,30 @@ PasswordResetServiceDependency = (
         PasswordResetService,
         Depends(
             get_password_reset_service
+        ),
+    ]
+)
+
+
+# =========================================================
+# USER SERVICE
+# =========================================================
+
+def get_user_service(
+    db: DbSession,
+) -> UserService:
+    return UserService(
+        SqlAlchemyUserRepository(
+            db
+        )
+    )
+
+
+UserServiceDependency = (
+    Annotated[
+        UserService,
+        Depends(
+            get_user_service
         ),
     ]
 )

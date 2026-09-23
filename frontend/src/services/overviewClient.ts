@@ -55,6 +55,8 @@ export interface OverviewIncident {
   createdAt: string;
 
   updatedAt: string;
+
+  reportedByEmail: string | null;
 }
 
 /*

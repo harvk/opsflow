@@ -50,6 +50,7 @@ def test_incident_create_accepts_camel_case_input() -> None:
             "source": "monitoring",
             "customerImpacting": True,
             "acknowledgedAt": started_at.isoformat(),
+            "reportedByEmail": "operator@example.com",
         }
     )
 
@@ -58,6 +59,7 @@ def test_incident_create_accepts_camel_case_input() -> None:
     assert payload.status is IncidentStatus.INVESTIGATING
     assert payload.customer_impacting is True
     assert payload.source == "monitoring"
+    assert payload.reported_by_email == "operator@example.com"
 
 
 def test_incident_response_serializes_camel_case_contract() -> None:
@@ -80,6 +82,7 @@ def test_incident_response_serializes_camel_case_contract() -> None:
         resolved_at=None,
         created_at=timestamp,
         updated_at=timestamp,
+        reported_by_email="operator@example.com",
     )
 
     response = IncidentResponse.model_validate(
@@ -96,6 +99,7 @@ def test_incident_response_serializes_camel_case_contract() -> None:
     assert serialized["severity"] == "SEV-2"
     assert serialized["status"] == "Investigating"
     assert serialized["customerImpacting"] is True
+    assert serialized["reportedByEmail"] == "operator@example.com"
 
     expected_timestamp = (
         timestamp.isoformat()

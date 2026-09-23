@@ -10,7 +10,7 @@ interface ServiceTableProps {
 
 export default function ServiceTable({ services }: ServiceTableProps) {
   return (
-    <div className="card border-0 shadow-sm overflow-hidden">
+    <div className="card border-0 shadow-sm overflow-hidden ops-panel ops-table-panel">
       <div className="table-responsive">
         <table className="table table-hover align-middle mb-0">
           <caption className="visually-hidden">

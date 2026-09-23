@@ -158,7 +158,7 @@ export default function ReportIncidentPage() {
       )}
 
       <form
-        className="card border-0 shadow-sm"
+        className="card border-0 shadow-sm ops-panel ops-incident-form"
         onSubmit={handleSubmit}
         noValidate
       >

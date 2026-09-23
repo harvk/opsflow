@@ -153,6 +153,9 @@ class IncidentService:
                 assignee=(
                     payload.assignee
                 ),
+                reported_by_email=(
+                    payload.reported_by_email
+                ),
                 started_at=(
                     payload.started_at
                     or now

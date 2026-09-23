@@ -126,6 +126,12 @@ class IncidentModel(Base):
         nullable=True,
     )
 
+    reported_by_email: Mapped[str | None] = mapped_column(
+        String(320),
+        nullable=True,
+        index=True,
+    )
+
     service: Mapped["ServiceModel"] = relationship(
         "ServiceModel",
         back_populates="incidents",

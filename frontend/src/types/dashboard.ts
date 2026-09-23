@@ -20,9 +20,14 @@ export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 export interface ActivityItem {
   id: string;
   kind: ActivityKind;
+  severity: import("./incidents").IncidentApiSeverity;
   title: string;
   description: string;
   occurredAt: string;
+  reportedByEmail: string | null;
+  status: string;
+  assignee: string;
+  customerImpacting: boolean;
 }
 
 export interface Metric {
