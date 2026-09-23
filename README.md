@@ -1,73 +1,183 @@
-OpsFlow
+# OpsFlow
+
 OpsFlow is a full-stack operations-management platform built
 around a React frontend, a FastAPI Core Backend, PostgreSQL,
 and an independently deployable Incident Service.
 The current architecture demonstrates:
-Browser-facing API composition
-Service Catalog and Incident Management boundaries
-JWT authentication and authorization
-Distributed request correlation
-Structured JSON request logging
-Safe-read retries
-Circuit-breaker protection
-Graceful partial-response degradation
-Prometheus operational metrics
-Hardened multi-stage container images
-Automated cross-service quality verification
-Architecture
+
+- Browser-facing API composition
+- Service Catalog and Incident Management boundaries
+- JWT authentication and authorization
+- Distributed request correlation
+- Structured JSON request logging
+- Safe-read retries
+- Circuit-breaker protection
+- Graceful partial-response degradation
+- Prometheus operational metrics
+- Hardened multi-stage container images
+- Automated cross-service quality verification
+
+## Architecture
 
 ```mermaid
 flowchart TD
-    Browser["Browser"]
-    Frontend["React and NGINX at 127.0.0.1:5173"]
-    Backend["Core Backend at 127.0.0.1:8000"]
-    Incident["Incident Service on private container port 8000"]
-    Database["PostgreSQL at 127.0.0.1:5433"]
 
-    Browser --> Frontend
-    Browser --> Backend
-    Backend --> Database
-    Backend --> Incident
-    Incident --> Database
+  subgraph group_client["Client Application"]
+    node_frontend_ui["React UI<br/>[App.tsx]"]
+    node_frontend_auth["Auth Context<br/>[AuthContext.tsx]"]
+    node_frontend_api["Typed API Clients<br/>[apiClient.ts]"]
+  end
+
+  subgraph group_core["Core Backend"]
+    node_core_entry["Core Application<br/>[main.py]"]
+    node_core_routes["Public API Routes<br/>[router.py]"]
+    node_authentication["Authentication"]
+    node_authorization["Authorization"]
+    node_overview["Overview Composition"]
+    node_catalog["Service Catalog<br/>[service_service.py]"]
+    node_http_gateway["HTTP Incident Gateway"]
+    node_local_gateway["Local Incident Gateway"]
+    node_circuit_breaker["Circuit Breaker<br/>[circuit_breaker.py]"]
+    node_reset_delivery["Reset Delivery"]
+  end
+
+  subgraph group_incident["Incident Service"]
+    node_incident_entry["Incident Application<br/>[main.py]"]
+    node_incident_routes["Incident API Routes<br/>[router.py]"]
+    node_incident_auth["Service Token Verifier"]
+    node_incident_domain["Incident Management"]
+  end
+
+  subgraph group_data["Persistence"]
+    node_service_repo["Service Repository"]
+    node_auth_repo["Session Repository"]
+    node_incident_repo["Incident Repository"]
+  end
+
+  subgraph group_operations["Operations"]
+    node_core_observability["Core Observability"]
+    node_incident_observability["Incident Observability"]
+  end
+
+  node_browser(("Browser"))
+  node_postgres[("PostgreSQL")]
+  node_ses["AWS SES"]
+  node_prometheus["Prometheus"]
+
+  node_browser -->|"loads UI"| node_frontend_ui
+  node_browser -->|"sends API requests"| node_frontend_api
+  node_frontend_ui -->|"uses auth state"| node_frontend_auth
+  node_frontend_ui -->|"requests data"| node_frontend_api
+  node_frontend_api -->|"calls API"| node_core_entry
+  node_core_entry -->|"mounts routes"| node_core_routes
+  node_core_entry -->|"installs middleware"| node_core_observability
+  node_core_routes -->|"authenticates"| node_authentication
+  node_core_routes -->|"authorizes"| node_authorization
+  node_core_routes -->|"composes overview"| node_overview
+  node_core_routes -->|"serves catalog"| node_catalog
+  node_core_routes -->|"handles reset"| node_reset_delivery
+  node_authentication -->|"persists sessions"| node_auth_repo
+  node_catalog -->|"reads services"| node_service_repo
+  node_overview -->|"reads catalog"| node_catalog
+  node_overview -->|"delegates incidents"| node_http_gateway
+  node_overview -.->|"uses local mode"| node_local_gateway
+  node_http_gateway -->|"uses protection"| node_circuit_breaker
+  node_http_gateway -->|"calls service"| node_incident_entry
+  node_incident_entry -->|"mounts routes"| node_incident_routes
+  node_incident_entry -->|"installs middleware"| node_incident_observability
+  node_incident_routes -->|"verifies tokens"| node_incident_auth
+  node_incident_routes -->|"dispatches incidents"| node_incident_domain
+  node_incident_domain -->|"persists incidents"| node_incident_repo
+  node_service_repo -->|"reads and writes"| node_postgres
+  node_auth_repo -->|"reads and writes"| node_postgres
+  node_incident_repo -->|"reads and writes"| node_postgres
+  node_reset_delivery -.->|"sends reset mail"| node_ses
+  node_prometheus -->|"scrapes metrics"| node_core_observability
+  node_prometheus -->|"scrapes metrics"| node_incident_observability
+
+  click node_frontend_ui "https://github.com/harvk/opsflow/blob/main/frontend/src/App.tsx"
+  click node_frontend_auth "https://github.com/harvk/opsflow/blob/main/frontend/src/auth/AuthContext.tsx"
+  click node_frontend_api "https://github.com/harvk/opsflow/blob/main/frontend/src/api/apiClient.ts"
+  click node_core_entry "https://github.com/harvk/opsflow/blob/main/backend/app/main.py"
+  click node_core_routes "https://github.com/harvk/opsflow/blob/main/backend/app/api/router.py"
+  click node_authentication "https://github.com/harvk/opsflow/blob/main/backend/app/services/authentication_service.py"
+  click node_authorization "https://github.com/harvk/opsflow/blob/main/backend/app/services/authorization_service.py"
+  click node_overview "https://github.com/harvk/opsflow/blob/main/backend/app/services/overview_service.py"
+  click node_catalog "https://github.com/harvk/opsflow/blob/main/backend/app/services/service_service.py"
+  click node_http_gateway "https://github.com/harvk/opsflow/blob/main/backend/app/gateways/http_incident_gateway.py"
+  click node_local_gateway "https://github.com/harvk/opsflow/blob/main/backend/app/gateways/local_incident_gateway.py"
+  click node_circuit_breaker "https://github.com/harvk/opsflow/blob/main/backend/app/core/circuit_breaker.py"
+  click node_reset_delivery "https://github.com/harvk/opsflow/tree/main/backend/app/services"
+  click node_incident_entry "https://github.com/harvk/opsflow/blob/main/incident-service/app/main.py"
+  click node_incident_routes "https://github.com/harvk/opsflow/blob/main/incident-service/app/api/router.py"
+  click node_incident_auth "https://github.com/harvk/opsflow/blob/main/incident-service/app/core/service_identity.py"
+  click node_incident_domain "https://github.com/harvk/opsflow/blob/main/incident-service/app/services/incident_service.py"
+  click node_core_observability "https://github.com/harvk/opsflow/tree/main/backend/app/middleware"
+  click node_incident_observability "https://github.com/harvk/opsflow/tree/main/incident-service/app/middleware"
+  click node_service_repo "https://github.com/harvk/opsflow/blob/main/backend/app/repositories/sqlalchemy_service_repository.py"
+  click node_auth_repo "https://github.com/harvk/opsflow/blob/main/backend/app/repositories/sqlalchemy_auth_session_repository.py"
+  click node_incident_repo "https://github.com/harvk/opsflow/blob/main/incident-service/app/repositories/sqlalchemy_incident_repository.py"
+
+  classDef toneNeutral fill:#f8fafc,stroke:#334155,stroke-width:1.5px,color:#0f172a
+  classDef toneBlue fill:#dbeafe,stroke:#2563eb,stroke-width:1.5px,color:#172554
+  classDef toneAmber fill:#fef3c7,stroke:#d97706,stroke-width:1.5px,color:#78350f
+  classDef toneMint fill:#dcfce7,stroke:#16a34a,stroke-width:1.5px,color:#14532d
+  classDef toneRose fill:#ffe4e6,stroke:#e11d48,stroke-width:1.5px,color:#881337
+  classDef toneIndigo fill:#e0e7ff,stroke:#4f46e5,stroke-width:1.5px,color:#312e81
+  classDef toneTeal fill:#ccfbf1,stroke:#0f766e,stroke-width:1.5px,color:#134e4a
+  class node_frontend_ui,node_frontend_auth,node_frontend_api,node_browser toneBlue
+  class node_core_entry,node_core_routes,node_authentication,node_authorization,node_overview,node_catalog,node_http_gateway,node_local_gateway,node_circuit_breaker,node_reset_delivery,node_postgres toneAmber
+  class node_incident_entry,node_incident_routes,node_incident_auth,node_incident_domain toneMint
+  class node_service_repo,node_auth_repo,node_incident_repo toneRose
+  class node_core_observability,node_incident_observability,node_ses,node_prometheus toneIndigo
 ```
 
 The browser communicates with the public Core Backend.
 The Incident Service is private to the Docker Backend network.
 It is not published directly to the Windows host.
-Application Boundaries
-Frontend
+
+### Application Boundaries
+
+#### Frontend
+
 The frontend is a React and TypeScript single-page
 application built with Vite.
 Frontend responsibilities include:
-Authentication user interfaces
-Responsive application navigation
-Overview dashboard rendering
-Service Catalog presentation
-Incident Management presentation
-Typed API-client boundaries
-Loading, error, and degraded states
-Client-side validation
-Accessible interaction behavior
+
+- Authentication user interfaces
+- Responsive application navigation
+- Overview dashboard rendering
+- Service Catalog presentation
+- Incident Management presentation
+- Typed API-client boundaries
+- Loading, error, and degraded states
+- Client-side validation
+- Accessible interaction behavior
+
 The production frontend is compiled in a Node.js builder
 stage and served by an unprivileged NGINX runtime image.
 Node.js, npm, source files, tests, and `node_modules` do not
 enter the final runtime image.
-Core Backend
+
+#### Core Backend
+
 The Core Backend is the browser-facing FastAPI application.
 It owns:
-Authentication
-Authorization
-User and session management
-Password-reset coordination
-Service Catalog persistence
-Public API composition
-Browser trust enforcement
-CORS
-Security headers
-Request correlation
-Structured request logging
-Dependency resilience
-Operational metrics
+
+- Authentication
+- Authorization
+- User and session management
+- Password-reset coordination
+- Service Catalog persistence
+- Public API composition
+- Browser trust enforcement
+- CORS
+- Security headers
+- Request correlation
+- Structured request logging
+- Dependency resilience
+- Operational metrics
+
 The public API prefix is:
 
 ```text
@@ -80,22 +190,27 @@ The Backend also exposes process-local Prometheus metrics at:
 /metrics
 ```
 
-Incident Service
+#### Incident Service
+
 The Incident Service is an independently runnable FastAPI
 application responsible for Incident Management.
 It owns:
-Incident API routes
-Incident persistence
-Incident validation
-Incident-specific database migrations
-Internal service authentication
-Request correlation
-Structured request logging
-Operational HTTP metrics
+
+- Incident API routes
+- Incident persistence
+- Incident validation
+- Incident-specific database migrations
+- Internal service authentication
+- Request correlation
+- Structured request logging
+- Operational HTTP metrics
+
 The Incident Service does not implement browser-facing CORS,
 CSRF, login, or password-reset behavior. Those concerns remain
 at the public Core Backend boundary.
-API Composition
+
+#### API Composition
+
 The public Overview API is exposed by the Core Backend at:
 
 ```text
@@ -103,13 +218,17 @@ GET /api/v1/overview
 ```
 
 The Overview response composes:
-Local Service Catalog data
-Remote Incident Management data
+
+- Local Service Catalog data
+- Remote Incident Management data
+
 The browser makes one public Overview request. The Core
 Backend coordinates the internal service call and returns one
 typed response.
 The browser never calls the private Incident Service directly.
-Incident Gateway Boundary
+
+#### Incident Gateway Boundary
+
 The Core Backend depends on an application-level
 `IncidentGateway` contract.
 Two implementations are available:
@@ -133,8 +252,10 @@ INCIDENT_GATEWAY_MODE=local
 
 This preserves a controlled rollback path while the
 distributed architecture is evaluated.
-Resilience Model
-Safe-read retries
+
+- Resilience Model
+- Safe-read retries
+
 Safe Incident Service reads can be retried.
 The default distributed configuration uses:
 
@@ -154,7 +275,9 @@ One failed safe-read operation can therefore produce:
 Retries are not automatically applied to create, update, or
 delete operations because mutation idempotency keys have not
 yet been introduced.
-Circuit breaker
+
+#### Circuit breaker
+
 The Core Backend maintains a process-local, thread-safe
 circuit breaker for Incident Service operations.
 The default configuration is:
@@ -177,13 +300,16 @@ While open, subsequent Incident Service operations fail
 before making another network request.
 After the recovery interval, one request is allowed to become
 the half-open probe:
-A successful probe closes the circuit.
-A failed probe reopens the circuit.
-Concurrent callers continue to fail fast while the probe is
-in progress.
-Retries within one logical operation do not count as separate
-circuit failures.
-Graceful Overview degradation
+
+- A successful probe closes the circuit.
+- A failed probe reopens the circuit.
+- Concurrent callers continue to fail fast while the probe is
+  in progress.
+- Retries within one logical operation do not count as separate
+  circuit failures.
+
+#### Graceful Overview degradation
+
 Service Catalog data is required for the Overview response.
 Incident Management data is optional for that composed read.
 When a known Incident Gateway failure occurs, the Backend
@@ -205,10 +331,14 @@ The distinction between `null` and zero is intentional:
 incidents.
 `null` means Incident Service was unavailable and the count
 is unknown.
+
 Authentication, authorization, Service Catalog failures, and
 unexpected application errors remain fail-closed.
-Observability
-Request correlation
+
+#### Observability
+
+#### Request correlation
+
 Both Python applications accept or generate an
 `X-Request-ID`.
 The Core Backend forwards the current request ID to the
@@ -221,7 +351,9 @@ request logs.
 The logging boundary records operational metadata while
 excluding credentials, authorization headers, cookies, reset
 tokens, and request bodies.
-Prometheus metrics
+
+#### Prometheus metrics
+
 The Core Backend exposes:
 
 ```text
@@ -241,46 +373,56 @@ opsflow_circuit_breaker_state
 ```
 
 Dependency metrics distinguish:
-Logical operations
-Individual transport attempts
-Scheduled retries
-Circuit-open rejections
-Metric labels use bounded route templates and outcomes.
-Resource identifiers, query strings, credentials, exception
-messages, and raw URLs are not used as labels.
+
+- Logical operations
+- Individual transport attempts
+- Scheduled retries
+- Circuit-open rejections
+- Metric labels use bounded route templates and outcomes.
+- Resource identifiers, query strings, credentials, exception
+  messages, and raw URLs are not used as labels.
+
 The Incident Service also exposes `/metrics` inside the
 private Docker network.
-Technology Stack
-Frontend
-React
-TypeScript
-Vite
-React Router
-Bootstrap
-Handwritten CSS
-Vitest
-React Testing Library
-Oxlint
-NGINX
-Backend
-Python 3.13
-FastAPI
-Pydantic v2
-SQLAlchemy
-Alembic
-PostgreSQL
-Psycopg
-HTTPX
-Pytest
-Ruff
-Prometheus client
-Infrastructure
-Docker
-Docker Compose
-Multi-stage container builds
-GitHub Actions
-AWS SES password-reset delivery
-Repository Structure
+
+### Technology Stack
+
+#### Frontend
+
+- React
+- TypeScript
+- Vite
+- React Router
+- Bootstrap
+- Handwritten CSS
+- Vitest
+- React Testing Library
+- Oxlint
+- NGINX
+
+#### Backend
+
+- Python 3.13
+- FastAPI
+- Pydantic v2
+- SQLAlchemy
+- Alembic
+- PostgreSQL
+- Psycopg
+- HTTPX
+- Pytest
+- Ruff
+- Prometheus client
+
+#### Infrastructure
+
+- Docker
+- Docker Compose
+- Multi-stage container builds
+- GitHub Actions
+- AWS SES password-reset delivery
+
+#### Repository Structure
 
 ```text
 opsflow/
@@ -322,10 +464,13 @@ opsflow/
 └── README.md
 ```
 
-Configuration Files
+### Configuration Files
+
 OpsFlow separates orchestration configuration from
 application configuration.
-Docker Compose configuration
+
+##### Docker Compose configuration
+
 Copy:
 
 ```text
@@ -347,7 +492,9 @@ docker compose --env-file .env.docker <command>
 
 Docker Compose does not automatically load a file named
 `.env.docker`.
-Backend configuration
+
+##### Backend configuration
+
 Copy:
 
 ```text
@@ -361,7 +508,9 @@ backend/.env
 ```
 
 The real `backend/.env` file must not be committed.
-Incident Service configuration
+
+#### Incident Service configuration
+
 For host-side Incident Service development, copy:
 
 ```text
@@ -377,8 +526,10 @@ incident-service/.env
 The real `incident-service/.env` file must not be committed.
 Docker Compose injects Incident Service runtime configuration
 directly and does not share the Backend environment file.
-Docker Compose Setup
-The following commands are written for Windows with Git Bash.
+
+#### Docker Compose Setup
+
+##### The following commands are written for Windows with Git Bash.
 
 1. Create local configuration files
    From the repository root:
@@ -401,7 +552,9 @@ files or key material.
 docker compose --env-file .env.docker config --quiet
 ```
 
-Successful validation returns no output. 3. Build the images
+#### Successful validation returns no output.
+
+3. Build the images
 
 ```bash
 docker compose --env-file .env.docker build
@@ -430,24 +583,29 @@ Expected one-shot services:
 `provision-databases`
 `migrate`
 `incident-migrate`
+
 A one-shot service exiting with code zero is expected.
-Local Addresses
-Capability Address
-Frontend `http://localhost:5173`
-Backend API `http://localhost:8000/api/v1`
-Backend OpenAPI `http://localhost:8000/docs`
-Backend metrics `http://localhost:8000/metrics`
-PostgreSQL host port `localhost:5433`
-Incident Service Private Docker network only
-Local Python Development
+
+- Local Addresses
+- Capability Address
+- Frontend `http://localhost:5173`
+- Backend API `http://localhost:8000/api/v1`
+- Backend OpenAPI `http://localhost:8000/docs`
+- Backend metrics `http://localhost:8000/metrics`
+- PostgreSQL host port `localhost:5433`
+- Incident Service Private Docker network only
+- Local Python Development
+
 The repository root is not a Python package.
+
 Do not run:
 
 ```bash
 pip install -e ".[dev]"
 ```
 
-Backend
+#### Backend
+
 From the repository root:
 
 ```bash
@@ -473,7 +631,8 @@ Return to the root:
 cd ..
 ```
 
-Incident Service
+#### Incident Service
+
 From the repository root:
 
 ```bash
@@ -501,7 +660,9 @@ cd ..
 
 Pytest and Ruff are intentionally absent from the hardened
 runtime containers.
-Frontend Development
+
+#### Frontend Development
+
 From the repository root:
 
 ```bash
@@ -516,7 +677,9 @@ cd ..
 `npm run lint` invokes Oxlint. OpsFlow does not use ESLint.
 Node.js and npm are intentionally absent from the production
 frontend container.
-Whitespace Enforcement
+
+#### Whitespace Enforcement
+
 Activate the repository-managed Git hook:
 
 ```bash
@@ -548,7 +711,9 @@ py -3 scripts/trim_trailing_whitespace.py --fix-unstaged
 ```
 
 The pre-commit hook never stages files automatically.
-Automated Quality Workflow
+
+#### Automated Quality Workflow
+
 The GitHub Actions workflow is:
 
 ```text
@@ -556,11 +721,13 @@ The GitHub Actions workflow is:
 ```
 
 It runs:
-Trailing-whitespace validation
-Backend Ruff and pytest
-Incident Service Ruff and pytest
-Frontend Oxlint, Vitest, and production build
-Docker Compose build and smoke verification
+
+- Trailing-whitespace validation
+- Backend Ruff and pytest
+- Incident Service Ruff and pytest
+- Frontend Oxlint, Vitest, and production build
+- Docker Compose build and smoke verification
+
 The Compose smoke job executes only after the first four jobs
 succeed.
 
@@ -570,7 +737,9 @@ checks, and local reproduction commands are documented in:
 ```text
 docs/runbooks/distributed-authentication-ci.md
 ```
-Controlled Incident Service Outage Drill
+
+#### Controlled Incident Service Outage Drill
+
 Stop only Incident Service:
 
 ```bash
@@ -606,7 +775,9 @@ A successful Overview request then acts as the half-open probe
 and returns the circuit to `closed`.
 Do not stop PostgreSQL, Backend, or Frontend during the
 Incident Service outage drill.
-Security Boundaries
+
+### Security Boundaries
+
 Real environment files are ignored by Git.
 The Incident Service is not published to the Windows host.
 Service-to-service requests require short-lived, scoped,
@@ -615,43 +786,44 @@ Each service retains its own private signing key and receives
 only the other service's public verification key.
 Service credentials and key paths must never use a `VITE_*`
 variable.
-Browser requests terminate at the Core Backend.
-Runtime containers execute as non-root users.
-Runtime application source is root-owned and read-only.
+
+- Browser requests terminate at the Core Backend.
+- Runtime containers execute as non-root users.
+- Runtime application source is root-owned and read-only.
+
 Linux capabilities are dropped.
 `no-new-privileges` is enabled.
 Runtime filesystems are read-only with bounded temporary
 filesystems.
+
 Backend and Incident Service runtime images exclude pip,
 pytest, Ruff, and test source.
+
 Frontend runtime excludes Node.js, npm, TypeScript, Vite,
 source files, and tests.
+
 Metrics exclude credentials and unbounded resource labels.
+
 Structured logs exclude authorization headers, cookies,
 tokens, and request bodies.
-Project Status
-The distributed Incident Management phase includes:
-Independent Incident Service deployment
-Internal service authentication
-Public Backend API composition
-HTTP Incident Gateway cutover
-Local gateway fallback
-Distributed request correlation
-Structured request logging
-Bounded safe-read retries
-Circuit-breaker protection
-Graceful Overview degradation
-Prometheus operational metrics
-Automated cross-service verification
-Controlled outage and recovery validation
 
-Portfolio architecture case study:
+#### The distributed Incident Management phase includes:
 
-```text
-docs/portfolio/distributed-authentication.md
-```
+- Independent Incident Service deployment
+- Internal service authentication
+- Public Backend API composition
+- HTTP Incident Gateway cutover
+- Local gateway fallback
+- Distributed request correlation
+- Structured request logging
+- Bounded safe-read retries
+- Circuit-breaker protection
+- Graceful Overview degradation
+- Prometheus operational metrics
+- Automated cross-service verification
+- Controlled outage and recovery validation
 
-Account registration and administrator recovery
+#### Account registration and administrator recovery
 
 OpsFlow exposes public self-service registration at:
 
