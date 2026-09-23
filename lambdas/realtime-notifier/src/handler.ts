@@ -1,59 +1,62 @@
 import { deleteConnection, saveConnection } from "./connectionStore";
 
+import { dispatchIncidentTaskCompletedEvent } from "./notificationDispatcher";
+
 import { parseIncidentTaskCompletedEvent } from "./notification";
 
-import { broadcastIncidentTaskCompletedEvent } from "./notifier";
-
-import type {
-  IncidentTaskCompletedEvent,
-  SaveConnectionInput,
-  SqsBatchResponse,
-  WebSocketResponse,
-} from "./types";
-
-interface UnknownRecord {
-  [key: string]: unknown;
-}
-
-interface SqsRecord {
-  messageId: string;
-
-  body: string;
-}
-
-interface WebSocketRequestContext {
-  routeKey: string;
-
-  connectionId: string;
-
-  domainName: string;
-
-  stage: string;
-}
-
-interface WebSocketEvent {
-  requestContext: WebSocketRequestContext;
-}
+import type { IncidentTaskCompletedEvent, SaveConnectionInput } from "./types";
 
 export interface HandlerDependencies {
   saveConnection: (input: SaveConnectionInput) => Promise<void>;
 
   deleteConnection: (connectionId: string) => Promise<void>;
 
-  broadcastNotification: (event: IncidentTaskCompletedEvent) => Promise<void>;
+  dispatchNotification: (
+    notification: IncidentTaskCompletedEvent,
+  ) => Promise<void>;
 }
 
-export type HandlerResult = WebSocketResponse | SqsBatchResponse;
+interface ParsedSqsRecord {
+  messageId: string;
+
+  body: string;
+}
+
+interface ParsedWebSocketEvent {
+  requestContext: {
+    routeKey: string;
+
+    connectionId: string;
+
+    domainName: string;
+
+    stage: string;
+  };
+}
+
+interface BatchItemFailure {
+  itemIdentifier: string;
+}
+
+interface SqsBatchResult {
+  batchItemFailures: BatchItemFailure[];
+}
+
+interface WebSocketResult {
+  statusCode: number;
+
+  body?: string;
+}
 
 const defaultDependencies: HandlerDependencies = {
   saveConnection,
 
   deleteConnection,
 
-  broadcastNotification: broadcastIncidentTaskCompletedEvent,
+  dispatchNotification: dispatchIncidentTaskCompletedEvent,
 };
 
-function isObject(value: unknown): value is UnknownRecord {
+function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -67,7 +70,7 @@ function isSqsEvent(event: unknown): event is {
   return Array.isArray(event.Records);
 }
 
-function parseSqsRecord(value: unknown): SqsRecord {
+function parseSqsRecord(value: unknown): ParsedSqsRecord {
   if (!isObject(value)) {
     throw new Error("SQS record must be an object");
   }
@@ -86,11 +89,12 @@ function parseSqsRecord(value: unknown): SqsRecord {
 
   return {
     messageId,
+
     body,
   };
 }
 
-function parseWebSocketEvent(event: unknown): WebSocketEvent {
+function parseWebSocketEvent(event: unknown): ParsedWebSocketEvent {
   if (!isObject(event)) {
     throw new Error("WebSocket event must be an object");
   }
@@ -98,7 +102,7 @@ function parseWebSocketEvent(event: unknown): WebSocketEvent {
   const requestContext = event.requestContext;
 
   if (!isObject(requestContext)) {
-    throw new Error("WebSocket event must contain requestContext");
+    throw new Error("WebSocket event must contain " + "requestContext");
   }
 
   const routeKey = requestContext.routeKey;
@@ -110,26 +114,29 @@ function parseWebSocketEvent(event: unknown): WebSocketEvent {
   const stage = requestContext.stage;
 
   if (typeof routeKey !== "string" || routeKey.length === 0) {
-    throw new Error("WebSocket requestContext must contain routeKey");
+    throw new Error("WebSocket requestContext must " + "contain routeKey");
   }
 
   if (typeof connectionId !== "string" || connectionId.length === 0) {
-    throw new Error("WebSocket requestContext must contain connectionId");
+    throw new Error("WebSocket requestContext must " + "contain connectionId");
   }
 
   if (typeof domainName !== "string" || domainName.length === 0) {
-    throw new Error("WebSocket requestContext must contain domainName");
+    throw new Error("WebSocket requestContext must " + "contain domainName");
   }
 
   if (typeof stage !== "string" || stage.length === 0) {
-    throw new Error("WebSocket requestContext must contain stage");
+    throw new Error("WebSocket requestContext must " + "contain stage");
   }
 
   return {
     requestContext: {
       routeKey,
+
       connectionId,
+
       domainName,
+
       stage,
     },
   };
@@ -137,12 +144,16 @@ function parseWebSocketEvent(event: unknown): WebSocketEvent {
 
 function structuredLog(
   level: "info" | "error",
+
   event: string,
+
   fields: Record<string, unknown> = {},
 ): void {
   const entry = JSON.stringify({
     level,
+
     event,
+
     ...fields,
   });
 
@@ -159,11 +170,10 @@ async function handleSqsEvent(
   event: {
     Records: unknown[];
   },
+
   dependencies: HandlerDependencies,
-): Promise<SqsBatchResponse> {
-  const batchItemFailures: {
-    itemIdentifier: string;
-  }[] = [];
+): Promise<SqsBatchResult> {
+  const batchItemFailures: BatchItemFailure[] = [];
 
   for (const candidate of event.Records) {
     let messageId = "unknown";
@@ -175,9 +185,9 @@ async function handleSqsEvent(
 
       const notification = parseIncidentTaskCompletedEvent(record.body);
 
-      await dependencies.broadcastNotification(notification);
+      await dependencies.dispatchNotification(notification);
 
-      structuredLog("info", "realtime_notification_delivered", {
+      structuredLog("info", "realtime_notification_dispatched", {
         sqs_message_id: record.messageId,
 
         event_id: notification.event_id,
@@ -189,7 +199,7 @@ async function handleSqsEvent(
         correlation_id: notification.correlation_id,
       });
     } catch (error) {
-      structuredLog("error", "realtime_notification_failed", {
+      structuredLog("error", "realtime_notification_dispatch_failed", {
         sqs_message_id: messageId,
 
         error_type: error instanceof Error ? error.name : "UnknownError",
@@ -214,8 +224,9 @@ async function handleSqsEvent(
 
 async function handleWebSocketEvent(
   event: unknown,
+
   dependencies: HandlerDependencies,
-): Promise<WebSocketResponse> {
+): Promise<WebSocketResult> {
   const websocketEvent = parseWebSocketEvent(event);
 
   const { routeKey, connectionId, domainName, stage } =
@@ -224,7 +235,9 @@ async function handleWebSocketEvent(
   if (routeKey === "$connect") {
     await dependencies.saveConnection({
       connectionId,
+
       domainName,
+
       stage,
     });
 
@@ -271,7 +284,9 @@ async function handleWebSocketEvent(
 export function createHandler(
   dependencies: HandlerDependencies = defaultDependencies,
 ) {
-  return async function handler(event: unknown): Promise<HandlerResult> {
+  return async function handler(
+    event: unknown,
+  ): Promise<SqsBatchResult | WebSocketResult> {
     if (isSqsEvent(event)) {
       return handleSqsEvent(event, dependencies);
     }
