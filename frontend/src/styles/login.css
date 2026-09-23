@@ -1748,3 +1748,27 @@
     margin-top: 1.15rem;
   }
 }
+
+/* ==================================================
+   ACCOUNT REGISTRATION CTA
+   ================================================== */
+
+.login-account-cta {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.45rem;
+  margin-top: 1.35rem;
+  color: var(--ops-text-500);
+  font-size: 0.8rem;
+}
+
+.login-account-cta a {
+  color: var(--ops-blue-600);
+  font-weight: 750;
+  text-decoration: none;
+}
+
+.login-account-cta a:hover {
+  color: var(--ops-navy-900);
+}

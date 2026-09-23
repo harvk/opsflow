@@ -1,5 +1,9 @@
 from getpass import getpass
 
+from app.core.password_policy import (
+    PasswordPolicyViolation,
+    validate_new_password,
+)
 from app.db.session import SessionLocal
 from app.domain.user import UserRole
 from app.repositories.sqlalchemy_user_repository import (
@@ -54,10 +58,13 @@ def main() -> None:
         )
         return
 
-    if len(password) < 12:
+    try:
+        validate_new_password(
+            password
+        )
+    except PasswordPolicyViolation as exc:
         print(
-            "Password must contain at least "
-            "12 characters."
+            str(exc)
         )
         return
 

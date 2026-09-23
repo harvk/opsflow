@@ -59,6 +59,10 @@ export function LoginPage() {
     () => searchParams.get("passwordReset") === "success",
   );
 
+  const [accountCreated] = useState(
+    () => searchParams.get("accountCreated") === "success",
+  );
+
   /*
    * =======================================================
    * ORIGINAL PROTECTED DESTINATION
@@ -76,7 +80,10 @@ export function LoginPage() {
    */
 
   useEffect(() => {
-    if (!searchParams.has("passwordReset")) {
+    if (
+      !searchParams.has("passwordReset") &&
+      !searchParams.has("accountCreated")
+    ) {
       return;
     }
 
@@ -334,6 +341,26 @@ export function LoginPage() {
               </div>
             )}
 
+            {accountCreated && (
+              <div
+                className="login-alert login-alert-success"
+                role="status"
+                aria-live="polite"
+              >
+                <span
+                  className="login-alert-icon login-alert-success-icon"
+                  aria-hidden="true"
+                >
+                  ✓
+                </span>
+
+                <div className="login-alert-copy">
+                  <strong>Account created</strong>
+                  <span>Sign in with your new OpsFlow credentials.</span>
+                </div>
+              </div>
+            )}
+
             {/*
              * =================================================
              * LOGIN ERROR
@@ -479,6 +506,11 @@ export function LoginPage() {
              * SECURITY MESSAGE
              * =================================================
              */}
+
+            <div className="login-account-cta">
+              <span>New to OpsFlow?</span>
+              <Link to="/register">Create an account</Link>
+            </div>
 
             <div className="login-security-message">
               <span className="security-icon" aria-hidden="true">

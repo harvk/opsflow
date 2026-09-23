@@ -44,6 +44,10 @@ vi.mock("./pages/LoginPage", () => ({
   LoginPage: () => <h1>Login route</h1>,
 }));
 
+vi.mock("./pages/RegisterPage", () => ({
+  RegisterPage: () => <h1>Register route</h1>,
+}));
+
 vi.mock("./pages/ForgotPasswordPage", () => ({
   ForgotPasswordPage: () => <h1>Forgot password route</h1>,
 }));
@@ -202,6 +206,16 @@ describe("App public authentication routes", () => {
     expect(
       screen.getByRole("heading", {
         name: "Login route",
+      }),
+    ).toBeInTheDocument();
+  });
+
+  it("renders registration without authentication", () => {
+    renderApplicationAt("/register");
+
+    expect(
+      screen.getByRole("heading", {
+        name: "Register route",
       }),
     ).toBeInTheDocument();
   });

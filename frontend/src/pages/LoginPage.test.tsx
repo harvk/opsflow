@@ -232,3 +232,43 @@ describe("LoginPage password-reset completion state", () => {
     });
   });
 });
+
+/*
+ * =========================================================
+ * ACCOUNT-CREATION SUCCESS HANDOFF
+ * =========================================================
+ */
+
+describe("LoginPage account-creation completion state", () => {
+  it("renders the successful account-creation notification", () => {
+    renderLoginAt("/login?accountCreated=success");
+
+    const status = screen.getByRole("status");
+
+    expect(status).toHaveTextContent("Account created");
+    expect(status).toHaveTextContent(
+      "Sign in with your new OpsFlow credentials.",
+    );
+  });
+
+  it("removes the account-created marker from the visible URL", async () => {
+    renderLoginAt("/login?accountCreated=success");
+
+    await waitFor(() => {
+      expect(screen.getByTestId("current-location")).toHaveTextContent(
+        "/login",
+      );
+      expect(screen.getByTestId("current-location")).not.toHaveTextContent(
+        "accountCreated",
+      );
+    });
+  });
+
+  it("offers a link from sign-in to account creation", () => {
+    renderLoginAt("/login");
+
+    expect(
+      screen.getByRole("link", { name: /create an account/i }),
+    ).toHaveAttribute("href", "/register");
+  });
+});

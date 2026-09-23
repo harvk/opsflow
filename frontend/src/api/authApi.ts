@@ -2,7 +2,12 @@ import { apiFetch } from "./apiClient";
 
 import { AuthApiError, AuthErrorCode, readAuthErrorCode } from "./authErrors";
 
-import type { AuthToken, AuthUser, LoginCredentials } from "../types/auth";
+import type {
+  AuthToken,
+  AuthUser,
+  LoginCredentials,
+  RegistrationCredentials,
+} from "../types/auth";
 
 const API_BASE_URL =
   import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8000/api/v1";
@@ -65,6 +70,56 @@ function readRetryAfterSeconds(response: Response): number | null {
   }
 
   return parsedRetryAfter;
+}
+
+/*
+ * =========================================================
+ * ACCOUNT REGISTRATION
+ * =========================================================
+ */
+
+export async function registerAccount(
+  credentials: RegistrationCredentials,
+): Promise<AuthUser> {
+  const response = await fetch(`${API_BASE_URL}/auth/register`, {
+    method: "POST",
+
+    headers: {
+      "Content-Type": "application/json",
+      Accept: "application/json",
+    },
+
+    body: JSON.stringify({
+      email: credentials.email,
+      password: credentials.password,
+    }),
+  });
+
+  if (response.status === 409) {
+    throw new AuthApiError("An account with that email already exists.", {
+      code: null,
+      status: response.status,
+    });
+  }
+
+  if (response.status === 422) {
+    throw new AuthApiError(
+      "Enter a valid email address and a password that meets the required policy.",
+      {
+        code: null,
+        status: response.status,
+      },
+    );
+  }
+
+  if (!response.ok) {
+    throw new AuthApiError("Unable to create the account. Please try again.", {
+      code: readAuthErrorCode(response),
+      status: response.status,
+    });
+  }
+
+  return response.json() as Promise<AuthUser>;
 }
 
 /*

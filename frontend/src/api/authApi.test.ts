@@ -3,6 +3,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   confirmPasswordReset,
   PasswordResetThrottleError,
+  registerAccount,
   requestPasswordReset,
 } from "./authApi";
 
@@ -90,6 +91,102 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllGlobals();
+});
+
+/*
+ * =========================================================
+ * ACCOUNT REGISTRATION
+ * =========================================================
+ */
+
+describe("registerAccount", () => {
+  it("posts email and password to the public registration endpoint", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        {
+          id: "d8981ce5-26e9-4f4f-b423-8bd4e1d401c9",
+          email: "new.user@example.com",
+          full_name: "new.user",
+          role: "viewer",
+          is_active: true,
+        },
+        201,
+      ),
+    );
+
+    await registerAccount({
+      email: "new.user@example.com",
+      password: "VerySecurePassword123!",
+    });
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      `${API_BASE_URL}/auth/register`,
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({
+          email: "new.user@example.com",
+          password: "VerySecurePassword123!",
+        }),
+      },
+    );
+  });
+
+  it("returns the newly created viewer account", async () => {
+    const account = {
+      id: "d8981ce5-26e9-4f4f-b423-8bd4e1d401c9",
+      email: "new.user@example.com",
+      full_name: "new.user",
+      role: "viewer",
+      is_active: true,
+    };
+
+    fetchMock.mockResolvedValueOnce(jsonResponse(account, 201));
+
+    await expect(
+      registerAccount({
+        email: account.email,
+        password: "VerySecurePassword123!",
+      }),
+    ).resolves.toEqual(account);
+  });
+
+  it("maps duplicate registration to frontend-controlled text", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { detail: "BACKEND_DUPLICATE_SENTINEL" },
+        409,
+      ),
+    );
+
+    await expect(
+      registerAccount({
+        email: "duplicate@example.com",
+        password: "VerySecurePassword123!",
+      }),
+    ).rejects.toThrow("An account with that email already exists.");
+  });
+
+  it("maps validation rejection to frontend-controlled text", async () => {
+    fetchMock.mockResolvedValueOnce(
+      jsonResponse(
+        { detail: "BACKEND_VALIDATION_SENTINEL" },
+        422,
+      ),
+    );
+
+    await expect(
+      registerAccount({
+        email: "invalid",
+        password: "short",
+      }),
+    ).rejects.toThrow(
+      "Enter a valid email address and a password that meets the required policy.",
+    );
+  });
 });
 
 /*

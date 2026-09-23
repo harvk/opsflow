@@ -24,6 +24,7 @@ from app.api.dependencies import (
     PasswordResetDeliveryCoordinatorDependency,
     PasswordResetServiceDependency,
     PasswordResetThrottleDependency,
+    UserServiceDependency,
     get_authentication_service,
 )
 from app.core.auth_cookies import (
@@ -69,6 +70,7 @@ from app.schemas.auth import (
 )
 from app.schemas.user import (
     UserRead,
+    UserRegistrationRequest,
 )
 from app.services.authentication_service import (
     AuthenticationError,
@@ -84,6 +86,9 @@ from app.services.password_reset_delivery import (
 from app.services.password_reset_service import (
     InvalidPasswordResetCredentialError,
     PasswordResetPasswordError,
+)
+from app.services.user_service import (
+    UserAlreadyExistsError,
 )
 
 router = (
@@ -168,6 +173,57 @@ def _get_csrf_header(
 ) -> str | None:
     return request.headers.get(
         settings.csrf_header_name
+    )
+
+
+# =========================================================
+# SELF-SERVICE REGISTRATION
+# =========================================================
+
+
+@router.post(
+    "/register",
+    response_model=UserRead,
+    status_code=status.HTTP_201_CREATED,
+)
+def register_account(
+    payload: UserRegistrationRequest,
+    user_service: UserServiceDependency,
+) -> UserRead:
+    normalized_email = (
+        str(payload.email)
+        .strip()
+        .lower()
+    )
+
+    local_part = (
+        normalized_email
+        .split("@", 1)[0]
+        .strip()
+    )
+
+    display_name = (
+        local_part[:120]
+        if local_part
+        else "OpsFlow User"
+    )
+
+    try:
+        user = user_service.create_user(
+            email=normalized_email,
+            full_name=display_name,
+            password=payload.password.get_secret_value(),
+        )
+    except UserAlreadyExistsError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail=(
+                "An account with that email already exists."
+            ),
+        ) from exc
+
+    return UserRead.model_validate(
+        user
     )
 
 
