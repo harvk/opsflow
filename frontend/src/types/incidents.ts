@@ -103,6 +103,8 @@ export interface Incident {
   createdAt: string;
 
   updatedAt: string;
+
+  reportedByEmail: string | null;
 }
 
 export type IncidentFormErrors = Partial<Record<keyof IncidentDraft, string>>;

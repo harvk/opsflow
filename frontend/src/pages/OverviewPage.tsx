@@ -37,6 +37,7 @@ const INITIAL_OVERVIEW_STATE: AsyncState<OverviewResponse> = {
 function buildDashboardMetrics(
   summary: OverviewSummary,
   incidentDataAvailable: boolean,
+  totalReportedIncidents: number,
 ): Metric[] {
   const activeIncidents = summary.activeIncidents;
 
@@ -47,25 +48,6 @@ function buildDashboardMetrics(
     activeIncidents !== null &&
     customerImpactingIncidents !== null;
 
-  const serviceHealthAccent: Metric["accent"] =
-    summary.criticalServices > 0
-      ? "danger"
-      : summary.degradedServices > 0
-        ? "warning"
-        : "success";
-
-  const incidentAccent: Metric["accent"] = !hasIncidentData
-    ? "warning"
-    : (activeIncidents ?? 0) > 0
-      ? "danger"
-      : "success";
-
-  const customerImpactAccent: Metric["accent"] = !hasIncidentData
-    ? "warning"
-    : (customerImpactingIncidents ?? 0) > 0
-      ? "danger"
-      : "primary";
-
   return [
     {
       id: "total-services",
@@ -75,10 +57,10 @@ function buildDashboardMetrics(
       value: String(summary.totalServices),
 
       supportingText:
-        `${summary.degradedServices} degraded and ` +
-        `${summary.criticalServices} critical`,
+        `${summary.degradedServices} Degraded and ` +
+        `${summary.criticalServices} Critical`,
 
-      accent: serviceHealthAccent,
+      accent: "primary",
     },
     {
       id: "healthy-services",
@@ -89,7 +71,7 @@ function buildDashboardMetrics(
 
       supportingText:
         `${summary.healthyServices} of ` +
-        `${summary.totalServices} reporting healthy`,
+        `${summary.totalServices} Reporting healthy`,
 
       accent: "success",
     },
@@ -102,11 +84,10 @@ function buildDashboardMetrics(
 
       supportingText: !hasIncidentData
         ? "Incident Management data is temporarily unavailable"
-        : activeIncidents === 0
-          ? "No active incidents"
-          : "Open, investigating, or monitoring",
+        : `${activeIncidents} of ${totalReportedIncidents} ` +
+          "Open, Investigating, or Monitoring",
 
-      accent: incidentAccent,
+      accent: "warning",
     },
     {
       id: "customer-impacting-incidents",
@@ -123,7 +104,7 @@ function buildDashboardMetrics(
           ? "No active customer impact"
           : "Active incidents affecting customers",
 
-      accent: customerImpactAccent,
+      accent: "danger",
     },
   ];
 }
@@ -137,19 +118,28 @@ function buildDashboardMetrics(
 function buildRecentActivity(incidents: OverviewIncident[]): ActivityItem[] {
   return [...incidents]
     .sort(
-      (left, right) => Date.parse(right.updatedAt) - Date.parse(left.updatedAt),
+      (left, right) => Date.parse(right.createdAt) - Date.parse(left.createdAt),
     )
-    .slice(0, 4)
     .map((incident) => ({
       id: incident.id,
 
       kind: "incident",
 
-      title: `${incident.severity}: ` + incident.title,
+      severity: incident.severity,
+
+      title: incident.title,
 
       description: incident.summary,
 
-      occurredAt: incident.updatedAt,
+      occurredAt: incident.createdAt,
+
+      reportedByEmail: incident.reportedByEmail,
+
+      status: incident.status,
+
+      assignee: incident.assignee,
+
+      customerImpacting: incident.customerImpacting,
     }));
 }
 
@@ -247,6 +237,7 @@ export default function OverviewPage() {
       ? buildDashboardMetrics(
           overviewState.data.summary,
           overviewState.data.incidentDataAvailable,
+          overviewState.data.incidents.length,
         )
       : [];
 

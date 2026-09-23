@@ -122,6 +122,8 @@ const overviewResponse: OverviewResponse = {
       createdAt: "2026-09-14T14:41:00Z",
 
       updatedAt: "2026-09-14T14:42:00Z",
+
+      reportedByEmail: "operator@example.com",
     },
   ],
   incidentDataAvailable: true,

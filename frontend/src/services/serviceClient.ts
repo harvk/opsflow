@@ -81,6 +81,34 @@ export async function getServiceById(
   return data;
 }
 
+export async function getServiceIncidents(
+  serviceId: string,
+): Promise<Incident[]> {
+  const incidents: Incident[] = [];
+  const pageSize = 100;
+  let offset = 0;
+
+  while (true) {
+    const page = await requestJson<Incident[]>(
+      `/services/${encodeURIComponent(serviceId)}/incidents` +
+        `?offset=${offset}&limit=${pageSize}`,
+      {
+        method: "GET",
+      },
+    );
+
+    incidents.push(...page);
+
+    if (page.length < pageSize) {
+      break;
+    }
+
+    offset += pageSize;
+  }
+
+  return incidents;
+}
+
 function toIncidentCreateRequest(draft: IncidentDraft): IncidentCreateRequest {
   return {
     serviceId: draft.serviceId,
