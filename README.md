@@ -650,3 +650,35 @@ Portfolio architecture case study:
 ```text
 docs/portfolio/distributed-authentication.md
 ```
+
+Account registration and administrator recovery
+
+OpsFlow exposes public self-service registration at:
+
+```text
+POST /api/v1/auth/register
+```
+
+The React sign-in experience links to `/register`. New self-service accounts are
+created as `viewer` users so a public registration request cannot grant itself
+operator or administrator permissions. Password length uses the same shared
+15-to-128-character policy as password recovery.
+
+Incident creation records the authenticated reporter's email on the server.
+The browser cannot override this provenance value. Recent Activity displays the
+reporter, original report time, status, assignee, and customer-impact state.
+Existing historical incidents without reporter provenance are displayed as
+legacy/system records.
+
+For local development, if the original administrator row was lost or its
+password is no longer known, use the interactive recovery command from the
+backend environment:
+
+```bash
+python -m app.scripts.recover_admin
+```
+
+The command defaults to `admin@example.com`, requires a new password to be
+entered interactively, applies the shared password policy, restores the `admin`
+role, and reactivates an existing account. If the account no longer exists, it
+creates it. No administrator password is stored in source control.
