@@ -92,13 +92,36 @@ class TransferTests(unittest.TestCase):
         self.assertEqual(sample.replace(b"\r", b"").split(b"  ", 1)[1], b"receive_release.sh\n")
 
     def test_receiver_rejects_invalid_patch_metadata(self) -> None:
-        correct = ("us-east-1", "opsflow-test-bucket", "0123456789ab", "a" * 64, "b" * 64, "c2FtcGxl")
-        for index, invalid in ((0, "us-east-1;rm"), (1, "bad bucket"), (2, "wrong-tag"),
-                               (3, "not-a-hash"), (4, "not-a-hash"), (5, "invalid payload !")):
-            values = list(correct)
+        correct: tuple[str, str, str, str, str, str] = (
+            "us-east-1",
+            "opsflow-test-bucket",
+            "0123456789ab",
+            "a" * 64,
+            "b" * 64,
+            "c2FtcGxl",
+        )
+        invalid_cases: tuple[tuple[int, str], ...] = (
+            (0, "us-east-1;rm"),
+            (1, "bad bucket"),
+            (2, "wrong-tag"),
+            (3, "not-a-hash"),
+            (4, "not-a-hash"),
+            (5, "invalid payload !"),
+        )
+        for index, invalid in invalid_cases:
+            # Explicitly widen literal values to str for Pylance and retain
+            # the precise six-argument contract for build_commands().
+            values: list[str] = list(correct)
             values[index] = invalid
             with self.subTest(index=index), self.assertRaises(ValueError):
-                receive.build_commands(*values)
+                receive.build_commands(
+                    values[0],
+                    values[1],
+                    values[2],
+                    values[3],
+                    values[4],
+                    values[5],
+                )
 
     def test_release_checksum_list_uses_lf_line_endings(self) -> None:
         with tempfile.TemporaryDirectory(prefix="opsflow-release-test-") as directory:
