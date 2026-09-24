@@ -31,6 +31,15 @@ resource "aws_security_group" "live_alb" {
     ]
   }
 
+  ingress {
+    description = "Public HTTPS application traffic"
+    protocol    = "tcp"
+    from_port   = 443
+    to_port     = 443
+
+    cidr_blocks = ["0.0.0.0/0"]
+  }
+
   egress {
     description = "Forward traffic to EC2 frontend"
     protocol    = "tcp"
