@@ -1,0 +1,214 @@
+# OpsFlow Phase 12.6C: standalone production-oriented Compose model.
+# NEVER overlay this file on compose.yaml: that file provisions a local DB
+# and test databases. Run this file independently with .env.production.
+# Secrets and actual runtime environment files are created ON EC2 in 12.6D.
+
+x-log-policy: &log-policy
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+x-incident-common: &incident-common
+  image: opsflow-incident-service:${OPSFLOW_IMAGE_TAG:?Set the release tag}
+  user: "10001:10001"
+  env_file:
+    - ./.opsflow-runtime/incident.env
+  environment:
+    APP_ENV: production
+    AWS_REGION: ${AWS_REGION:?AWS region required}
+    PYTHONDONTWRITEBYTECODE: "1"
+    PYTHONUNBUFFERED: "1"
+    CORE_BACKEND_URL: http://backend:8000/api/v1
+    SERVICE_IDENTITY_PUBLIC_KEY_FILE: /run/secrets/core_service_identity_public_key
+    SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_PATH: /run/secrets/incident_service_identity_private_key
+  secrets:
+    - core_service_identity_public_key
+    - incident_service_identity_private_key
+  restart: unless-stopped
+  read_only: true
+  tmpfs:
+    - /tmp:rw,nosuid,nodev,size=64m
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+  pids_limit: 96
+  mem_limit: 384m
+  logging: *log-policy
+  networks: [opsflow_services]
+
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+    image: opsflow-backend:${OPSFLOW_IMAGE_TAG:?Set the release tag}
+    user: "10001:10001"
+    env_file:
+      - ./.opsflow-runtime/backend.env
+    environment:
+      APP_ENV: production
+      AWS_REGION: ${AWS_REGION:?AWS region required}
+      FRONTEND_ORIGIN: ${FRONTEND_ORIGIN:?Set the final HTTPS app origin}
+      PASSWORD_RESET_URL: ${PASSWORD_RESET_URL:?Set the final HTTPS reset URL}
+      SES_FROM_EMAIL: ${SES_FROM_EMAIL:?Use an approved SES sender}
+      TASK_QUEUE_URL: ${TASK_QUEUE_URL:?Set the existing task queue URL}
+      INCIDENT_GATEWAY_MODE: http
+      INCIDENT_SERVICE_URL: http://incident-service:8000/api/v1
+      SERVICE_IDENTITY_PRIVATE_KEY_PATH: /run/secrets/core_service_identity_private_key
+      INCIDENT_SERVICE_IDENTITY_PUBLIC_KEY_PATH: /run/secrets/incident_service_identity_public_key
+      PYTHONDONTWRITEBYTECODE: "1"
+      PYTHONUNBUFFERED: "1"
+    secrets:
+      - core_service_identity_private_key
+      - incident_service_identity_public_key
+    # No host port: NGINX proxies to backend over opsflow_edge.
+    expose: ["8000"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=3).read()"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=64m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 96
+    mem_limit: 512m
+    logging: *log-policy
+    networks: [opsflow_edge, opsflow_services]
+    depends_on:
+      incident-service:
+        condition: service_healthy
+
+  incident-service:
+    <<: *incident-common
+    build:
+      context: ./incident-service
+      dockerfile: Dockerfile
+      args:
+        PYTHON_VERSION: ${PYTHON_VERSION:-3.13.15}
+    expose: ["8000"]
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/v1/health',timeout=3).read()"
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 25s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NODE_VERSION: ${NODE_VERSION:-24}
+        NGINX_SITE_CONF: nginx/production.conf
+        VITE_API_BASE_URL: /api/v1
+        VITE_CSRF_COOKIE_NAME: opsflow_csrf
+    image: opsflow-frontend:${OPSFLOW_IMAGE_TAG:?Set the release tag}
+    # In Phase 12.6D the application can be tested ONLY from the EC2 host
+    # through SSM. Phase 12.7 introduces the ALB and a matching SG rule.
+    ports:
+      - "127.0.0.1:${OPSFLOW_LOCAL_HTTP_PORT:-8080}:8080"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 10s
+    restart: unless-stopped
+    read_only: true
+    tmpfs:
+      - /tmp:rw,nosuid,nodev,size=32m
+      - /var/cache/nginx:rw,nosuid,nodev,size=16m
+      - /var/run:rw,nosuid,nodev,size=8m
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    pids_limit: 48
+    mem_limit: 96m
+    logging: *log-policy
+    networks: [opsflow_edge]
+
+  # Intentionally disabled until Phase 12.6D IAM grants and capacity checks.
+  # Launch explicitly with --profile workers only after permissions are tested.
+  incident-reconciler:
+    <<: *incident-common
+    profiles: [workers]
+    command: ["python", "-m", "app.workers.incident_task_reconciler"]
+    environment:
+      APP_ENV: production
+      AWS_REGION: ${AWS_REGION:?AWS region required}
+      CORE_BACKEND_URL: http://backend:8000/api/v1
+      TASK_EXECUTION_TABLE_NAME: ${TASK_EXECUTION_TABLE_NAME:?Required}
+      TASK_EXECUTION_STATUS_INDEX_NAME: ${TASK_EXECUTION_STATUS_INDEX_NAME:?Required}
+      SERVICE_IDENTITY_PUBLIC_KEY_FILE: /run/secrets/core_service_identity_public_key
+      SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_PATH: /run/secrets/incident_service_identity_private_key
+    mem_limit: 160m
+    depends_on:
+      incident-service:
+        condition: service_healthy
+
+  incident-outbox-relay:
+    <<: *incident-common
+    profiles: [workers]
+    command: ["python", "-m", "app.workers.incident_outbox_relay"]
+    environment:
+      APP_ENV: production
+      AWS_REGION: ${AWS_REGION:?AWS region required}
+      CORE_BACKEND_URL: http://backend:8000/api/v1
+      TASK_QUEUE_URL: ${TASK_QUEUE_URL:?Required}
+      SERVICE_IDENTITY_PUBLIC_KEY_FILE: /run/secrets/core_service_identity_public_key
+      SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_PATH: /run/secrets/incident_service_identity_private_key
+    mem_limit: 160m
+    depends_on:
+      incident-service:
+        condition: service_healthy
+
+  incident-completion-outbox-relay:
+    <<: *incident-common
+    profiles: [workers]
+    command: ["python", "-m", "app.workers.incident_task_completion_outbox_relay"]
+    environment:
+      APP_ENV: production
+      AWS_REGION: ${AWS_REGION:?AWS region required}
+      CORE_BACKEND_URL: http://backend:8000/api/v1
+      REALTIME_NOTIFICATION_QUEUE_URL: ${REALTIME_NOTIFICATION_QUEUE_URL:?Required}
+      SERVICE_IDENTITY_PUBLIC_KEY_FILE: /run/secrets/core_service_identity_public_key
+      SERVICE_IDENTITY_SIGNING_PRIVATE_KEY_PATH: /run/secrets/incident_service_identity_private_key
+    mem_limit: 160m
+    depends_on:
+      incident-service:
+        condition: service_healthy
+
+secrets:
+  core_service_identity_private_key:
+    file: ./.opsflow-runtime/secrets/core-service-identity-private.pem
+  core_service_identity_public_key:
+    file: ./.opsflow-runtime/secrets/core-service-identity-public.pem
+  incident_service_identity_private_key:
+    file: ./.opsflow-runtime/secrets/incident-service-identity-private.pem
+  incident_service_identity_public_key:
+    file: ./.opsflow-runtime/secrets/incident-service-identity-public.pem
+
+networks:
+  # Frontend -> Backend reverse proxy. Neither Backend nor Incident is
+  # published directly on the EC2 host.
+  opsflow_edge: {}
+  # Outbound AWS traffic IS required by backend and optional workers;
+  # avoid 'internal: true', which would block normal AWS API egress.
+  opsflow_services: {}
