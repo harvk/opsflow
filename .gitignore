@@ -65,5 +65,11 @@ crash.log
 # Logs
 *.log
 
+# ==========================================================
+# LIVE DATABASE MIGRATION ARTIFACTS
+# ==========================================================
+
+.opsflow-migration/
+
 # Local interview preparation documents
 docs/portfolio/*interview-guide*.md
