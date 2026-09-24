@@ -1,3 +1,4 @@
+# cspell:words opsflow
 """Produce an OpsFlow release from *committed* source, not working files.
 
 Windows Git Bash:
@@ -109,8 +110,13 @@ def build_images(repo: Path, out: Path, tag: str, archive: Path) -> Path:
         with output.open("wb") as raw:
             with gzip.GzipFile(fileobj=raw, mode="wb", filename="", mtime=0, compresslevel=1) as zipped:
                 with subprocess.Popen(["docker", "save", *names], cwd=repo, stdout=subprocess.PIPE) as proc:
-                    assert proc.stdout is not None
-                    for block in iter(lambda: proc.stdout.read(1024 * 1024), b""):
+                    stdout = proc.stdout
+                    if stdout is None:
+                        raise RuntimeError("STOP: docker save did not provide an output stream")
+                    while True:
+                        block = stdout.read(1024 * 1024)
+                        if not block:
+                            break
                         zipped.write(block)
                     if proc.wait() != 0:
                         raise RuntimeError("STOP: docker save failed")
@@ -129,9 +135,9 @@ def finish(out: Path, commit: str, tag: str, source: Path, images: Path, receive
         info[artifact.name] = {"sha256": digest(artifact), "bytes": artifact.stat().st_size}
     payload = {"commit": commit, "tag": tag, "platform": "linux/amd64", "files": info,
                "images": [f"{name}:{tag}" for name in IMAGE_PREFIXES]}
-    manifest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8")
+    manifest.write_text(json.dumps(payload, indent=2) + "\n", encoding="utf-8", newline="\n")
     checksums.write_text("".join(f"{info[item.name]['sha256']}  {item.name}\n"
-                                  for item in (source, images, receiver)), encoding="ascii")
+                                  for item in (source, images, receiver)), encoding="ascii", newline="\n")
     print("PASS: Release bundle built. SHA256SUMS:")
     print(checksums.read_text(encoding="ascii"))
 
