@@ -1,0 +1,22 @@
+# This fragment augments the immutable release's compose.production.yaml.
+# Paths are resolved relative to the FIRST -f file (the release's app/ directory).
+# No services or host ports added; only the RDS trust-bundle secret is mounted.
+services:
+  backend:
+    secrets:
+      - rds_ca_bundle
+  incident-service:
+    secrets:
+      - rds_ca_bundle
+  incident-reconciler:
+    secrets:
+      - rds_ca_bundle
+  incident-outbox-relay:
+    secrets:
+      - rds_ca_bundle
+  incident-completion-outbox-relay:
+    secrets:
+      - rds_ca_bundle
+secrets:
+  rds_ca_bundle:
+    file: ./.opsflow-runtime/certs/global-bundle.pem

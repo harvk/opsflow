@@ -93,7 +93,8 @@ class Settings(
 
     database_url: str
 
-    test_database_url: str
+    # Optional for the production app; tests still supply it explicitly.
+    test_database_url: str = ""
 
     # =====================================================
     # SERVICE-TO-SERVICE AUTHENTICATION

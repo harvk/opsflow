@@ -139,7 +139,10 @@ FROM nginxinc/nginx-unprivileged:stable-alpine AS runtime
 # REPLACE DEFAULT SITE CONFIGURATION
 # ----------------------------------------------------------
 
-COPY nginx/default.conf \
+# Local development preserves the existing static-only site.
+# Production selects nginx/production.conf during docker build.
+ARG NGINX_SITE_CONF=nginx/default.conf
+COPY ${NGINX_SITE_CONF} \
     /etc/nginx/conf.d/default.conf
 
 
